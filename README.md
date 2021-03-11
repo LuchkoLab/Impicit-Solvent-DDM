@@ -1,1 +1,1 @@
-# 3D-RISM-DDM
+# Implicit-Solvent-DDM
