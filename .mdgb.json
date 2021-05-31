@@ -1,0 +1,296 @@
+{
+  
+    "dirstruct" : [
+	{
+	    "static" : "mdgb_8_16_64_10ns_full",
+	    "format" : "s"
+	},
+	{
+            "variable" : "solute",
+            "format" : "s",
+            "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace" : "\\1"
+        },
+        {
+            "variable" : "igb",
+            "format" : "s",
+            "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace" : "\\1"
+        },
+        {
+            "variable" : "state_label",
+            "format"   : "s",
+            "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace"  : "\\1"
+        },
+        {
+            "variable" : "freeze",
+            "format"   : "s",
+            "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace"  : "\\1"
+        },
+        {
+            "variable" : "replica",
+            "format" : "s",
+            "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace" : "\\1"
+        },
+         {
+            "static" : "equil",
+            "format" : "s"
+        }
+
+
+
+
+    ],
+
+    "dirstruct-equil-ouput" : [ 
+    	{
+            "static" : "mdgb_8_16_64_10ns_full",
+            "format" : "s"
+        },
+        {
+            "variable" : "solute",
+            "format" : "s",
+            "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace" : "\\1"
+        },
+        {
+            "variable" : "igb",
+            "format" : "s",
+            "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace" : "\\1"
+        },
+        {
+            "variable" : "state_label",
+            "format"   : "s",
+            "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace"  : "\\1"
+        },
+	{
+            "variable" : "freeze",
+            "format"   : "s",
+            "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace"  : "\\1"
+        },
+        {
+            "variable" : "replica",
+            "format" : "s",
+            "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace" : "\\1"
+        },
+	 {
+            "static" : "equil",
+            "format" : "s"
+        }
+
+
+        
+    ],
+    "dirstruct-prod-ouput" : [ 
+        {
+            "static" : "mdgb_8_16_64_10ns_full",
+            "format" : "s"
+  	  },
+        {
+            "variable" : "solute",
+            "format" : "s",
+            "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace" : "\\1"
+        },
+        {
+            "variable" : "igb",
+            "format" : "s",
+            "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace" : "\\1"
+        },
+        {
+            "variable" : "state_label",
+            "format"   : "s",
+            "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace"  : "\\1"
+        },
+	{
+            "variable" : "freeze",
+            "format"   : "s",
+            "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace"  : "\\1"
+        },
+        {
+            "variable" : "replica",
+            "format" : "s",
+            "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace" : "\\1"
+        },
+        {
+            "static" : "prod",
+            "format" : "s"
+	}
+        
+    ],
+     "dirstruct-gb-input" : [
+        {
+            "static" : "gb",
+            "format" : "s"
+        },
+        {
+            "variable" : "solute",
+            "format" : "s",
+            "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace" : "\\1"
+        },
+        {
+            "variable" : "igb",
+            "format" : "s",
+            "search" : "(.*)",
+            "replace" : "igb_\\1"
+        },
+        {
+            "variable" : "saltcon",
+            "format" : "s",
+            "search" : "(.*)",
+            "replace" : "saltcon_\\1"
+        },
+        {
+            "variable" : "gbsa",
+            "format" : "s",
+            "search" : "(.*)",
+            "replace" : "gbsa_\\1"
+        },
+        {
+            "static" : "equil",
+            "format" : "s"
+        }
+    ],
+    
+    "arguments" : {
+	"--solute" :
+	{
+	    "nargs" : "*",
+	    "action" : "store",
+	    "type" : {"<type>" : "str"},
+	    "required" : true,
+	    "help" : "Path and name of parm7, PDB or netCDF file for the simulation."
+	},
+	"--runtype" :
+        {
+            "nargs" : "*",
+            "action" : "store",
+            "type" : {"<type>" : "str"},
+            "required" : true,
+            "help" : "specifies whether run is equilibration or production, choices are: [equil] or [prod]"
+        },
+	"--temperature" :
+	{
+	    "nargs" : "*",
+	    "action" : "store",
+	    "type" : {"<type>" : "float"},
+	    "default" : 298,
+	    "help" : "Simulation temperature."
+	},
+	"--igb" :
+	{
+	    "nargs" : "*",
+	    "action" : "store",
+	    "type" : {"<type>" : "int"},
+	    "choices" : [1,2,5,6,7,8],
+	    "default" : 5,
+	    "help" : "GB model. 6 is vacuum."
+	},
+	"--saltcon" :
+	{
+	    "nargs" : "*",
+	    "action" : "store",
+	    "type" : {"<type>" : "float"},
+	    "default" : 0,
+	    "help" : "Salt concentration in M."
+	},
+	"--rgbmax" :
+	{
+	    "nargs" : "*",
+	    "action" : "store",
+	    "type" : {"<type>" : "float"},
+	    "default" : 999,
+	    "help" : "Cut off for determining effective Born radii."
+	},
+	"--cut" :
+	{
+	    "nargs" : "*",
+	    "action" : "store",
+	    "type" : {"<type>" : "float"},
+	    "default" : 999,
+	    "help" : "Cut off for electrostatics."
+	},
+	"--gbsa" :
+	{
+	    "nargs" : "*",
+	    "action" : "store",
+	    "type" : {"<type>" : "int"},
+	    "default" : 0,
+	    "help" : "Include surface area forces."
+	},
+	"--surften" :
+	{
+	    "nargs" : "*",
+	    "action" : "store",
+	    "type" : {"<type>" : "int"},
+	    "default" : 0.005,
+	    "help" : "Surface tension for surface area forces."
+	},
+	"--nstlim" :
+	{
+	    "nargs" : "*",
+	    "action" : "store",
+	    "type" : {"<type>" : "int"},
+	    "default" : 1000000,
+	    "help" : "Number of time steps. dt = 0.001 ps"
+	},
+	"--amber_version" :
+	{
+	    "nargs" : "*",
+	    "action" : "store",
+	    "type" : {"<type>" : "str"},
+	    "required" : false,
+	    "default" : "amber/17/intel/openmpi",
+	    "help" : "Amber version to use."
+	},
+	"--cuda" :
+	{
+	    "action" : "store_true",
+	    "required" : false,
+	    "default" : false,
+	    "help" : "Allows to specify running on GPU"
+	}, 
+	"--add_Exclusions" :
+	{
+	  
+	   "action" : "store_true",
+	   "required" : false,
+	   "default" : false,
+	   "help" : "Use only on a complex!  If turned on, interactions bewteen the ligand and the receptor portion of a complex are excluded."
+	},
+	"--replica" :
+	{
+	    "nargs" : "+",
+	    "action" : "store",
+	    "type": {"<type>" : "int"},
+	    "required" : true,
+	    "help" : "Index of replicas to be run - must specify to avoide accidental overwrite"
+	}
+    },
+    
+   
+    
+
+    "comment" : ["Override the PBS name template"],
+    "submit" : {
+	"pbs" : {
+	    "templates" : {
+		"pbs.qsub.file" : {
+		    "file" : "pbs.qsub.file"
+		}
+            }
+        }
+    }
+}
