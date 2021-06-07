@@ -1,0 +1,25 @@
+#user input values
+ parameters:
+  complex :   # path parmtop file
+  complex_rst :  #coordinate file to complex 
+  runtype:  # options production ('prod') or equilibrum run ('eq')
+  temperature : 
+  igb :  # GB model to be run. choices = [1,2,5,7,8]
+  saltcon :  # salt concentration
+  rgbmax :  #cut off for determining effective Born radii
+  cut :  # cut off for electrostatis
+  gbsa :  # inlcude surface area forces
+  surften:  #surface tenstion for surface area forces
+  nstlim:  # number of time steps
+  amber_version:  #amber version
+  restraint_file :  #optional restraint file for complex 
+  excutable :  #machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
+
+ step2:
+  receptor_parm :  #path to prmtop file to receptor only 
+  receptor_coord :  #path to receptor coordinate 
+  ligand_parm :  # path to prmtop file of ligand
+  ligand_coord :  #path to coordinate file of ligand 
+
+
+
