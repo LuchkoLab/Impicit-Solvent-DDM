@@ -37,14 +37,16 @@ Current option:
 
 '''
 
+#from _typeshed import NoneType
 import simrun
+import restraint_finder as findrest 
 import shutil
 import sys
 import os, os.path
 import re
-#import parmed as pmd
+import parmed as pmd
 import logging
-
+import yaml
 #logging.basicConfig(filename='example.log', level=logging.INFO)
 #logging.debug('This message should go to the log file')
 #logging.info('So should this')
@@ -227,164 +229,195 @@ def create_restraint_file(restraint_filetype, target_directory, root, freeze_for
 
 simrun = simrun.SimRun("mdgb", description = '''Perform molecular dynamics with GB or in vacuo''')
 
-for argSet in simrun.args.generateSets():
-
-    # pathroot = pathname entered for solute on command line
-    pathroot = re.sub(r"\.[^.]*$","",argSet["solute"]) 
-    #pathroot = pathroot.replace('split_', '')
-    #sourcepath = os.path.dirname(pathroot) #Sourc direcotry path
-    root = os.path.basename(pathroot) #source filename
-    #root = root.replace('split_', '')
-    cuda = argSet["cuda"]  #This is here, but is flipped and repeated later 
-    replica = argSet["replica"]
-    freeze_restraint = str(argSet["freeze"]) #this will be a number that represents the force constant
-    drest = str(argSet["drest"])
-    arest = argSet["arest"]
-    trest = argSet["trest"]
-    orient_rest = [drest, arest, trest]
-    addExc = argSet["add_Exclusions"]
-    runtype = argSet["runtype"]
-    chrg = argSet["charge"]
-    interpolate = argSet["interpolate"]
-    #r1_input_type = state_label
+def main(config=None, cycle=True):
     
-    
-
-    print("cuda:", cuda)
-    print("root:",root)
-    print("replica:", replica)
-   
-    argSet["systembasename"] = root
-    #dirstruct_equil_input = simrun.getDirectoryStructure("dirstruct-gb-input")
-    #if runtype = "prod", set input dirstruct = "equil output dirstruct"
-    struct = simrun.getDirectoryStructure("dirstruct-gb-input")
-    #print ("root: ", root) 
-    argSet['cuda'] = cuda #Why is this here, but repeated from above.
-     
-    # run and directory
-    if runtype == 'equil':
-        run = simrun.getRun(argSet, dirstruct="dirstruct-equil-ouput")
-        nstlim = 1000000
-    elif runtype == 'prod':
-        run = simrun.getRun(argSet, dirstruct="dirstruct-prod-ouput")
-        #nstlim = 1000000 #nanosecond if dt = 0.001
-        nstlim = 10000000 #10 nanoseconds if dt = 0.001
-        #nstlim = 20000000 #20 nanoseconds if dt = 0.001
-        #nstlim = 40000000 #40 nanoseconds if dt = 0.001
-        #nstlim = 80000000 #80 nanoseconds if dt = 0.001
-        #nstlim = 100000000 #100ns if dt = 0.001
-    else:
-        print("No such runtype, runtyp must be 'equil' or 'prod'")
-        break
-
-    #run and directory
-    #run = simrun.getRun(argSet)
-    print ("run.path:", run.path)
-    #print("targetpath:", targetpath)
-    working_filepath = os.path.join(run.path,root)
-    #print ("filepath:", os.path.join(run.path,root))
-    print ("working_filepath:", working_filepath)
-
-    sfx=""
-    if argSet["mpi"]:
-        sfx=".MPI"
-    solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",argSet["solute"])
-
-    
-    # time steps
-    dt = 0.001 # 0.001 = femtosecond, 1 = picosecond
-    #steps_per_ps = int(1/dt)
-    ntpr = int(1/dt) 
-    #ntpr = 1
-    ntwx = ntpr
-    ntr = 0
-
-    if cuda == False:
-        executable = "sander"
-    elif cuda == True:
-        executable = "pmemd.cuda"
-    #if restraint_wt == None:
-        #ntr = 0
-    #elif restraint_wt != None:
-        #ntr = 1
-    print('drest: ', drest)
-    print('freeze_restraint:', freeze_restraint)
-    if drest != '0' or freeze_restraint != '0':
-        nmropt = 1
-        if drest == '0' and freeze_restraint != '0':
-            create_restraint_file(1, run.path, root, freeze_restraint, orient_rest)
-        elif drest != '0' and freeze_restraint == '0':
-            create_restraint_file(2, run.path, root, freeze_restraint, orient_rest)
-        elif drest != '0' and freeze_restraint != '0':
-            create_restraint_file(3, run.path, root, freeze_restraint, orient_rest)
-        else:
-            print("invalid restraint input")
-            stop
-    elif drest == '0' and arest == '0' and trest == '0' and freeze_restraint == '0':
-        nmropt = 0
-        print ("Running with no restraints")
-        write_empty_restraint_file()
-    irest = 0 #if irest = 0, initial velocities are assigned randomly rather than taken from a restart file.
-    ntx = 1
-    restart = ""
-    #irest = 1
-    #ntx=5
-    fceread = 1
-    #restart = ".rst"
-    #try:
-    #    if runtype == 'equil' or run.runnumber == 0:
-    #        irest = 0
-    #        ntx = 1
-    #        fceread = 0
-    #        restart = ""
-    #except:
-    #    pass
-
-    template = executable+restart+'.cmd'
-    print ('template:', template)
-    
-    #Add Exclusions if exclusion flag is turned on
-    ##Only step 4 and 6 have a different .parm7 file, it is created here if assExc = True, else it is copied from 
-    print("addExc: ", addExc)
-    print("chrg", chrg)
-    if addExc == True or chrg is not None:
-        print("Hurray!!!")
-        alter_parm_file(pathroot+'.parm7', pathroot+'.ncrst', working_filepath, chrg, addExc)
-
-    # if interpolations flag is on, inerpoaltion parm files are copied from repo direcotry to working directory
-    elif interpolate is not None and addExc == False and chrg is None:
-        #run.symlink(inter_parm, working_dir+'.parm7')
-        use_interpolation_parms(interpolate, working_filepath)
+    for argSet in simrun.args.generateSets():
         
-    # if no parm altering option above are turned on, parm file is copied from original strucutre root direcotry
-    elif addExc == False and chrg is None and interpolate is None:
-        print('addExclusions turned off!,  Charges not altered.  Using Original input parm file for MD run.')
-        run.symlink(pathroot+'.parm7',working_filepath+'.parm7')
+        while cycle: 
+            
+            if config == None:
+                #read in config .yaml file 
+                with open(argSet['config']) as file:
+                    config = yaml.load(file, Loader=yaml.FullLoader)
+            
+                for key in config.keys():
+                    argSet.update(config[key])
+            
+            print('argSet', argSet)
+            # pathroot = pathname entered for solute on command line
+            
+            for solute in ['complex','receptor_parm','ligand_parm']:
+                
+                pathroot = re.sub(r"\.[^.]*$","",argSet[solute])
+                root = os.path.basename(pathroot) #source filename
+                runtype = argSet['runtype']
+                executable = argSet['excutable']
+                argSet["systembasename"] = root       
+                
+                #pathroot = pathroot.replace('split_', '')
+                #sourcepath = os.path.dirname(pathroot) #Sourc direcotry path
+                #root = root.replace('split_', '')
+                #cuda = argSet["cuda"]  #This is here, but is flipped and repeated later 
+                #replica = argSet["replica"]
+                #freeze_restraint = str(argSet["freeze"]) #this will be a number that represents the force constant
+                #drest = str(argSet["drest"])
+                #arest = argSet["arest"]
+                #trest = argSet["trest"]
+                #orient_rest = [drest, arest, trest]
+                #addExc = argSet["add_Exclusions"]
+                #chrg = argSet["charge"]
+                #interpolate = argSet["interpolate"] not sure what this does yet - S.A 
+                #r1_input_type = state_label
+                
+                #print("cuda:", cuda)
+                #print("root:",root)
+                #print("replica:", replica)
     
-    else:
-        print("Invalid paramaters")
-        System.exit("Invalid paramaters")
-        
-    #All MD's start with their pathroot .ncrst file
-    run.symlink(pathroot+'.ncrst',working_filepath+'.ncrst')
-    
-    run.writeTemplate("mdgb.mdin",
-                      dt = dt, ntr = ntr, nstlim = nstlim,
-                      ntpr = ntpr, ntwx = ntwx,
-                      irest = irest, ntx = ntx, fceread=fceread,
-                      nmropt = nmropt, fcewrite = argSet["nstlim"]
-                      )
-    
-    cmds = ""
-    if argSet["pbs"] is None:
-        cmds = " ".join(run.fillTemplate("module"))+"\n"
-    cmds += " ".join(run.fillTemplate(template,
-                             SFX=sfx,
-                             pathroot=working_filepath,
-                             root=root,
-                             ))
-    
-    run.submitTemplate(cmds, setup="module add "+argSet["amber_version"],
-                             solv=argSet['igb'],solu=solu
-                       )
+                #dirstruct_equil_input = simrun.getDirectoryStructure("dirstruct-gb-input")
+                #if runtype = "prod", set input dirstruct = "equil output dirstruct"
+                #struct = simrun.getDirectoryStructure("dirstruct-gb-input")
+                #print ("root: ", root) 
+                #argSet['cuda'] = cuda #Why is this here, but repeated from above.
+                
+                # run and directory
+                if runtype == 'equil':
+                    run = simrun.getRun(argSet, dirstruct="dirstruct-equil-ouput")
+                    nstlim = 1000000
+                elif runtype == 'prod':
+                    run = simrun.getRun(argSet, dirstruct="dirstruct-prod-ouput")
+                    #nstlim = 1000000 #nanosecond if dt = 0.001
+                    nstlim = 10000000 #10 nanoseconds if dt = 0.001
+                    #nstlim = 20000000 #20 nanoseconds if dt = 0.001
+                    #nstlim = 40000000 #40 nanoseconds if dt = 0.001
+                    #nstlim = 80000000 #80 nanoseconds if dt = 0.001
+                    #nstlim = 100000000 #100ns if dt = 0.001
+                else:
+                    print("No such runtype, runtyp must be 'equil' or 'prod'")
+                    break
 
+                #run and directory
+                #run = simrun.getRun(argSet)
+                print ("run.path:", run.path)
+                #print("targetpath:", targetpath)
+                working_filepath = os.path.join(run.path,root)
+                #print ("filepath:", os.path.join(run.path,root))
+                print ("working_filepath:", working_filepath)
+
+                sfx=""
+                if argSet["mpi"]:
+                    sfx=".MPI"
+                solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",argSet["complex"])
+
+                
+                # time steps
+                dt = 0.001 # 0.001 = femtosecond, 1 = picosecond
+                #steps_per_ps = int(1/dt)
+                ntpr = int(1/dt) 
+                #ntpr = 1
+                ntwx = ntpr
+                ntr = 0
+
+                #if cuda == False:
+                #    executable = "sander"
+                #elif cuda == True:
+                #    executable = "pmemd.cuda"
+                #if restraint_wt == None:
+                    #ntr = 0
+                #elif restraint_wt != None:
+                    #ntr = 1
+                print(argSet['restraint_file'])
+                if argSet['restraint_file'] == False:
+                    print('No restraint were prodived')
+                    findrest()
+                    cycle=False 
+                
+                '''
+                #print('drest: ', drest)
+                #print('freeze_restraint:', freeze_restraint)
+                
+                if drest != '0' or freeze_restraint != '0':
+                    nmropt = 1
+                    if drest == '0' and freeze_restraint != '0':
+                        create_restraint_file(1, run.path, root, freeze_restraint, orient_rest)
+                    elif drest != '0' and freeze_restraint == '0':
+                        create_restraint_file(2, run.path, root, freeze_restraint, orient_rest)
+                    elif drest != '0' and freeze_restraint != '0':
+                        create_restraint_file(3, run.path, root, freeze_restraint, orient_rest)
+                    else:
+                        print("invalid restraint input")
+                        stop
+                elif drest == '0' and arest == '0' and trest == '0' and freeze_restraint == '0':
+                    nmropt = 0
+                    print ("Running with no restraints")
+                    write_empty_restraint_file()
+                '''
+                nmropt = 0 
+                irest = 0 #if irest = 0, initial velocities are assigned randomly rather than taken from a restart file.
+                ntx = 1
+                restart = ""
+                #irest = 1
+                #ntx=5
+                fceread = 1
+                #restart = ".rst"
+                #try:
+                #    if runtype == 'equil' or run.runnumber == 0:
+                #        irest = 0
+                #        ntx = 1
+                #        fceread = 0
+                #        restart = ""
+                #except:
+                #    pass
+
+                template = executable+restart+'.cmd'
+                print ('template:', template)
+                
+                #Add Exclusions if exclusion flag is turned on
+                ##Only step 4 and 6 have a different .parm7 file, it is created here if assExc = True, else it is copied from 
+                '''
+                print("addExc: ", addExc)
+                print("chrg", chrg)
+                if addExc == True or chrg is not None:
+                    print("Hurray!!!")
+                    alter_parm_file(pathroot+'.parm7', pathroot+'.ncrst', working_filepath, chrg, addExc)
+
+                # if interpolations flag is on, inerpoaltion parm files are copied from repo direcotry to working directory
+                elif interpolate is not None and addExc == False and chrg is None:
+                    #run.symlink(inter_parm, working_dir+'.parm7')
+                    use_interpolation_parms(interpolate, working_filepath)
+                    
+                # if no parm altering option above are turned on, parm file is copied from original strucutre root direcotry
+                elif addExc == False and chrg is None and interpolate is None:
+                    print('addExclusions turned off!,  Charges not altered.  Using Original input parm file for MD run.')
+                    run.symlink(pathroot+'.parm7',working_filepath+'.parm7')
+                
+                else:
+                    print("Invalid paramaters")
+                    System.exit("Invalid paramaters")
+                ''' 
+                
+                #All MD's start with their pathroot .ncrst file
+                run.symlink(pathroot+'.ncrst',working_filepath+'.ncrst')
+                run.symlink(pathroot+'.parm7',os.path.join(run.path,root+'.parm7'))
+                
+                
+                run.writeTemplate("mdgb.mdin",
+                                dt = dt, ntr = ntr, nstlim = nstlim,
+                                ntpr = ntpr, ntwx = ntwx,
+                                irest = irest, ntx = ntx, fceread=fceread,
+                                nmropt = nmropt, fcewrite = argSet["nstlim"]
+                                )
+                
+                cmds = ""
+                if argSet["pbs"] is None:
+                    cmds = " ".join(run.fillTemplate("module"))+"\n"
+                cmds += " ".join(run.fillTemplate(template,
+                                        SFX=sfx,
+                                        pathroot=working_filepath,
+                                        root=root,
+                                        ))
+                
+                run.submitTemplate(cmds, setup="module add "+argSet["amber_version"],
+                                        solv=argSet['igb'],solu=solu
+                                )
+
+main()
