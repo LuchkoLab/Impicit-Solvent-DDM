@@ -47,7 +47,12 @@ import re
 import parmed as pmd
 import logging
 import yaml
-import argparse
+import subprocess 
+from string import Template
+from argparse import ArgumentParser
+from toil.common import Toil
+from toil.job import Job
+
 #logging.basicConfig(filename='example.log', level=logging.INFO)
 #logging.debug('This message should go to the log file')
 #logging.info('So should this')
@@ -55,10 +60,83 @@ import argparse
 #logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
 log = logging.getLogger(__name__)
 
-#import restraint_finder as findrest -SA removed for now
+def initialized_jobs(job):
+    job.log('initialize_jobs')
 
+def main(job, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,ouput_dir, state_label, argSet):
+    tempDir = job.fileStore.getLocalTempDir()
+    solute = job.fileStore.readGlobalFile(complex_file,  userPath=os.path.join(tempDir, complex_filename))
+    rst = job.fileStore.readGlobalFile(complex_rst, userPath=os.path.join(tempDir, complex_rst_filename))
+    mdin = job.fileStore.readGlobalFile(mdin_file , userPath=os.path.join(tempDir, 'mdin'))
+    if state_label == 9 or 2:
+        restraint_file = job.fileStore.importFile("file://" + write_empty_restraint_file())
+    restraint = job.fileStore.readGlobalFile( restraint_file, userPath=os.path.join(tempDir,'restraint.RST'))
+    
+    subprocess.check_call(["mpirun", "-np","2","pmemd.MPI", "-O", "-i", mdin, "-p", solute, "-c", rst])
 
+def run_simrun(argSet, dirstruct = "dirstruct"):
+         #argSet["systembasename"] = root
+   struct = simrun.getDirectoryStructure(dirstruct)
+   #iterate through solutes
 
+   for key in argSet['parameters']:
+       if key == 'complex':
+           complex_state = 7
+           while complex_state <= 9:
+               for complex in argSet['parameters'][key]:
+                   argSet['solute'] = complex
+                   solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
+                   pathroot = re.sub(r"\.[^.]*","",argSet['solute'])
+                   print('pathroot',pathroot)
+                   root = os.path.basename(pathroot)
+                   print('root',root)
+                   argSet['state_label'] = complex_state
+                   run = simrun.getRun(argSet)
+               complex_state = complex_state + 1
+       if key == 'ligand_parm':
+           ligand_state = 2
+           while ligand_state <= 5:
+               for ligand in argSet['parameters'][key]:
+                   argSet['solute'] = ligand
+                   solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
+                   argSet['state_label'] = ligand_state
+                   run = simrun.getRun(argSet)
+               ligand_state = ligand_state + 1
+
+       if key == 'receptor_parm':
+           receptor_state = 2
+           while receptor_state <= 5:
+               for receptor in argSet['parameters'][key]:
+                   argSet['solute'] = receptor
+                   solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
+                   argSet['state_label'] = receptor_state
+                   run = simrun.getRun(argSet)
+               receptor_state = receptor_state + 1
+       
+
+def make_mdin_file(state_label):
+    mdin_path =os.path.abspath(os.path.dirname(
+                os.path.realpath(__file__)) + "/templates/mdgb.mdin")
+    with open(mdin_path) as t:
+        template = Template(t.read())
+    if state_label == 9:
+        final_template = template.substitute(
+            nstlim=1000,
+            ntx=1,
+            irest=0,
+            dt=0.001,
+            igb = 2,
+            saltcon = 0.3,
+            gbsa=1,
+            temp0=298,
+            ntpr=100,
+            ntwx=100,
+            cut=999,
+            nmropt=1
+            )
+        with open('mdin', "w") as output:
+            output.write(final_template)
+        return os.path.abspath('mdin')
 def alter_parm_file(parm7_file, rst7_file, filepath, charge_val, Exclusions):
     '''
     This function is called for parm altering options.
@@ -106,7 +184,7 @@ def write_empty_restraint_file():
     file = open("restraint.RST","w+")
     file.write("")
     file.close()
-
+    return os.path.abspath("restraint.RST")
 def create_restraint_file(restraint_filetype, target_directory, root, freeze_force, orient_forces):
 
     print('restraint_filetype: ',restraint_filetype)
@@ -230,7 +308,7 @@ def create_restraint_file(restraint_filetype, target_directory, root, freeze_for
 
 simrun = simrun.SimRun("mdgb", description = '''Perform molecular dynamics with GB or in vacuo''')
 
-def main():
+if __name__ == "__main__":
     
    """Creates directory structure and runs MD siulations for entire free energy cycle.
    
@@ -239,10 +317,50 @@ def main():
    None
    
    """
-   parser = argparse.ArgumentParser(description='Config file for MD simulations')
-   parser.add_argument('--config', help='config file, required for MD run', action='store_true', required=True)
-   args = parser.parse_args()
+   parser = Job.Runner.getDefaultArgumentParser()
+   parser.add_argument('--config_file', nargs='*', type=str, required=True, help="configuartion file with input parameters")
+   options = parser.parse_args()
+   options.clean = "always"
    
+   config = options.config_file[0]
+   with open(config) as file:
+       config = yaml.load(file,Loader=yaml.FullLoader)
+   argSet = {}
+   argSet.update(config)
+ 
+   run_simrun(argSet)
+   #iterate through solutes
+
+   with Toil(options) as toil:
+       job0 = Job.wrapJobFn(initialized_jobs)
+       if argSet['state2&9']['mdin'] is None:
+           file_name = 'mdin'
+           print('No mdin file specified. Generating one automaticalled called: %s' %str(file_name))
+           mdin = make_mdin_file(state_label=9)
+           mdin_file = toil.importFile("file://" + os.path.abspath(os.path.join(mdin)))
+           mdin_filename= 'mdin'
+
+       for key in argSet['parameters']:
+           if key == 'complex':
+               num_of_complexes = len(argSet['parameters'][key])
+               complex_state = 9
+               for complexes in argSet['parameters'][key]:
+                   solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",complexes)
+                   complex_file = toil.importFile("file://" + os.path.abspath(os.path.join(complexes)))
+                   print('complex_file', complex_file)
+                   complex_filename = re.sub(r".*/([^/.]*)",r"\1",complexes)
+                   complex_rst = toil.importFile("file://" + os.path.abspath(os.path.join(argSet['parameters']['complex_rst'][-num_of_complexes])))
+                   complex_rst_filename =  re.sub(r".*/([^/.]*)",r"\1",argSet['parameters']['complex_rst'][-num_of_complexes])
+                   output_dir = os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + '9' )
+                   
+                   job = Job.wrapJobFn(main, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,output_dir, complex_state , argSet)
+               
+               job0.addChild(job)
+
+               toil.start(job0)
+
+   #simrun 
+   '''
    for argSet in simrun.args.generateSets():
         print(argSet)     
         with open(argSet['config']) as file:
@@ -296,8 +414,7 @@ def main():
             # run and directory
             run = simrun.getRun(argSet, dirstruct= "dirstruct-prod-ouput")
             nstlim = 100
-            
-            '''
+            END of simrun
             if runtype == 'equil':
                 run = simrun.getRun(argSet, dirstruct="dirstruct-equil-ouput")
                 nstlim = 1000000
@@ -313,8 +430,11 @@ def main():
             else:
                 print("No such runtype, runtyp must be 'equil' or 'prod'")
                 break
-            BARTON METHOD'''  
-                
+            BARTON METHOD
+            '''  
+            
+            #simrun begin 
+'''    
             #run and directory
             #run = simrun.getRun(argSet)
             print ("run.path:", run.path)
@@ -346,6 +466,7 @@ def main():
             #elif restraint_wt != None:
             #ntr = 1
             '''
+'''
                 #print('drest: ', drest)
                 #print('freeze_restraint:', freeze_restraint)
                 
@@ -364,8 +485,10 @@ def main():
                     nmropt = 0
                     print ("Running with no restraints")
                     write_empty_restraint_file()
+            barton
             '''
-                
+            #simrun
+'''
             nmropt = 0 
             irest = 0 #if irest = 0, initial velocities are assigned randomly rather than taken from a restart file.
             ntx = 1
@@ -388,7 +511,9 @@ def main():
                 
             #Add Exclusions if exclusion flag is turned on
             ##Only step 4 and 6 have a different .parm7 file, it is created here if assExc = True, else it is copied from 
-            '''
+            simrun'''
+            
+'''
                 print("addExc: ", addExc)
                 print("chrg", chrg)
                 if addExc == True or chrg is not None:
@@ -409,7 +534,8 @@ def main():
                     print("Invalid paramaters")
                     System.exit("Invalid paramaters")
             ''' 
-                
+            #simrun 
+'''    
             #All MD's start with their pathroot .ncrst file
             run.symlink(pathroot+'.ncrst',working_filepath+'.ncrst')
             run.symlink(pathroot+'.parm7',os.path.join(run.path,root+'.parm7'))
@@ -458,5 +584,5 @@ def main():
             run.submitTemplate(cmds, setup="module add "+argSet["amber_version"],
                                     solv=argSet['igb'],solu=solu
                             )
-        
-main()
+            '''
+
