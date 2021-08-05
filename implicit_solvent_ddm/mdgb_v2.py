@@ -58,24 +58,53 @@ from toil.job import Job
 #logging.info('So should this')
 #logging.warning('And this, too')
 #logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
-log = logging.getLogger(__name__)
 
-def initialized_jobs(job):
-    job.log('initialize_jobs')
+#log = logging.getLogger(__name__)
 
-def main(job, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,ouput_dir, state_label, argSet):
+def helloWorld(job, message):
+    job.log("Hello world, I have a message: {}".format(message))
+    #job.log('initialize_jobs')
+
+def main(job, solute_file, solute_filename, solute_rst, solute_rst_filename, mdin_file, mdin_filename, output_dir, state_label, argSet,message):
+    job.log("this is the current job running {}".format(message))
     tempDir = job.fileStore.getLocalTempDir()
-    solute = job.fileStore.readGlobalFile(complex_file,  userPath=os.path.join(tempDir, complex_filename))
-    rst = job.fileStore.readGlobalFile(complex_rst, userPath=os.path.join(tempDir, complex_rst_filename))
+    solute = job.fileStore.readGlobalFile(solute_file,  userPath=os.path.join(tempDir, solute_filename))
+    rst = job.fileStore.readGlobalFile(solute_rst, userPath=os.path.join(tempDir, solute_rst_filename))
     mdin = job.fileStore.readGlobalFile(mdin_file , userPath=os.path.join(tempDir, 'mdin'))
     if state_label == 9 or 2:
         restraint_file = job.fileStore.importFile("file://" + write_empty_restraint_file())
-    restraint = job.fileStore.readGlobalFile( restraint_file, userPath=os.path.join(tempDir,'restraint.RST'))
-    
+        restraint = job.fileStore.readGlobalFile( restraint_file, userPath=os.path.join(tempDir,'restraint.RST'))
+
     subprocess.check_call(["mpirun", "-np","2","pmemd.MPI", "-O", "-i", mdin, "-p", solute, "-c", rst])
+    
+    mdout_filename = "mdout"
+    mdinfo_filename = "mdinfo"
+    restrt_filename = "restrt"
+    mdcrd_filename = "mdcrd"
+
+    mdout_file = job.fileStore.writeGlobalFile(mdout_filename)
+    mdinfo_file = job.fileStore.writeGlobalFile(mdinfo_filename)
+    restrt_file = job.fileStore.writeGlobalFile(restrt_filename)
+    mdcrd_file = job.fileStore.writeGlobalFile(mdcrd_filename)
+    
+    
+    job.fileStore.exportFile(mdout_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdout")))
+
+
+    #job.fileStore.readGlobalFile(mdinfo_file, userPath=os.path.join(output_dir, mdinfo_filename))
+    #job.fileStore.readGlobalFile(restrt_file, userPath=os.path.join(output_dir, restrt_filename))
+    #job.fileStore.readGlobalFile(mdcrd_file, userPath=os.path.join(output_dir, mdcrd_filename))
+    #return mdout_file, output_dir    
+#job.exportFile(mdout_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdout")))
+    #Toil.exportFile(mdout_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdout")))
+    #Toil.exportFile(mdinfo_file,  "file://" + os.path.abspath(os.path.join(output_dir, "mdinfo")))
+    #Toil.exportFile(restrt_file, "file://" + os.path.abspath(os.path.join(output_dir, "restrt")))
+    #Toil.exportFile(mdcrd_file, "file://" + os.path.abspath(os.path.join(output_dir,"mdcrd")))
+     
 
 def run_simrun(argSet, dirstruct = "dirstruct"):
-         #argSet["systembasename"] = root
+
+
    struct = simrun.getDirectoryStructure(dirstruct)
    #iterate through solutes
 
@@ -137,13 +166,35 @@ def make_mdin_file(state_label):
         with open('mdin', "w") as output:
             output.write(final_template)
         return os.path.abspath('mdin')
+
+def getfiles(toil,solute, key, state, solute_coord):
+    print('solute', solute)
+    solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",solute)
+    solute_file =  toil.importFile("file://" + os.path.abspath(os.path.join(solute)))
+    print('solute_file', solute)
+    solute_filename = re.sub(r".*/([^/.]*)",r"\1",solute)
+    solute_rst  = toil.importFile("file://" + os.path.abspath(os.path.join(solute_coord)))
+    solute_rst_filename =  re.sub(r".*/([^/.]*)",r"\1",solute_coord)
+    output_dir = os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(state))
+
+    return solute_file, solute_filename, solute_rst, solute_rst_filename, output_dir
+
+def export_files(mdout_file, mdinfo_file, restrt_file, mdcrd_file, output_dir):
+    print( "file://" + os.path.abspath(os.path.join(output_dir, "mdout")))
+    Toil.exportFile(mdout_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdout")))
+    Toil.exportFile(mdinfo_file,  "file://" + os.path.abspath(os.path.join(output_dir, "mdinfo")))
+    Toil.exportFile(restrt_file, "file://" + os.path.abspath(os.path.join(output_dir, "restrt")))
+    Toil.exportFile(mdcrd_file, "file://" + os.path.abspath(os.path.join(output_dir,"mdcrd")))
+
+
 def alter_parm_file(parm7_file, rst7_file, filepath, charge_val, Exclusions):
+    
     '''
-    This function is called for parm altering options.
-    Currently those options include:
+    #This function is called for parm altering options.
+    #Currently those options include:
         add_Exclusions: add exclusions between host an guest
         charge: alters the values of the ligands charges
-    '''
+        '''
     complex_traj = pmd.load_file(parm7_file, xyz = rst7_file)
     print ('parm7_file',parm7_file)
     print ('filepath',filepath)
@@ -157,26 +208,27 @@ def alter_parm_file(parm7_file, rst7_file, filepath, charge_val, Exclusions):
     complex_traj.save(filepath+".parm7")
 
 def use_interpolation_parms(inter_parm, working_dir):
-    '''
+   '''
     This function is for use with interpolating between tunring charges on and off.
     Pre-created parm files are required.
 
-    '''
-    print(inter_parm, working_dir)
-    run.symlink(inter_parm, working_dir+'.parm7')
+   '''
+   print(inter_parm, working_dir)
+   run.symlink(inter_parm, working_dir+'.parm7')
     
 
     
-#def Add_Exclusions(parm7_file, rst7_file, filepath):
+def Add_Exclusions(parm7_file, rst7_file, filepath):
     #This fuction uses parmed's addExclusions to turn off ligand/recptor interactions in a complex
-    #print ('parm7_file',parm7_file)
-    #print ('rst7_file',rst7_file)
-    #print ('filepath',filepath)
-    #complex_traj = pmd.load_file(parm7_file, xyz = rst7_file)
+    print ('parm7_file',parm7_file)
+    print ('rst7_file',rst7_file)
+    print ('filepath',filepath)
+    complex_traj = pmd.load_file(parm7_file, xyz = rst7_file)
     #Log this exclusion
-    #pmd.tools.actions.addExclusions(complex_traj, '!:CB7', ':CB7').execute()  
-    #complex_traj.save(filepath+".parm7")  
-    #complex_traj.save(filepath+".ncrst")
+    pmd.tools.actions.addExclusions(complex_traj, '!:CB7', ':CB7').execute()  
+    complex_traj.save(filepath+".parm7")  
+    complex_traj.save(filepath+".ncrst")
+
 
 def write_empty_restraint_file():
     #This function creates an empty restraint file in the case the no restraints are desired for a current run.
@@ -185,6 +237,7 @@ def write_empty_restraint_file():
     file.write("")
     file.close()
     return os.path.abspath("restraint.RST")
+
 def create_restraint_file(restraint_filetype, target_directory, root, freeze_force, orient_forces):
 
     print('restraint_filetype: ',restraint_filetype)
@@ -320,6 +373,7 @@ if __name__ == "__main__":
    parser = Job.Runner.getDefaultArgumentParser()
    parser.add_argument('--config_file', nargs='*', type=str, required=True, help="configuartion file with input parameters")
    options = parser.parse_args()
+   options.logLevel = "INFO"
    options.clean = "always"
    
    config = options.config_file[0]
@@ -329,38 +383,58 @@ if __name__ == "__main__":
    argSet.update(config)
  
    run_simrun(argSet)
-   #iterate through solutes
-
    with Toil(options) as toil:
-       job0 = Job.wrapJobFn(initialized_jobs)
+
+       #check whether an mdin file was provided 
        if argSet['state2&9']['mdin'] is None:
            file_name = 'mdin'
            print('No mdin file specified. Generating one automaticalled called: %s' %str(file_name))
            mdin = make_mdin_file(state_label=9)
            mdin_file = toil.importFile("file://" + os.path.abspath(os.path.join(mdin)))
            mdin_filename= 'mdin'
-
+           
+           try: main_job
+           except NameError: main_job = None 
+       #iterate through the parameters within the config file 
        for key in argSet['parameters']:
            if key == 'complex':
                num_of_complexes = len(argSet['parameters'][key])
                complex_state = 9
                for complexes in argSet['parameters'][key]:
-                   solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",complexes)
-                   complex_file = toil.importFile("file://" + os.path.abspath(os.path.join(complexes)))
-                   print('complex_file', complex_file)
-                   complex_filename = re.sub(r".*/([^/.]*)",r"\1",complexes)
-                   complex_rst = toil.importFile("file://" + os.path.abspath(os.path.join(argSet['parameters']['complex_rst'][-num_of_complexes])))
-                   complex_rst_filename =  re.sub(r".*/([^/.]*)",r"\1",argSet['parameters']['complex_rst'][-num_of_complexes])
-                   output_dir = os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + '9' )
+                   complex_file, complex_filename, complex_rst, complex_rst_filename, output_dir = getfiles(toil,complexes,key, complex_state, argSet['parameters']['complex_rst'][-num_of_complexes])
                    
-                   job = Job.wrapJobFn(main, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,output_dir, complex_state , argSet)
-               
-               job0.addChild(job)
+                   #create a job from input files 
+                   if main_job is None:
+                       main_job = Job.wrapJobFn(main, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,output_dir, complex_state , argSet, "complex job")
+                   else:
+                       main_job.addChildJobFn(main, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,output_dir, complex_state , argSet)
 
-               toil.start(job0)
+                   num_of_complexes = num_of_complexes - 1
 
-   #simrun 
-   '''
+           if key == 'ligand_parm':
+               num_of_ligands = len(argSet['parameters'][key])
+               ligand_state = 2
+               for ligand in argSet['parameters'][key]:
+                   ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, output_dir = getfiles(toil,ligand,key, ligand_state, argSet['parameters']['ligand_coord'][-num_of_ligands])
+                   
+                   #ligand job will be wrap into a child function 
+                   ligand_job = main_job.addChildJobFn(main, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
+                   
+                   num_of_ligands = num_of_ligands -1 
+
+           if key == "receptor_parm":
+               num_of_receptors = len(argSet['parameters'][key])
+               receptor_state = 2
+               for receptor in argSet['parameters'][key]:
+                   receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, output_dir = getfiles(toil,receptor,key,receptor_state, argSet['parameters']['receptor_coord'][-num_of_receptors])
+
+                   receptor_job = main_job.addChildJobFn(main, receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, mdin_file, mdin_filename, output_dir, receptor_state, argSet, "receptor job")
+
+                   num_of_receptors = num_of_receptors -1 
+
+       toil.start(main_job)
+
+'''
    for argSet in simrun.args.generateSets():
         print(argSet)     
         with open(argSet['config']) as file:
