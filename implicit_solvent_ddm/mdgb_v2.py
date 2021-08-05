@@ -47,6 +47,12 @@ import re
 import parmed as pmd
 import logging
 import yaml
+import subprocess 
+from string import Template
+from argparse import ArgumentParser
+from toil.common import Toil
+from toil.job import Job
+
 #logging.basicConfig(filename='example.log', level=logging.INFO)
 #logging.debug('This message should go to the log file')
 #logging.info('So should this')
@@ -54,10 +60,83 @@ import yaml
 #logging.error('And non-ASCII stuff, too, like Øresund and Malmö')
 log = logging.getLogger(__name__)
 
-#import restraint_finder as findrest -SA removed for now
+def initialized_jobs(job):
+    job.log('initialize_jobs')
 
+def main(job, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,ouput_dir, state_label, argSet):
+    tempDir = job.fileStore.getLocalTempDir()
+    solute = job.fileStore.readGlobalFile(complex_file,  userPath=os.path.join(tempDir, complex_filename))
+    rst = job.fileStore.readGlobalFile(complex_rst, userPath=os.path.join(tempDir, complex_rst_filename))
+    mdin = job.fileStore.readGlobalFile(mdin_file , userPath=os.path.join(tempDir, 'mdin'))
+    if state_label == 9 or 2:
+        restraint_file = job.fileStore.importFile("file://" + write_empty_restraint_file())
+    restraint = job.fileStore.readGlobalFile( restraint_file, userPath=os.path.join(tempDir,'restraint.RST'))
+    
+    subprocess.check_call(["mpirun", "-np","2","pmemd.MPI", "-O", "-i", mdin, "-p", solute, "-c", rst])
 
+def run_simrun(argSet, dirstruct = "dirstruct"):
+         #argSet["systembasename"] = root
+   struct = simrun.getDirectoryStructure(dirstruct)
+   #iterate through solutes
 
+   for key in argSet['parameters']:
+       if key == 'complex':
+           complex_state = 7
+           while complex_state <= 9:
+               for complex in argSet['parameters'][key]:
+                   argSet['solute'] = complex
+                   solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
+                   pathroot = re.sub(r"\.[^.]*","",argSet['solute'])
+                   print('pathroot',pathroot)
+                   root = os.path.basename(pathroot)
+                   print('root',root)
+                   argSet['state_label'] = complex_state
+                   run = simrun.getRun(argSet)
+               complex_state = complex_state + 1
+       if key == 'ligand_parm':
+           ligand_state = 2
+           while ligand_state <= 5:
+               for ligand in argSet['parameters'][key]:
+                   argSet['solute'] = ligand
+                   solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
+                   argSet['state_label'] = ligand_state
+                   run = simrun.getRun(argSet)
+               ligand_state = ligand_state + 1
+
+       if key == 'receptor_parm':
+           receptor_state = 2
+           while receptor_state <= 5:
+               for receptor in argSet['parameters'][key]:
+                   argSet['solute'] = receptor
+                   solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
+                   argSet['state_label'] = receptor_state
+                   run = simrun.getRun(argSet)
+               receptor_state = receptor_state + 1
+       
+
+def make_mdin_file(state_label):
+    mdin_path =os.path.abspath(os.path.dirname(
+                os.path.realpath(__file__)) + "/templates/mdgb.mdin")
+    with open(mdin_path) as t:
+        template = Template(t.read())
+    if state_label == 9:
+        final_template = template.substitute(
+            nstlim=1000,
+            ntx=1,
+            irest=0,
+            dt=0.001,
+            igb = 2,
+            saltcon = 0.3,
+            gbsa=1,
+            temp0=298,
+            ntpr=100,
+            ntwx=100,
+            cut=999,
+            nmropt=1
+            )
+        with open('mdin', "w") as output:
+            output.write(final_template)
+        return os.path.abspath('mdin')
 def alter_parm_file(parm7_file, rst7_file, filepath, charge_val, Exclusions):
     '''
     This function is called for parm altering options.
@@ -105,7 +184,7 @@ def write_empty_restraint_file():
     file = open("restraint.RST","w+")
     file.write("")
     file.close()
-
+    return os.path.abspath("restraint.RST")
 def create_restraint_file(restraint_filetype, target_directory, root, freeze_force, orient_forces):
 
     print('restraint_filetype: ',restraint_filetype)
@@ -229,109 +308,165 @@ def create_restraint_file(restraint_filetype, target_directory, root, freeze_for
 
 simrun = simrun.SimRun("mdgb", description = '''Perform molecular dynamics with GB or in vacuo''')
 
-def main(config=None, cycle=True):
+if __name__ == "__main__":
     
-    for argSet in simrun.args.generateSets():
+   """Creates directory structure and runs MD siulations for entire free energy cycle.
+   
+   Parameters
+   ----------
+   None
+   
+   """
+   parser = Job.Runner.getDefaultArgumentParser()
+   parser.add_argument('--config_file', nargs='*', type=str, required=True, help="configuartion file with input parameters")
+   options = parser.parse_args()
+   options.clean = "always"
+   
+   config = options.config_file[0]
+   with open(config) as file:
+       config = yaml.load(file,Loader=yaml.FullLoader)
+   argSet = {}
+   argSet.update(config)
+ 
+   run_simrun(argSet)
+   #iterate through solutes
+
+   with Toil(options) as toil:
+       job0 = Job.wrapJobFn(initialized_jobs)
+       if argSet['state2&9']['mdin'] is None:
+           file_name = 'mdin'
+           print('No mdin file specified. Generating one automaticalled called: %s' %str(file_name))
+           mdin = make_mdin_file(state_label=9)
+           mdin_file = toil.importFile("file://" + os.path.abspath(os.path.join(mdin)))
+           mdin_filename= 'mdin'
+
+       for key in argSet['parameters']:
+           if key == 'complex':
+               num_of_complexes = len(argSet['parameters'][key])
+               complex_state = 9
+               for complexes in argSet['parameters'][key]:
+                   solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",complexes)
+                   complex_file = toil.importFile("file://" + os.path.abspath(os.path.join(complexes)))
+                   print('complex_file', complex_file)
+                   complex_filename = re.sub(r".*/([^/.]*)",r"\1",complexes)
+                   complex_rst = toil.importFile("file://" + os.path.abspath(os.path.join(argSet['parameters']['complex_rst'][-num_of_complexes])))
+                   complex_rst_filename =  re.sub(r".*/([^/.]*)",r"\1",argSet['parameters']['complex_rst'][-num_of_complexes])
+                   output_dir = os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + '9' )
+                   
+                   job = Job.wrapJobFn(main, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,output_dir, complex_state , argSet)
+               
+               job0.addChild(job)
+
+               toil.start(job0)
+
+   #simrun 
+   '''
+   for argSet in simrun.args.generateSets():
+        print(argSet)     
+        with open(argSet['config']) as file:
+            config = yaml.load(file, Loader=yaml.FullLoader)
+            
+        for key in config.keys():
+            argSet.update(config[key])
         
-        while cycle: 
+        
+        print('argSet', argSet)
+        # pathroot = pathname entered for solute on command line
             
-            if config == None:
-                #read in config .yaml file 
-                with open(argSet['config']) as file:
-                    config = yaml.load(file, Loader=yaml.FullLoader)
+        for parm in ['receptor_parm','ligand_parm','complex']:
+            argSet['solute'] = argSet[parm]
             
-                for key in config.keys():
-                    argSet.update(config[key])
+            print("************** SOLUTE *************", parm)
             
-            print('argSet', argSet)
-            # pathroot = pathname entered for solute on command line
-            
-            for solute in ['complex','receptor_parm','ligand_parm']:
+            pathroot = re.sub(r"\.[^.]*$","",argSet[parm])
+            root = os.path.basename(pathroot) #source filename
+            runtype = argSet['runtype']
+            executable = argSet['excutable']
+            argSet["systembasename"] = root        
+            coord = re.sub(r"\.[^.]*$","",argSet[parm]) +'.ncrst'
+            print(coord)
+            #pathroot = pathroot.replace('split_', '')
+            #sourcepath = os.path.dirname(pathroot) #Sourc direcotry path
+            #root = root.replace('split_', '')
+            #cuda = argSet["cuda"]  #This is here, but is flipped and repeated later 
+            #replica = argSet["replica"]
+            # #freeze_restraint = str(argSet["freeze"]) 
+            #this will be a number that represents the force constant
+            #drest = str(argSet["drest"])
+            #arest = argSet["arest"]
+            #trest = argSet["trest"]
+            #orient_rest = [drest, arest, trest]
+            #addExc = argSet["add_Exclusions"]
+            #chrg = argSet["charge"]
+            #interpolate = argSet["interpolate"] not sure what this does yet - S.A 
+            #r1_input_type = state_label
                 
-                pathroot = re.sub(r"\.[^.]*$","",argSet[solute])
-                root = os.path.basename(pathroot) #source filename
-                runtype = argSet['runtype']
-                executable = argSet['excutable']
-                argSet["systembasename"] = root       
-                
-                #pathroot = pathroot.replace('split_', '')
-                #sourcepath = os.path.dirname(pathroot) #Sourc direcotry path
-                #root = root.replace('split_', '')
-                #cuda = argSet["cuda"]  #This is here, but is flipped and repeated later 
-                #replica = argSet["replica"]
-                #freeze_restraint = str(argSet["freeze"]) #this will be a number that represents the force constant
-                #drest = str(argSet["drest"])
-                #arest = argSet["arest"]
-                #trest = argSet["trest"]
-                #orient_rest = [drest, arest, trest]
-                #addExc = argSet["add_Exclusions"]
-                #chrg = argSet["charge"]
-                #interpolate = argSet["interpolate"] not sure what this does yet - S.A 
-                #r1_input_type = state_label
-                
-                #print("cuda:", cuda)
-                #print("root:",root)
-                #print("replica:", replica)
+            #print("cuda:", cuda)
+            #print("root:",root)
+            #print("replica:", replica)
     
-                #dirstruct_equil_input = simrun.getDirectoryStructure("dirstruct-gb-input")
-                #if runtype = "prod", set input dirstruct = "equil output dirstruct"
-                #struct = simrun.getDirectoryStructure("dirstruct-gb-input")
-                #print ("root: ", root) 
-                #argSet['cuda'] = cuda #Why is this here, but repeated from above.
+            #dirstruct_equil_input = simrun.getDirectoryStructure("dirstruct-gb-input")
+            #if runtype = "prod", set input dirstruct = "equil output dirstruct"
+            #struct = simrun.getDirectoryStructure("dirstruct-gb-input")
+            #print ("root: ", root) 
+            #argSet['cuda'] = cuda #Why is this here, but repeated from above.
                 
-                # run and directory
-                if runtype == 'equil':
-                    run = simrun.getRun(argSet, dirstruct="dirstruct-equil-ouput")
-                    nstlim = 1000000
-                elif runtype == 'prod':
-                    run = simrun.getRun(argSet, dirstruct="dirstruct-prod-ouput")
-                    #nstlim = 1000000 #nanosecond if dt = 0.001
-                    nstlim = 10000000 #10 nanoseconds if dt = 0.001
-                    #nstlim = 20000000 #20 nanoseconds if dt = 0.001
-                    #nstlim = 40000000 #40 nanoseconds if dt = 0.001
-                    #nstlim = 80000000 #80 nanoseconds if dt = 0.001
-                    #nstlim = 100000000 #100ns if dt = 0.001
-                else:
-                    print("No such runtype, runtyp must be 'equil' or 'prod'")
-                    break
+            # run and directory
+            run = simrun.getRun(argSet, dirstruct= "dirstruct-prod-ouput")
+            nstlim = 100
+            END of simrun
+            if runtype == 'equil':
+                run = simrun.getRun(argSet, dirstruct="dirstruct-equil-ouput")
+                nstlim = 1000000
 
-                #run and directory
-                #run = simrun.getRun(argSet)
-                print ("run.path:", run.path)
-                #print("targetpath:", targetpath)
-                working_filepath = os.path.join(run.path,root)
-                #print ("filepath:", os.path.join(run.path,root))
-                print ("working_filepath:", working_filepath)
+            elif runtype == 'prod':
+                run = simrun.getRun(argSet, dirstruct="dirstruct-prod-ouput")
+                #nstlim = 1000000 #nanosecond if dt = 0.001
+                nstlim = 100 #10 nanoseconds if dt = 0.001
+                #nstlim = 20000000 #20 nanoseconds if dt = 0.001
+                #nstlim = 40000000 #40 nanoseconds if dt = 0.001
+                #nstlim = 80000000 #80 nanoseconds if dt = 0.001
+                #nstlim = 100000000 #100ns if dt = 0.001
+            else:
+                print("No such runtype, runtyp must be 'equil' or 'prod'")
+                break
+            BARTON METHOD
+            '''  
+            
+            #simrun begin 
+'''    
+            #run and directory
+            #run = simrun.getRun(argSet)
+            print ("run.path:", run.path)
+            #print("targetpath:", targetpath)
+            working_filepath = os.path.join(run.path,root)
+            #print ("filepath:", os.path.join(run.path,root))
+            print ("working_filepath:", working_filepath)
 
-                sfx=""
-                if argSet["mpi"]:
-                    sfx=".MPI"
-                solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",argSet["complex"])
+            sfx=""
+            if argSet["mpi"]:
+                sfx=".MPI"
+            solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",argSet[parm])
 
                 
-                # time steps
-                dt = 0.001 # 0.001 = femtosecond, 1 = picosecond
-                #steps_per_ps = int(1/dt)
-                ntpr = int(1/dt) 
-                #ntpr = 1
-                ntwx = ntpr
-                ntr = 0
+            # time steps
+            dt = 0.001 # 0.001 = femtosecond, 1 = picosecond
+            #steps_per_ps = int(1/dt)
+            ntpr = int(1/dt) 
+            #ntpr = 1
+            ntwx = ntpr
+            ntr = 0
 
-                #if cuda == False:
-                #    executable = "sander"
-                #elif cuda == True:
-                #    executable = "pmemd.cuda"
-                #if restraint_wt == None:
-                    #ntr = 0
-                #elif restraint_wt != None:
-                    #ntr = 1
-                print(argSet['restraint_file'])
-                if argSet['restraint_file'] == False:
-                    print('No restraint were prodived')
-                    findrest()
-                    cycle=False 
-                
-                '''
+            #if cuda == False:
+            #    executable = "sander"
+            #elif cuda == True:
+            #    executable = "pmemd.cuda"
+            #if restraint_wt == None:
+            #ntr = 0
+            #elif restraint_wt != None:
+            #ntr = 1
+            '''
+'''
                 #print('drest: ', drest)
                 #print('freeze_restraint:', freeze_restraint)
                 
@@ -350,30 +485,35 @@ def main(config=None, cycle=True):
                     nmropt = 0
                     print ("Running with no restraints")
                     write_empty_restraint_file()
-                '''
-                nmropt = 0 
-                irest = 0 #if irest = 0, initial velocities are assigned randomly rather than taken from a restart file.
-                ntx = 1
-                restart = ""
-                #irest = 1
-                #ntx=5
-                fceread = 1
-                #restart = ".rst"
-                #try:
-                #    if runtype == 'equil' or run.runnumber == 0:
-                #        irest = 0
-                #        ntx = 1
-                #        fceread = 0
-                #        restart = ""
-                #except:
-                #    pass
+            barton
+            '''
+            #simrun
+'''
+            nmropt = 0 
+            irest = 0 #if irest = 0, initial velocities are assigned randomly rather than taken from a restart file.
+            ntx = 1
+            restart = ""
+            #irest = 1
+            #ntx=5
+            fceread = 1
+            #restart = ".rst"
+            #try:
+            #    if runtype == 'equil' or run.runnumber == 0:
+            #        irest = 0
+            #        ntx = 1
+            #        fceread = 0
+            #        restart = ""
+            #except:
+            #    pass
 
-                template = executable+restart+'.cmd'
-                print ('template:', template)
+            template = executable+restart+'.cmd'
+            print ('template:', template)
                 
-                #Add Exclusions if exclusion flag is turned on
-                ##Only step 4 and 6 have a different .parm7 file, it is created here if assExc = True, else it is copied from 
-                '''
+            #Add Exclusions if exclusion flag is turned on
+            ##Only step 4 and 6 have a different .parm7 file, it is created here if assExc = True, else it is copied from 
+            simrun'''
+            
+'''
                 print("addExc: ", addExc)
                 print("chrg", chrg)
                 if addExc == True or chrg is not None:
@@ -393,31 +533,56 @@ def main(config=None, cycle=True):
                 else:
                     print("Invalid paramaters")
                     System.exit("Invalid paramaters")
-                ''' 
+            ''' 
+            #simrun 
+'''    
+            #All MD's start with their pathroot .ncrst file
+            run.symlink(pathroot+'.ncrst',working_filepath+'.ncrst')
+            run.symlink(pathroot+'.parm7',os.path.join(run.path,root+'.parm7'))
+            
+            if argSet['restraint_file'] == False and parm == 'complex':
+                print('No restraint file found.\n',' This script will identify 6 atoms best suited for NMR restraints in AMBER\n')
+                print('select one of the follow options 3 options to create restraints\n')
+                print(' 1 : Distance restraints will be between CoM ligand adn CoM receptor\n')
+                print(' 2 : Distance Restraints will be between CoM ligand and closest heavy atom in receptor\n')
+                print(' 3 : Distance restraints will be between the two closest heavy atoms in the ligand and the receptor/n')                                        
+            
+                restraint_type = int(input('[1, 2, 3] [1] : ') or 1)
+                atom_R3, atom_R2, atom_R1, atom_L1, atom_L2, atom_L3, dist_rest, lig_angrest, rec_angrest, lig_torres, rec_torres, central_torres = findrest.restraint_maker(argSet[parm], coord, restraint_type)
                 
-                #All MD's start with their pathroot .ncrst file
-                run.symlink(pathroot+'.ncrst',working_filepath+'.ncrst')
-                run.symlink(pathroot+'.parm7',os.path.join(run.path,root+'.parm7'))
-                
-                
-                run.writeTemplate("mdgb.mdin",
-                                dt = dt, ntr = ntr, nstlim = nstlim,
-                                ntpr = ntpr, ntwx = ntwx,
-                                irest = irest, ntx = ntx, fceread=fceread,
-                                nmropt = nmropt, fcewrite = argSet["nstlim"]
+                run.writeTemplate("restraint.RST",
+                                atom_R3 = atom_R3,
+                                atom_R2 = atom_R2,
+                                atom_R1 = atom_R1,
+                                atom_L1 = atom_L1,
+                                atom_L2 = atom_L2,
+                                atom_L3 = atom_L3,
+                                dist_rest = dist_rest,
+                                lig_angrest = lig_angrest,
+                                rec_angrest = rec_angrest,
+                                central_torres = central_torres,
+                                rec_torres = rec_torres,
+                                lig_torres = lig_torres
                                 )
                 
-                cmds = ""
-                if argSet["pbs"] is None:
-                    cmds = " ".join(run.fillTemplate("module"))+"\n"
-                cmds += " ".join(run.fillTemplate(template,
-                                        SFX=sfx,
-                                        pathroot=working_filepath,
-                                        root=root,
-                                        ))
-                
-                run.submitTemplate(cmds, setup="module add "+argSet["amber_version"],
-                                        solv=argSet['igb'],solu=solu
-                                )
+            run.writeTemplate("mdgb.mdin",
+                            dt = dt, ntr = ntr, nstlim = nstlim,
+                            ntpr = ntpr, ntwx = ntwx,
+                            irest = irest, ntx = ntx, fceread=fceread,
+                            nmropt = nmropt, fcewrite = argSet["nstlim"]
+                            )
+            
+            cmds = ""
+            if argSet["pbs"] is None:
+                cmds = " ".join(run.fillTemplate("module"))+"\n"
+            cmds += " ".join(run.fillTemplate(template,
+                                    SFX=sfx,
+                                    pathroot=working_filepath,
+                                    root=root,
+                                    ))
+            
+            run.submitTemplate(cmds, setup="module add "+argSet["amber_version"],
+                                    solv=argSet['igb'],solu=solu
+                            )
+            '''
 
-main()
