@@ -52,7 +52,7 @@ from string import Template
 from argparse import ArgumentParser
 from toil.common import Toil
 from toil.job import Job
-
+ 
 #logging.basicConfig(filename='example.log', level=logging.INFO)
 #logging.debug('This message should go to the log file')
 #logging.info('So should this')
@@ -61,25 +61,28 @@ from toil.job import Job
 
 #log = logging.getLogger(__name__)
 
-def helloWorld(job, message):
-    job.log("Hello world, I have a message: {}".format(message))
-    #job.log('initialize_jobs')
+def initilized_jobs(job):
+    #job.log("Hello world, I have a message: {}".format(message))
+    job.log('initialize_jobs')
 
 def main(job, solute_file, solute_filename, solute_rst, solute_rst_filename, mdin_file, mdin_filename, output_dir, state_label, argSet,message):
+    
     job.log("this is the current job running {}".format(message))
     tempDir = job.fileStore.getLocalTempDir()
     solute = job.fileStore.readGlobalFile(solute_file,  userPath=os.path.join(tempDir, solute_filename))
     rst = job.fileStore.readGlobalFile(solute_rst, userPath=os.path.join(tempDir, solute_rst_filename))
     mdin = job.fileStore.readGlobalFile(mdin_file , userPath=os.path.join(tempDir, 'mdin'))
-    if state_label == 9 or 2:
+    if state_label == 9 or 2 or 7:
         restraint_file = job.fileStore.importFile("file://" + write_empty_restraint_file())
         restraint = job.fileStore.readGlobalFile( restraint_file, userPath=os.path.join(tempDir,'restraint.RST'))
 
-    subprocess.check_call(["mpirun", "-np","2","pmemd.MPI", "-O", "-i", mdin, "-p", solute, "-c", rst])
-    
+    #if state_label == 3:
+        # restraint_file = 
+    #subprocess.check_call(["mpirun", "-np","2","pmemd.MPI", "-O", "-i", mdin, "-p", solute, "-c", rst])
+    subprocess.check_call(["pmemd", "-O", "-i", mdin, "-p", solute, "-c", rst])
     mdout_filename = "mdout"
     mdinfo_filename = "mdinfo"
-    restrt_filename = "restrt"
+     restrt_filename = "restrt"
     mdcrd_filename = "mdcrd"
 
     mdout_file = job.fileStore.writeGlobalFile(mdout_filename)
@@ -89,17 +92,44 @@ def main(job, solute_file, solute_filename, solute_rst, solute_rst_filename, mdi
     
     
     job.fileStore.exportFile(mdout_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdout")))
+    job.fileStore.exportFile(mdinfo_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdinfo")))
+    job.fileStore.exportFile(restrt_file, "file://" + os.path.abspath(os.path.join(output_dir,"restrt")))
+    job.fileStore.exportFile(mdcrd_file, "file://" + os.path.abspath(os.path.join(output_dir,"mdcrd")))
+    if message == 'complex':
+         return restrt_file
+    #job.fileStore.readGlobalFile(mdinfo_file, userPath=os.path.join(output_dir, mdinfo_filename))    
 
 
-    #job.fileStore.readGlobalFile(mdinfo_file, userPath=os.path.join(output_dir, mdinfo_filename))
-    #job.fileStore.readGlobalFile(restrt_file, userPath=os.path.join(output_dir, restrt_filename))
-    #job.fileStore.readGlobalFile(mdcrd_file, userPath=os.path.join(output_dir, mdcrd_filename))
-    #return mdout_file, output_dir    
-#job.exportFile(mdout_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdout")))
-    #Toil.exportFile(mdout_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdout")))
-    #Toil.exportFile(mdinfo_file,  "file://" + os.path.abspath(os.path.join(output_dir, "mdinfo")))
-    #Toil.exportFile(restrt_file, "file://" + os.path.abspath(os.path.join(output_dir, "restrt")))
-    #Toil.exportFile(mdcrd_file, "file://" + os.path.abspath(os.path.join(output_dir,"mdcrd")))
+def find_restraints(job, complex_file, complex_filename, complex_coord, complex_coord_filename, restraint_type, output_dir):
+     tempDir = job.fileStore.getLocalTempDir()
+     solute = job.fileStore.readGlobalFile(complex_file , userPath=os.path.join(tempDir, complex_filename))
+     solute_coordinate = job.fileStore.readGlobalFile(complex_coord, userPath=os.path.join(tempDir, complex_coord_filename))
+     atom_R3, atom_R2, atom_R1, atom_L1, atom_L2, atom_L3, dist_rest, lig_angrest, rec_angrest, lig_torres, rec_torres, central_torres = findrest.remote_run_complex(solute, solute_coordinate, 1)
+
+     restraint_path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/templates/restraint.RST")
+     with open(restraint_path) as t:
+          template = Template(t.read())
+          restraint_template = template.substitute(
+               atom_R3 = atom_R3,
+               atom_R2 = atom_R2,
+               atom_R1 = atom_R1,
+               atom_L1 = atom_L1,
+               atom_L2 = atom_L2,
+               atom_L3 = atom_L3,
+               dist_rest = dist_rest,
+               lig_angrest = lig_angrest,
+               rec_angrest = rec_angrest,
+               central_torres = central_torres,
+               rec_torres = rec_torres,
+               lig_torres = lig_torres
+               )
+     
+     with open('Restraint.RST', "w") as output:
+            output.write(restraint_template)
+     
+     restraint_file = job.fileStore.writeGlobalFile('Restraint.RST')
+     job.fileStore.exportFile(restraint_file, "file://" + os.path.abspath(os.path.join(output_dir, "Restraint.RST")))
+     
      
 
 def run_simrun(argSet, dirstruct = "dirstruct"):
@@ -158,8 +188,8 @@ def make_mdin_file(state_label):
             saltcon = 0.3,
             gbsa=1,
             temp0=298,
-            ntpr=100,
-            ntwx=100,
+            ntpr=10,
+            ntwx=10,
             cut=999,
             nmropt=1
             )
@@ -171,7 +201,7 @@ def getfiles(toil,solute, key, state, solute_coord):
     print('solute', solute)
     solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",solute)
     solute_file =  toil.importFile("file://" + os.path.abspath(os.path.join(solute)))
-    print('solute_file', solute)
+    print('solute_file', solute_file)
     solute_filename = re.sub(r".*/([^/.]*)",r"\1",solute)
     solute_rst  = toil.importFile("file://" + os.path.abspath(os.path.join(solute_coord)))
     solute_rst_filename =  re.sub(r".*/([^/.]*)",r"\1",solute_coord)
@@ -381,282 +411,77 @@ if __name__ == "__main__":
        config = yaml.load(file,Loader=yaml.FullLoader)
    argSet = {}
    argSet.update(config)
- 
-   run_simrun(argSet)
-   with Toil(options) as toil:
 
+   run_simrun(argSet)
+
+   with Toil(options) as toil:
+        
        #check whether an mdin file was provided 
-       if argSet['state2&9']['mdin'] is None:
+       if argSet['parameters']['mdin'] is None:
            file_name = 'mdin'
            print('No mdin file specified. Generating one automaticalled called: %s' %str(file_name))
            mdin = make_mdin_file(state_label=9)
            mdin_file = toil.importFile("file://" + os.path.abspath(os.path.join(mdin)))
            mdin_filename= 'mdin'
            
-           try: main_job
-           except NameError: main_job = None 
+       try: parent_job
+       except NameError: parent_job = None 
+       complex_outputs = {}
        #iterate through the parameters within the config file 
-       for key in argSet['parameters']:
-           if key == 'complex':
-               num_of_complexes = len(argSet['parameters'][key])
-               complex_state = 9
-               for complexes in argSet['parameters'][key]:
-                   complex_file, complex_filename, complex_rst, complex_rst_filename, output_dir = getfiles(toil,complexes,key, complex_state, argSet['parameters']['complex_rst'][-num_of_complexes])
-                   
-                   #create a job from input files 
-                   if main_job is None:
-                       main_job = Job.wrapJobFn(main, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,output_dir, complex_state , argSet, "complex job")
-                   else:
-                       main_job.addChildJobFn(main, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,output_dir, complex_state , argSet)
-
-                   num_of_complexes = num_of_complexes - 1
-
-           if key == 'ligand_parm':
-               num_of_ligands = len(argSet['parameters'][key])
-               ligand_state = 2
-               for ligand in argSet['parameters'][key]:
-                   ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, output_dir = getfiles(toil,ligand,key, ligand_state, argSet['parameters']['ligand_coord'][-num_of_ligands])
-                   
+       #for key in argSet['parameters']:
+       if argSet['parameters']['ligand_parm']:
+           key = 'ligand_parm'
+           num_of_ligands = len(argSet['parameters'][key])
+           ligand_state = 2
+           for ligand in argSet['parameters'][key]:
+               ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, output_dir = getfiles(toil,ligand,key, ligand_state, argSet['parameters']['ligand_coord'][-num_of_ligands])
+               if parent_job is None:
+                   parent_job = Job.wrapJobFn(main, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
+                   #parent_job.addChildJobFn(main, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
                    #ligand job will be wrap into a child function 
-                   ligand_job = main_job.addChildJobFn(main, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
+                   #ligand_job = main_job.addChildJobFn(main, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
+               else:
+                   parent_job.addChildJobFn(main, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
                    
-                   num_of_ligands = num_of_ligands -1 
+               num_of_ligands = num_of_ligands -1 
 
-           if key == "receptor_parm":
-               num_of_receptors = len(argSet['parameters'][key])
-               receptor_state = 2
-               for receptor in argSet['parameters'][key]:
-                   receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, output_dir = getfiles(toil,receptor,key,receptor_state, argSet['parameters']['receptor_coord'][-num_of_receptors])
+       if argSet['parameters']['receptor_parm']:
+           key = 'receptor_parm'
+           num_of_receptors = len(argSet['parameters'][key])
+           receptor_state = 2
+           for receptor in argSet['parameters'][key]:
+               receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, output_dir = getfiles(toil,receptor,key,receptor_state, argSet['parameters']['receptor_coord'][-num_of_receptors])
 
-                   receptor_job = main_job.addChildJobFn(main, receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, mdin_file, mdin_filename, output_dir, receptor_state, argSet, "receptor job")
+                   #receptor_job = ligand_job.addChildJobFn(main, receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, mdin_file, mdin_filename, output_dir, receptor_state, argSet, "receptor job")
+               parent_job.addChildJobFn(main, receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, mdin_file, mdin_filename, output_dir, receptor_state, argSet, "receptor job")
+                   #receptor_job = main_job.addChildJobFn(main, receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, mdin_file, mdin_filename, output_dir, receptor_state, argSet, "receptor job")
+               num_of_receptors = num_of_receptors -1 
 
-                   num_of_receptors = num_of_receptors -1 
+       if argSet['parameters']['complex']:
+           key = 'complex'
+           num_of_complexes = len(argSet['parameters'][key])
+           complex_state = 9
+           for complexes in argSet['parameters'][key]:
+               complex_file, complex_filename, complex_rst, complex_rst_filename, output_dir = getfiles(toil,complexes,key, complex_state, argSet['parameters']['complex_rst'][-num_of_complexes])
+               # a job from input files
+               complex_job = parent_job.addChildJobFn(main, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,output_dir, complex_state , argSet, "complex")
+               
+               solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", complexes)
+               
+               #print('complex_file' , complex_file)
+               #print('complex_job.rv(0)', complex_job.rv(0))
+               restraint_job = complex_job.addFollowOnJobFn(find_restraints, complex_file, complex_filename, complex_job.rv(), complex_rst_filename, 1, os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(7)))
+               
+               
+                       #complex_outputs[re.sub(r".*/([^/.]*)\.[^.]*",r"\1", complexes)] = main_job.rv()
+               
+                       #restraints_job = main_job.addChildJobFn(
 
-       toil.start(main_job)
+#main_job.addChildJobFn(main, complex_file, complex_filename, main_job.rv(), "restrt", mdin_file, mdin_filename, os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(7)), 7 , argSet, "complex")
+                     
 
-'''
-   for argSet in simrun.args.generateSets():
-        print(argSet)     
-        with open(argSet['config']) as file:
-            config = yaml.load(file, Loader=yaml.FullLoader)
-            
-        for key in config.keys():
-            argSet.update(config[key])
-        
-        
-        print('argSet', argSet)
-        # pathroot = pathname entered for solute on command line
-            
-        for parm in ['receptor_parm','ligand_parm','complex']:
-            argSet['solute'] = argSet[parm]
-            
-            print("************** SOLUTE *************", parm)
-            
-            pathroot = re.sub(r"\.[^.]*$","",argSet[parm])
-            root = os.path.basename(pathroot) #source filename
-            runtype = argSet['runtype']
-            executable = argSet['excutable']
-            argSet["systembasename"] = root        
-            coord = re.sub(r"\.[^.]*$","",argSet[parm]) +'.ncrst'
-            print(coord)
-            #pathroot = pathroot.replace('split_', '')
-            #sourcepath = os.path.dirname(pathroot) #Sourc direcotry path
-            #root = root.replace('split_', '')
-            #cuda = argSet["cuda"]  #This is here, but is flipped and repeated later 
-            #replica = argSet["replica"]
-            # #freeze_restraint = str(argSet["freeze"]) 
-            #this will be a number that represents the force constant
-            #drest = str(argSet["drest"])
-            #arest = argSet["arest"]
-            #trest = argSet["trest"]
-            #orient_rest = [drest, arest, trest]
-            #addExc = argSet["add_Exclusions"]
-            #chrg = argSet["charge"]
-            #interpolate = argSet["interpolate"] not sure what this does yet - S.A 
-            #r1_input_type = state_label
-                
-            #print("cuda:", cuda)
-            #print("root:",root)
-            #print("replica:", replica)
-    
-            #dirstruct_equil_input = simrun.getDirectoryStructure("dirstruct-gb-input")
-            #if runtype = "prod", set input dirstruct = "equil output dirstruct"
-            #struct = simrun.getDirectoryStructure("dirstruct-gb-input")
-            #print ("root: ", root) 
-            #argSet['cuda'] = cuda #Why is this here, but repeated from above.
-                
-            # run and directory
-            run = simrun.getRun(argSet, dirstruct= "dirstruct-prod-ouput")
-            nstlim = 100
-            END of simrun
-            if runtype == 'equil':
-                run = simrun.getRun(argSet, dirstruct="dirstruct-equil-ouput")
-                nstlim = 1000000
+               num_of_complexes = num_of_complexes - 1
 
-            elif runtype == 'prod':
-                run = simrun.getRun(argSet, dirstruct="dirstruct-prod-ouput")
-                #nstlim = 1000000 #nanosecond if dt = 0.001
-                nstlim = 100 #10 nanoseconds if dt = 0.001
-                #nstlim = 20000000 #20 nanoseconds if dt = 0.001
-                #nstlim = 40000000 #40 nanoseconds if dt = 0.001
-                #nstlim = 80000000 #80 nanoseconds if dt = 0.001
-                #nstlim = 100000000 #100ns if dt = 0.001
-            else:
-                print("No such runtype, runtyp must be 'equil' or 'prod'")
-                break
-            BARTON METHOD
-            '''  
-            
-            #simrun begin 
-'''    
-            #run and directory
-            #run = simrun.getRun(argSet)
-            print ("run.path:", run.path)
-            #print("targetpath:", targetpath)
-            working_filepath = os.path.join(run.path,root)
-            #print ("filepath:", os.path.join(run.path,root))
-            print ("working_filepath:", working_filepath)
 
-            sfx=""
-            if argSet["mpi"]:
-                sfx=".MPI"
-            solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",argSet[parm])
-
-                
-            # time steps
-            dt = 0.001 # 0.001 = femtosecond, 1 = picosecond
-            #steps_per_ps = int(1/dt)
-            ntpr = int(1/dt) 
-            #ntpr = 1
-            ntwx = ntpr
-            ntr = 0
-
-            #if cuda == False:
-            #    executable = "sander"
-            #elif cuda == True:
-            #    executable = "pmemd.cuda"
-            #if restraint_wt == None:
-            #ntr = 0
-            #elif restraint_wt != None:
-            #ntr = 1
-            '''
-'''
-                #print('drest: ', drest)
-                #print('freeze_restraint:', freeze_restraint)
-                
-                if drest != '0' or freeze_restraint != '0':
-                    nmropt = 1
-                    if drest == '0' and freeze_restraint != '0':
-                        create_restraint_file(1, run.path, root, freeze_restraint, orient_rest)
-                    elif drest != '0' and freeze_restraint == '0':
-                        create_restraint_file(2, run.path, root, freeze_restraint, orient_rest)
-                    elif drest != '0' and freeze_restraint != '0':
-                        create_restraint_file(3, run.path, root, freeze_restraint, orient_rest)
-                    else:
-                        print("invalid restraint input")
-                        stop
-                elif drest == '0' and arest == '0' and trest == '0' and freeze_restraint == '0':
-                    nmropt = 0
-                    print ("Running with no restraints")
-                    write_empty_restraint_file()
-            barton
-            '''
-            #simrun
-'''
-            nmropt = 0 
-            irest = 0 #if irest = 0, initial velocities are assigned randomly rather than taken from a restart file.
-            ntx = 1
-            restart = ""
-            #irest = 1
-            #ntx=5
-            fceread = 1
-            #restart = ".rst"
-            #try:
-            #    if runtype == 'equil' or run.runnumber == 0:
-            #        irest = 0
-            #        ntx = 1
-            #        fceread = 0
-            #        restart = ""
-            #except:
-            #    pass
-
-            template = executable+restart+'.cmd'
-            print ('template:', template)
-                
-            #Add Exclusions if exclusion flag is turned on
-            ##Only step 4 and 6 have a different .parm7 file, it is created here if assExc = True, else it is copied from 
-            simrun'''
-            
-'''
-                print("addExc: ", addExc)
-                print("chrg", chrg)
-                if addExc == True or chrg is not None:
-                    print("Hurray!!!")
-                    alter_parm_file(pathroot+'.parm7', pathroot+'.ncrst', working_filepath, chrg, addExc)
-
-                # if interpolations flag is on, inerpoaltion parm files are copied from repo direcotry to working directory
-                elif interpolate is not None and addExc == False and chrg is None:
-                    #run.symlink(inter_parm, working_dir+'.parm7')
-                    use_interpolation_parms(interpolate, working_filepath)
-                    
-                # if no parm altering option above are turned on, parm file is copied from original strucutre root direcotry
-                elif addExc == False and chrg is None and interpolate is None:
-                    print('addExclusions turned off!,  Charges not altered.  Using Original input parm file for MD run.')
-                    run.symlink(pathroot+'.parm7',working_filepath+'.parm7')
-                
-                else:
-                    print("Invalid paramaters")
-                    System.exit("Invalid paramaters")
-            ''' 
-            #simrun 
-'''    
-            #All MD's start with their pathroot .ncrst file
-            run.symlink(pathroot+'.ncrst',working_filepath+'.ncrst')
-            run.symlink(pathroot+'.parm7',os.path.join(run.path,root+'.parm7'))
-            
-            if argSet['restraint_file'] == False and parm == 'complex':
-                print('No restraint file found.\n',' This script will identify 6 atoms best suited for NMR restraints in AMBER\n')
-                print('select one of the follow options 3 options to create restraints\n')
-                print(' 1 : Distance restraints will be between CoM ligand adn CoM receptor\n')
-                print(' 2 : Distance Restraints will be between CoM ligand and closest heavy atom in receptor\n')
-                print(' 3 : Distance restraints will be between the two closest heavy atoms in the ligand and the receptor/n')                                        
-            
-                restraint_type = int(input('[1, 2, 3] [1] : ') or 1)
-                atom_R3, atom_R2, atom_R1, atom_L1, atom_L2, atom_L3, dist_rest, lig_angrest, rec_angrest, lig_torres, rec_torres, central_torres = findrest.restraint_maker(argSet[parm], coord, restraint_type)
-                
-                run.writeTemplate("restraint.RST",
-                                atom_R3 = atom_R3,
-                                atom_R2 = atom_R2,
-                                atom_R1 = atom_R1,
-                                atom_L1 = atom_L1,
-                                atom_L2 = atom_L2,
-                                atom_L3 = atom_L3,
-                                dist_rest = dist_rest,
-                                lig_angrest = lig_angrest,
-                                rec_angrest = rec_angrest,
-                                central_torres = central_torres,
-                                rec_torres = rec_torres,
-                                lig_torres = lig_torres
-                                )
-                
-            run.writeTemplate("mdgb.mdin",
-                            dt = dt, ntr = ntr, nstlim = nstlim,
-                            ntpr = ntpr, ntwx = ntwx,
-                            irest = irest, ntx = ntx, fceread=fceread,
-                            nmropt = nmropt, fcewrite = argSet["nstlim"]
-                            )
-            
-            cmds = ""
-            if argSet["pbs"] is None:
-                cmds = " ".join(run.fillTemplate("module"))+"\n"
-            cmds += " ".join(run.fillTemplate(template,
-                                    SFX=sfx,
-                                    pathroot=working_filepath,
-                                    root=root,
-                                    ))
-            
-            run.submitTemplate(cmds, setup="module add "+argSet["amber_version"],
-                                    solv=argSet['igb'],solu=solu
-                            )
-            '''
-
+       toil.start(parent_job)
+       #toil.start(ligand_job) 
