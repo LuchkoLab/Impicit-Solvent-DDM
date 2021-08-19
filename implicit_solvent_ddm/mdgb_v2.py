@@ -35,7 +35,7 @@ Current option:
    add_Exclusions: Uses parmed to exclude interactions between lignad and receptor.
    interpolate: Uses a pre-created set of interpolation parm files to stratify a step within the cycle.  Currenlty only works with turning on and off charges.
 
-'''
+   '''
 
 #from _typeshed import NoneType
 import simrun
@@ -47,7 +47,8 @@ import re
 import parmed as pmd
 import logging
 import yaml
-import subprocess 
+import subprocess
+from pathlib import Path
 from string import Template
 from argparse import ArgumentParser
 from toil.common import Toil
@@ -61,13 +62,142 @@ from toil.job import Job
 
 #log = logging.getLogger(__name__)
 
+
+def main():
+    parser = Job.Runner.getDefaultArgumentParser()
+    parser.add_argument('--config_file', nargs='*', type=str, required=True, help="configuartion file with input parameters")
+    options = parser.parse_args()
+    options.logLevel = "INFO"
+    options.clean = "always"
+
+    config = options.config_file[0]
+    with open(config) as file:
+        config = yaml.load(file,Loader=yaml.FullLoader)
+    argSet = {}
+    argSet.update(config)
+
+    run_simrun(argSet)
+   #create a log file
+    Path('mdgb/log_file.txt').touch()
+    options.logFile = "mdgb/log_file.txt"
+
+    with Toil(options) as toil:
+
+       #check whether an mdin file was provided
+        if argSet['parameters']['mdin'] is None:
+            file_name = 'mdin'
+            print('No mdin file specified. Generating one automaticalled called: %s' %str(file_name))
+            mdin = make_mdin_file(state_label=9)
+            mdin_file = toil.importFile("file://" + os.path.abspath(os.path.join(mdin)))
+            mdin_filename= 'mdin'
+
+        try: parent_job
+        except NameError: parent_job = None
+        complex_outputs = {}
+
+       #iterate through the parameters within the config file
+       #for key in argSet['parameters']:
+        if argSet['parameters']['ligand_parm']:
+            key = 'ligand_parm'
+            num_of_ligands = len(argSet['parameters'][key])
+            ligand_state = 2
+            for ligand in argSet['parameters'][key]:
+                ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, output_dir = getfiles(toil,ligand, ligand_state, argSet['parameters']['ligand_coord'][-num_of_ligands])
+                if parent_job is None:
+                    parent_job = Job.wrapJobFn(run_md, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
+                   #parent_job.addChildJobFn(main, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
+                   #ligand job will be wrap into a child function
+                   #ligand_job = main_job.addChildJobFn(main, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
+
+                else:
+                    parent_job.addChildJobFn(run_md, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
+
+                num_of_ligands = num_of_ligands -1
+
+        if argSet['parameters']['receptor_parm']:
+            key = 'receptor_parm'
+            num_of_receptors = len(argSet['parameters'][key])
+            receptor_state = 2
+            for receptor in argSet['parameters'][key]:
+                receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, output_dir = getfiles(toil,receptor, receptor_state, argSet['parameters']['receptor_coord'][-num_of_receptors])
+
+                   #receptor_job = ligand_job.addChildJobFn(main, receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, mdin_file, mdin_filename, output_dir, receptor_state, argSet, "receptor job")
+                parent_job.addChildJobFn(run_md, receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, mdin_file, mdin_filename, output_dir, receptor_state, argSet, "receptor job")
+                   #receptor_job = main_job.addChildJobFn(main, receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, mdin_file, mdin_filename, output_dir, receptor_state, argSet, "receptor job")
+                num_of_receptors = num_of_receptors -1
+
+        if argSet['parameters']['complex']:
+            key = 'complex'
+            num_of_complexes = len(argSet['parameters'][key])
+            complex_state = 9
+            for complexes in argSet['parameters'][key]:
+                complex_file, complex_filename, complex_rst, complex_rst_filename, output_dir = getfiles(toil,complexes, complex_state, argSet['parameters']['complex_rst'][-num_of_complexes])
+               # a job from input files
+                complex_job = parent_job.addChildJobFn(run_md, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,output_dir, complex_state , argSet, "complex")
+
+                solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", complexes)
+
+               #print('complex_file' , complex_file)
+               #print('complex_job.rv(0)', complex_job.rv(0))
+                restraint_job = complex_job.addFollowOnJobFn(find_orientational_restraints, complex_file, complex_filename, complex_job.rv(), complex_rst_filename, 1, os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(7)))
+
+
+                       #complex_outputs[re.sub(r".*/([^/.]*)\.[^.]*",r"\1", complexes)] = main_job.rv()
+
+                       #restraints_job = main_job.addChildJobFn(
+                
+#main_job.addChildJobFn(main, complex_file, complex_filename, main_job.rv(), "restrt", mdin_file, mdin_filename, os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(7)), 7 , argSet, "complex")
+
+
+                num_of_complexes = num_of_complexes - 1
+
+
+        toil.start(parent_job)
+       #toil.start(ligand_job)
+
+
 def initilized_jobs(job):
     #job.log("Hello world, I have a message: {}".format(message))
     job.log('initialize_jobs')
 
-def main(job, solute_file, solute_filename, solute_rst, solute_rst_filename, mdin_file, mdin_filename, output_dir, state_label, argSet,message):
-    
+
+def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, mdin_file, mdin_filename, output_dir, state_label, argSet,message):
+    """
+    Locally run AMBER library engines for molecular dynamics 
+
+    Parameters
+    ----------
+    job: toil.job.FunctionWrappingJob
+        A context manager that represents a Toil workflow
+    solute_file: toil.fileStore.FileID
+        The jobStoreFileID of the imported file is an parameter file (ex: File://tmp/path/solute.parm7)
+    solute_filename: str
+        Name of solute file (ex: solute.parm7)
+    solute_rst: toil.fileStore.FileID
+        The jobStoreFileID of the imported file being a coordinate file (ex: File://tmp/path/solute.ncrst)
+    solute_rst_filename: str
+        Name of coordinate file (ex: solute.ncrst)
+    mdin_file: toil.fileStore.FileID
+        jobStoreFileID of an imported MD input file
+    mdin_filename: str
+        Name of MD file 
+    output_dir: str
+        Absolute directory path where output files would be exported into 
+    state_label: int 
+        A flag to denote which state/step is currently being ran 
+    argSet: dict 
+        Dictionary of key:values obtained from a .yaml configuration file 
+    message: str
+        A unique string that will denote the type of solute. Ex receptor, ligand or complex 
+
+    Returns
+    -------
+    restrt_file: toil.fileStore.FileID
+        A jobStoreFileID of a restart file created after the completion of a MD run
+
+    """
     job.log("this is the current job running {}".format(message))
+
     tempDir = job.fileStore.getLocalTempDir()
     solute = job.fileStore.readGlobalFile(solute_file,  userPath=os.path.join(tempDir, solute_filename))
     rst = job.fileStore.readGlobalFile(solute_rst, userPath=os.path.join(tempDir, solute_rst_filename))
@@ -82,7 +212,7 @@ def main(job, solute_file, solute_filename, solute_rst, solute_rst_filename, mdi
     subprocess.check_call(["pmemd", "-O", "-i", mdin, "-p", solute, "-c", rst])
     mdout_filename = "mdout"
     mdinfo_filename = "mdinfo"
-     restrt_filename = "restrt"
+    restrt_filename = "restrt"
     mdcrd_filename = "mdcrd"
 
     mdout_file = job.fileStore.writeGlobalFile(mdout_filename)
@@ -100,80 +230,136 @@ def main(job, solute_file, solute_filename, solute_rst, solute_rst_filename, mdi
     #job.fileStore.readGlobalFile(mdinfo_file, userPath=os.path.join(output_dir, mdinfo_filename))    
 
 
-def find_restraints(job, complex_file, complex_filename, complex_coord, complex_coord_filename, restraint_type, output_dir):
-     tempDir = job.fileStore.getLocalTempDir()
-     solute = job.fileStore.readGlobalFile(complex_file , userPath=os.path.join(tempDir, complex_filename))
-     solute_coordinate = job.fileStore.readGlobalFile(complex_coord, userPath=os.path.join(tempDir, complex_coord_filename))
-     atom_R3, atom_R2, atom_R1, atom_L1, atom_L2, atom_L3, dist_rest, lig_angrest, rec_angrest, lig_torres, rec_torres, central_torres = findrest.remote_run_complex(solute, solute_coordinate, 1)
+def find_orientational_restraints(job, complex_file, complex_filename, complex_coord, complex_coord_filename, restraint_type, output_dir):
+    
+    '''
+    To create an orientational restraint .RST file 
 
-     restraint_path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/templates/restraint.RST")
-     with open(restraint_path) as t:
-          template = Template(t.read())
-          restraint_template = template.substitute(
-               atom_R3 = atom_R3,
-               atom_R2 = atom_R2,
-               atom_R1 = atom_R1,
-               atom_L1 = atom_L1,
-               atom_L2 = atom_L2,
-               atom_L3 = atom_L3,
-               dist_rest = dist_rest,
-               lig_angrest = lig_angrest,
-               rec_angrest = rec_angrest,
-               central_torres = central_torres,
-               rec_torres = rec_torres,
-               lig_torres = lig_torres
-               )
+    The function is an Toil function which will run the restraint_finder module and returns 6 atoms best suited for NMR restraints.  
+
+    Parameters
+    ----------
+    job: Toil Job object 
+        Units of work in a Toil worflow is a Job
+    complex_file: toil.fileStore.FileID 
+        The jobStoreFileID of the imported file is an parameter file (.parm7) of a complex
+    complex_filename: str
+        Name of the parameter complex file 
+    complex_coord: toil.fileStore.FileID
+        The jobStoreFileID of the imported file. The file being an coordinate file (.ncrst, .nc) of a complex
+    complex_coord_filename: str
+        Name of the coordinate complex file
+    restraint_type: int 
+        The type of orientational restraints chosen. 
+    output_dir: str
+        The absolute path where restraint file will be exported to. 
+
+    Returns
+    -------
+    None 
+    '''
+    tempDir = job.fileStore.getLocalTempDir()
+    solute = job.fileStore.readGlobalFile(complex_file , userPath=os.path.join(tempDir, complex_filename))
+    solute_coordinate = job.fileStore.readGlobalFile(complex_coord, userPath=os.path.join(tempDir, complex_coord_filename))
+    atom_R3, atom_R2, atom_R1, atom_L1, atom_L2, atom_L3, dist_rest, lig_angrest, rec_angrest, lig_torres, rec_torres, central_torres = findrest.remote_run_complex(solute, solute_coordinate, 1)
+
+    restraint_path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/templates/restraint.RST")
+    with open(restraint_path) as t:
+        template = Template(t.read())
+        restraint_template = template.substitute(
+            atom_R3 = atom_R3,
+            atom_R2 = atom_R2,
+            atom_R1 = atom_R1,
+            atom_L1 = atom_L1,
+            atom_L2 = atom_L2,
+            atom_L3 = atom_L3,
+            dist_rest = dist_rest,
+            lig_angrest = lig_angrest,
+            rec_angrest = rec_angrest,
+            central_torres = central_torres,
+            rec_torres = rec_torres,
+            lig_torres = lig_torres
+            )
+        
+    with open('Restraint.RST', "w") as output:
+        output.write(restraint_template)
      
-     with open('Restraint.RST', "w") as output:
-            output.write(restraint_template)
-     
-     restraint_file = job.fileStore.writeGlobalFile('Restraint.RST')
-     job.fileStore.exportFile(restraint_file, "file://" + os.path.abspath(os.path.join(output_dir, "Restraint.RST")))
+    restraint_file = job.fileStore.writeGlobalFile('Restraint.RST')
+    job.fileStore.exportFile(restraint_file, "file://" + os.path.abspath(os.path.join(output_dir, "Restraint.RST")))
      
      
 
 def run_simrun(argSet, dirstruct = "dirstruct"):
+    """
+    Creates unique directory structure for all output files when created. 
 
-
-   struct = simrun.getDirectoryStructure(dirstruct)
+    Parameters
+    ----------
+    argSet: dict 
+        A dictionary of parameters from a .yaml configuation file
+    dirstruct: str
+        dirstruct is a preference File used to create new directory structures when simrun.getRun() is called. 
+    
+    Returns
+    -------
+    None 
+    """
+    sim = simrun.SimRun("mdgb", description = '''Perform molecular dynamics with GB or in vacuo''')
+     
+    
+    struct = sim.getDirectoryStructure(dirstruct)
    #iterate through solutes
 
-   for key in argSet['parameters']:
-       if key == 'complex':
-           complex_state = 7
-           while complex_state <= 9:
-               for complex in argSet['parameters'][key]:
-                   argSet['solute'] = complex
-                   solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
-                   pathroot = re.sub(r"\.[^.]*","",argSet['solute'])
-                   print('pathroot',pathroot)
-                   root = os.path.basename(pathroot)
-                   print('root',root)
-                   argSet['state_label'] = complex_state
-                   run = simrun.getRun(argSet)
-               complex_state = complex_state + 1
-       if key == 'ligand_parm':
-           ligand_state = 2
-           while ligand_state <= 5:
-               for ligand in argSet['parameters'][key]:
-                   argSet['solute'] = ligand
-                   solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
-                   argSet['state_label'] = ligand_state
-                   run = simrun.getRun(argSet)
-               ligand_state = ligand_state + 1
+    for key in argSet['parameters']:
+        if key == 'complex':
+            complex_state = 7
+            while complex_state <= 9:
+                for complex in argSet['parameters'][key]:
+                    argSet['solute'] = complex
+                    solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
+                    pathroot = re.sub(r"\.[^.]*","",argSet['solute'])
+                    print('pathroot',pathroot)
+                    root = os.path.basename(pathroot)
+                    print('root',root)
+                    argSet['state_label'] = complex_state
+                    run = sim.getRun(argSet)
+                complex_state = complex_state + 1
+        if key == 'ligand_parm':
+            ligand_state = 2
+            while ligand_state <= 5:
+                for ligand in argSet['parameters'][key]:
+                    argSet['solute'] = ligand
+                    solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
+                    argSet['state_label'] = ligand_state
+                    run = sim.getRun(argSet)
+                ligand_state = ligand_state + 1
 
-       if key == 'receptor_parm':
-           receptor_state = 2
-           while receptor_state <= 5:
-               for receptor in argSet['parameters'][key]:
-                   argSet['solute'] = receptor
-                   solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
-                   argSet['state_label'] = receptor_state
-                   run = simrun.getRun(argSet)
-               receptor_state = receptor_state + 1
-       
-
+        if key == 'receptor_parm':
+            receptor_state = 2
+            while receptor_state <= 5:
+                for receptor in argSet['parameters'][key]:
+                    argSet['solute'] = receptor
+                    solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
+                    argSet['state_label'] = receptor_state
+                    run = sim.getRun(argSet)
+                receptor_state = receptor_state + 1
+      
 def make_mdin_file(state_label):
+    """ Creates an molecular dynamics input file
+    
+    Function will fill a template and write an MD input file
+
+    Parameters
+    ----------
+    state_label: str
+        This is a placeholder to denote which state of the MD cycle
+
+    Returns
+    -------
+    mdin: str
+        Absolute path where the MD input file was created. 
+    """
+    
     mdin_path =os.path.abspath(os.path.dirname(
                 os.path.realpath(__file__)) + "/templates/mdgb.mdin")
     with open(mdin_path) as t:
@@ -197,7 +383,34 @@ def make_mdin_file(state_label):
             output.write(final_template)
         return os.path.abspath('mdin')
 
-def getfiles(toil,solute, key, state, solute_coord):
+def getfiles(toil,solute, state, solute_coord):
+    """
+    Imports all required MD files within a Toil workflow 
+    
+    Parameters
+    ----------
+    toil: class toil.common.Toil
+        A context manager that represents a Toil workflow 
+    solute: str
+        Absolute path to a parameter file for MD simulations 
+    state: int
+        A label to dentote which state of the themodynamic cycle 
+    solute_coord: str
+        Absolute path to a coordinate file for MD simulations 
+
+    Returns
+    ------
+    solute_file: toil.fileStore.FileID
+        The jobStoreFileID of the imported file (parameter file)
+    solute_filename: str
+        Name of solute file (ex: solute.parm7)
+    solute_rst: toil.fileStore.FileID
+         The jobStoreFileID of the imported file (coordinate file)
+    solute_rst_filename: str
+         Name of solute coordinate file (ex: solute.ncrst)
+    output_dir: str
+         Absolute path of a directory for output files. 
+    """
     print('solute', solute)
     solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",solute)
     solute_file =  toil.importFile("file://" + os.path.abspath(os.path.join(solute)))
@@ -209,22 +422,27 @@ def getfiles(toil,solute, key, state, solute_coord):
 
     return solute_file, solute_filename, solute_rst, solute_rst_filename, output_dir
 
-def export_files(mdout_file, mdinfo_file, restrt_file, mdcrd_file, output_dir):
-    print( "file://" + os.path.abspath(os.path.join(output_dir, "mdout")))
-    Toil.exportFile(mdout_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdout")))
-    Toil.exportFile(mdinfo_file,  "file://" + os.path.abspath(os.path.join(output_dir, "mdinfo")))
-    Toil.exportFile(restrt_file, "file://" + os.path.abspath(os.path.join(output_dir, "restrt")))
-    Toil.exportFile(mdcrd_file, "file://" + os.path.abspath(os.path.join(output_dir,"mdcrd")))
-
-
 def alter_parm_file(parm7_file, rst7_file, filepath, charge_val, Exclusions):
+    """
+    For alternating the charge on specific parameter file
+
+    Parameters
+    ----------
+    parm7_file: str
+        Absolute path to a parameter file 
+    rst7_file: str
+        Absolute path to a coordinate file
+    filepath: ?
+    charge_val: int
+        The change in charge value 
+    Exculsions: bool
+        Whether to exclude electrostatic interactions between receptor and ligand
+
+    Returns
+    -------
+    None 
+    """
     
-    '''
-    #This function is called for parm altering options.
-    #Currently those options include:
-        add_Exclusions: add exclusions between host an guest
-        charge: alters the values of the ligands charges
-        '''
     complex_traj = pmd.load_file(parm7_file, xyz = rst7_file)
     print ('parm7_file',parm7_file)
     print ('filepath',filepath)
@@ -238,29 +456,39 @@ def alter_parm_file(parm7_file, rst7_file, filepath, charge_val, Exclusions):
     complex_traj.save(filepath+".parm7")
 
 def use_interpolation_parms(inter_parm, working_dir):
-   '''
-    This function is for use with interpolating between tunring charges on and off.
-    Pre-created parm files are required.
+   """
+   This function is for use with interpolating between tunring charges on and off. 
+    
+   Pre-created parm files are required.
 
-   '''
+   Parameters
+   ----------
+   inter_parm: str
+       Name of the paramter file 
+   working_dir: str
+       Absolute path of the working directory 
+
+   Returns
+   -------
+   None 
+   """
    print(inter_parm, working_dir)
    run.symlink(inter_parm, working_dir+'.parm7')
-    
 
-    
-def Add_Exclusions(parm7_file, rst7_file, filepath):
-    #This fuction uses parmed's addExclusions to turn off ligand/recptor interactions in a complex
-    print ('parm7_file',parm7_file)
-    print ('rst7_file',rst7_file)
-    print ('filepath',filepath)
-    complex_traj = pmd.load_file(parm7_file, xyz = rst7_file)
-    #Log this exclusion
-    pmd.tools.actions.addExclusions(complex_traj, '!:CB7', ':CB7').execute()  
-    complex_traj.save(filepath+".parm7")  
-    complex_traj.save(filepath+".ncrst")
-
-
+ 
 def write_empty_restraint_file():
+    """
+    Creates an empty restraint file in the case the no restraints are desired for a current run.
+
+    Parameters
+    ----------
+    None 
+
+    Returns
+    -------
+    restraint.RST: str(file)
+        absolute path of the created restraint file
+    """
     #This function creates an empty restraint file in the case the no restraints are desired for a current run.
     #This function added by mbarton
     file = open("restraint.RST","w+")
@@ -269,7 +497,27 @@ def write_empty_restraint_file():
     return os.path.abspath("restraint.RST")
 
 def create_restraint_file(restraint_filetype, target_directory, root, freeze_force, orient_forces):
+    """
+    Creates restraint file for particular MD run 
 
+    
+    Parameters
+    ----------
+    restraint_filetype: int
+        An a value that specifies the type of restraints that will be created. (ex: conformational restraints or orientational restraints only)
+    target_directory: str
+        Absolute path to the working directory 
+    root: str
+        The basename of the solute. 
+    freeze_force: float 
+        The strength for conformational restraints
+    orient_forces: float
+        The strength for orientaional (dihedral & torsional) restraints
+
+    Returns
+    -------
+    None 
+    """
     print('restraint_filetype: ',restraint_filetype)
     print('target_directory: ',target_directory)
     #log = logging.getLogger(__name__)
@@ -389,99 +637,27 @@ def create_restraint_file(restraint_filetype, target_directory, root, freeze_for
     else:
         print("Invalid restraint_filetype passed to function create_restraint_file. \n"+restraint_filetype+" was passed, should be 1,2 or 3.")
 
-simrun = simrun.SimRun("mdgb", description = '''Perform molecular dynamics with GB or in vacuo''')
+#sim = simrun.SimRun("mdgb", description = '''Perform molecular dynamics with GB or in vacuo''')
 
 if __name__ == "__main__":
     
-   """Creates directory structure and runs MD siulations for entire free energy cycle.
+   """
+                         Toil Workflow for Rigorous Absolute Binding Free Energy Calculations with 3D-RISM
+
+   Quickstart:
+   1. Run python mdgb_v2.py --config_file users_config_file 
    
    Parameters
    ----------
    None
+
+   Returns
+   -------
+   None
    
    """
-   parser = Job.Runner.getDefaultArgumentParser()
-   parser.add_argument('--config_file', nargs='*', type=str, required=True, help="configuartion file with input parameters")
-   options = parser.parse_args()
-   options.logLevel = "INFO"
-   options.clean = "always"
-   
-   config = options.config_file[0]
-   with open(config) as file:
-       config = yaml.load(file,Loader=yaml.FullLoader)
-   argSet = {}
-   argSet.update(config)
-
-   run_simrun(argSet)
-
-   with Toil(options) as toil:
-        
-       #check whether an mdin file was provided 
-       if argSet['parameters']['mdin'] is None:
-           file_name = 'mdin'
-           print('No mdin file specified. Generating one automaticalled called: %s' %str(file_name))
-           mdin = make_mdin_file(state_label=9)
-           mdin_file = toil.importFile("file://" + os.path.abspath(os.path.join(mdin)))
-           mdin_filename= 'mdin'
-           
-       try: parent_job
-       except NameError: parent_job = None 
-       complex_outputs = {}
-       #iterate through the parameters within the config file 
-       #for key in argSet['parameters']:
-       if argSet['parameters']['ligand_parm']:
-           key = 'ligand_parm'
-           num_of_ligands = len(argSet['parameters'][key])
-           ligand_state = 2
-           for ligand in argSet['parameters'][key]:
-               ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, output_dir = getfiles(toil,ligand,key, ligand_state, argSet['parameters']['ligand_coord'][-num_of_ligands])
-               if parent_job is None:
-                   parent_job = Job.wrapJobFn(main, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
-                   #parent_job.addChildJobFn(main, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
-                   #ligand job will be wrap into a child function 
-                   #ligand_job = main_job.addChildJobFn(main, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
-               else:
-                   parent_job.addChildJobFn(main, ligand_file, ligand_filename, ligand_rst, ligand_rst_filename, mdin_file, mdin_filename, output_dir, ligand_state , argSet, "ligand job")
-                   
-               num_of_ligands = num_of_ligands -1 
-
-       if argSet['parameters']['receptor_parm']:
-           key = 'receptor_parm'
-           num_of_receptors = len(argSet['parameters'][key])
-           receptor_state = 2
-           for receptor in argSet['parameters'][key]:
-               receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, output_dir = getfiles(toil,receptor,key,receptor_state, argSet['parameters']['receptor_coord'][-num_of_receptors])
-
-                   #receptor_job = ligand_job.addChildJobFn(main, receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, mdin_file, mdin_filename, output_dir, receptor_state, argSet, "receptor job")
-               parent_job.addChildJobFn(main, receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, mdin_file, mdin_filename, output_dir, receptor_state, argSet, "receptor job")
-                   #receptor_job = main_job.addChildJobFn(main, receptor_file,receptor_filename, receptor_rst, receptor_rst_filename, mdin_file, mdin_filename, output_dir, receptor_state, argSet, "receptor job")
-               num_of_receptors = num_of_receptors -1 
-
-       if argSet['parameters']['complex']:
-           key = 'complex'
-           num_of_complexes = len(argSet['parameters'][key])
-           complex_state = 9
-           for complexes in argSet['parameters'][key]:
-               complex_file, complex_filename, complex_rst, complex_rst_filename, output_dir = getfiles(toil,complexes,key, complex_state, argSet['parameters']['complex_rst'][-num_of_complexes])
-               # a job from input files
-               complex_job = parent_job.addChildJobFn(main, complex_file, complex_filename, complex_rst, complex_rst_filename, mdin_file, mdin_filename,output_dir, complex_state , argSet, "complex")
-               
-               solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", complexes)
-               
-               #print('complex_file' , complex_file)
-               #print('complex_job.rv(0)', complex_job.rv(0))
-               restraint_job = complex_job.addFollowOnJobFn(find_restraints, complex_file, complex_filename, complex_job.rv(), complex_rst_filename, 1, os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(7)))
-               
-               
-                       #complex_outputs[re.sub(r".*/([^/.]*)\.[^.]*",r"\1", complexes)] = main_job.rv()
-               
-                       #restraints_job = main_job.addChildJobFn(
-
-#main_job.addChildJobFn(main, complex_file, complex_filename, main_job.rv(), "restrt", mdin_file, mdin_filename, os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(7)), 7 , argSet, "complex")
-                     
-
-               num_of_complexes = num_of_complexes - 1
-
-
-       toil.start(parent_job)
-       #toil.start(ligand_job) 
+   try: 
+       main()
+   except UserError as e:
+       print(e.message, file=sys.stderr)
+       sys.exit(1)
