@@ -1,25 +1,21 @@
 #user input values
+
  parameters:
-  complex :   # path parmtop file
-  complex_rst :  #coordinate file to complex 
-  runtype:  # options production ('prod') or equilibrum run ('eq')
-  temperature : 
-  igb :  # GB model to be run. choices = [1,2,5,7,8]
-  saltcon :  # salt concentration
-  rgbmax :  #cut off for determining effective Born radii
-  cut :  # cut off for electrostatis
-  gbsa :  # inlcude surface area forces
-  surften:  #surface tenstion for surface area forces
-  nstlim:  # number of time steps
-  amber_version:  #amber version
-  restraint_file :  #optional restraint file for complex 
-  excutable :  #machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
+  complex_parameter_filename: # list of topology file of a complex 
+  complex_coordinate_filename: # list of coordinate file of a complex 
+  restraint_file: # optional restraint file 
+  orientational_restraint_type: # list of orientational restraint values 
+  mdin: #optional mdin 
+  executable: # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
+  mpi: # number of core for CPU run 
+  restraint_type: # choices: [ 1: CoM-CoM, 2: CoM-Heavy_Atom, 3: Heavy_Atom-Heavy_Atom, must be 1, 2 or 3 ]
+  receptor_mask: # list of Amber masks denoting receptor atoms in respected complex file 
+  ligand_mask: # list of Amber masks denoting ligand atoms in respected complex file 
+  freeze_restraints_forces: # list of conformational force values 
 
- step2:
-  receptor_parm :  #path to prmtop file to receptor only 
-  receptor_coord :  #path to receptor coordinate 
-  ligand_parm :  # path to prmtop file of ligand
-  ligand_coord :  #path to coordinate file of ligand 
-
-
+ optional_parameters:
+  ligand_parameter_file: #paramter file for only the ligand
+  ligand_coordinate_file: # restart file for ligand only
+  receptor_parameter_file:  #parameter file for only the receptor
+  receptor_coordinate_file:  # restart file for receptor only
 
