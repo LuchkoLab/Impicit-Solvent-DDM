@@ -20,8 +20,8 @@ dependencies:
   - pytest-cov
   - codecov
 
-    # Pip-only installs
-  - pip:
+    # conda-only installs
+  - conda:
      - toil
-     - pytraj==2.0.5
+     - "-c ambermd pytraj" 
      #  - codecov
