@@ -23,5 +23,5 @@ dependencies:
     # Pip-only installs
   - pip:
      - toil
-     - pytraj>=2.0.5
+     - pytraj==2.0.5
      #  - codecov
