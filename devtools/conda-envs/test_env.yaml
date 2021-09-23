@@ -9,6 +9,14 @@ dependencies:
   - python
   - pip
 
+    # Package dependencies
+  - toil
+  - pandas
+  - numpy
+  - pyyaml
+  - pytraj
+  - ParmEd 
+   
     # Testing
   - pytest
   - pytest-cov
