@@ -10,11 +10,9 @@ dependencies:
   - pip
 
     # Package dependencies
-  - toil
   - pandas
   - numpy
   - pyyaml
-  - pytraj
   - ParmEd 
    
     # Testing
@@ -23,6 +21,7 @@ dependencies:
   - codecov
 
     # Pip-only installs
-  #- pip:
-  #  - codecov
-
+  - pip:
+     - toil
+     - pytraj
+     #  - codecov
