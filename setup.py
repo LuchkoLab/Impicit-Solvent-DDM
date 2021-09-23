@@ -27,15 +27,17 @@ setup(
     description=short_description[0],
     long_description=long_description,
     long_description_content_type="text/markdown",
-    version=versioneer.get_version(),
-    cmdclass=versioneer.get_cmdclass(),
+    #version=versioneer.get_version(),
+    version='0.0.1',
+    #cmdclass=versioneer.get_cmdclass(),
     license='MIT',
 
     # Which Python importable modules should be included when your package is installed
     # Handled automatically by setuptools. Use 'exclude' to prevent some specific
     # subpackage(s) from being added, if needed
     packages=find_packages(),
-
+    #scripts 
+    scripts = ['implicit_solvent_ddm/run_implicit_ddm.py'],
     # Optional include package data to ship with your package
     # Customize MANIFEST.in if the general case does not suit your needs
     # Comment out this line to prevent the files from being packaged with your software
@@ -46,7 +48,12 @@ setup(
 
     # Additional entries you may want simply uncomment the lines you want and fill in the data
     # url='http://www.my_package.com',  # Website
-    # install_requires=[],              # Required packages, pulls from pip if needed; do not use for Conda deployment
+    install_requires=['toil[all]',
+                      'pandas>=1.01',
+                      'numpy>=1.18.1',
+                      'pyyaml>=5.4.1',
+                      'pytraj>=2.0.5',
+                      'ParmEd>=3.4.3'],              # Required packages, pulls from pip if needed; do not use for Conda deployment
     # platforms=['Linux',
     #            'Mac OS-X',
     #            'Unix',
