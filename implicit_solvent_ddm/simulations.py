@@ -7,10 +7,10 @@ import os, os.path
 from string import Template 
 #local imports 
 from implicit_solvent_ddm.restraints import write_empty_restraint_file
-from implicit_solvent_ddm.restraints import write_conformational_restraints
+from implicit_solvent_ddm.restraints import write_restraint_forces
 from implicit_solvent_ddm.alchemical import turn_off_charges 
 
-def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, output_dir, argSet, message, work_dir=None, conformational_restraint = None, solvent_turned_off=None, charge_off = None, ligand_mask = None):
+def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, output_dir, argSet, message, work_dir= None, ligand_mask = None, conformational_restraint = None, orientational_restraint = None, solvent_turned_off=False, charge_off = False, exculsions=False):
     """
     Locally run AMBER library engines for molecular dynamics
 
@@ -50,7 +50,7 @@ def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, o
     tempDir = job.fileStore.getLocalTempDir()
     
 
-    if charge_off != None: 
+    if charge_off: 
         temp_solute_filename = job.fileStore.readGlobalFile(solute_file,  userPath=os.path.join(tempDir, solute_filename))
         rst = job.fileStore.readGlobalFile(solute_rst, userPath=os.path.join(tempDir, solute_rst_filename))
 
@@ -79,7 +79,8 @@ def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, o
 
     
     if conformational_restraint != None:
-        restraint_file = job.fileStore.importFile("file://" + write_conformational_restraints(solute_filename,conformational_restraint, work_dir))
+        restraint_file = job.fileStore.importFile("file://" + write_restraint_forces(solute_filename, work_dir, conformational_restraint, orientational_restraint))
+
         restraint_basename = os.path.basename(restraint_file)
         job.log('restraint_freeze_file : ' + str(restraint_file))
         restraint = job.fileStore.readGlobalFile(restraint_file, userPath=os.path.join(tempDir,'restraint.RST'))
