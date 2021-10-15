@@ -48,6 +48,12 @@ def ddm_workflow(toil, df_config_inputs, argSet, work_dir):
 
     lambda_windows = [i for i in string.ascii_lowercase] 
     lambda_count = 0 
+    # list of conformational restraint forces 
+    con_rest = argSet["parameters"]["freeze_restraints_forces"]
+    # list of orientational restraint forces 
+    orien_rest = argSet["parameters"]["orientational_restriant_forces"]
+    # merge both list into list of tuples
+    restraint_tuples = list(map(lambda conformational, orientational:(conformational, orientational), con_rest, orien_rest))
 
     #loop through all complexes within the data frame 
     for n in range(len(df_config_inputs)):
@@ -90,39 +96,87 @@ def ddm_workflow(toil, df_config_inputs, argSet, work_dir):
                                                          df_config_inputs['ligand_parameter_filename'][n], df_config_inputs['ligand_parameter_basename'][n], 
                                                          split_job.rv(0), os.path.basename(str(split_job.rv(0))), 
                                                          get_output_dir(df_config_inputs['ligand_parameter_filename'][n],2), 
-                                                         argSet, "_ligand", 
-                                                         work_dir, conformational_rest)
+                                                         argSet, "running lambda windows: " +str(conformational_rest), 
+                                                         work_dir, conformational_restraint = conformational_rest)
             #begin running intermidate states for receptor 
-           # receptor_intermidate = split_job.addChildJobFn(run_md,
-                                                           #df_config_inputs['receptor_parameter_filename'][n], df_config_inputs['receptor_parameter_basename'][n],
-                                                           #split_job.rv(1), os.path.basename(str(split_job.rv(1))),
-                                                           #mdin_file, mdin_filename,
-                                                           #get_output_dir(df_config_inputs['receptor_parameter_filename'][n],2),
-                                                           #argSet, "_receptor",
-                                                           #work_dir, conformational_rest)
+            receptor_intermidate = split_job.addChildJobFn(run_md,
+                                                           df_config_inputs['receptor_parameter_filename'][n], df_config_inputs['receptor_parameter_basename'][n],
+                                                           split_job.rv(1), os.path.basename(str(split_job.rv(1))),
+                                                           get_output_dir(df_config_inputs['receptor_parameter_filename'][n],2),
+                                                           argSet, "running lambda windows for receptor: " + str(conformational_rest),
+                                                           work_dir, conformational_restraint = conformational_rest)
         #turning off the solvent for ligand simulation with force of conformational restraints
         turn_off_solvent_ligand_job = split_job.addChildJobFn(run_md,
                                                               df_config_inputs['ligand_parameter_filename'][n], df_config_inputs['ligand_parameter_basename'][n],
                                                               split_job.rv(0), os.path.basename(str(split_job.rv(0))),
                                                               get_output_dir(df_config_inputs['ligand_parameter_filename'][n],4),
-                                                              argSet, "_ligand",
-                                                              work_dir, argSet["parameters"]["freeze_restraints_forces"][-1], "solvent turned off") 
+                                                              argSet, "solvent off for ligand",
+                                                              work_dir, conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], solvent_turned_off=True) 
         #turn off the solvent for receptor simulation with force of conformational restraints
         turn_off_solvent_receptor_job = split_job.addChildJobFn(run_md,
                                                                 df_config_inputs['receptor_parameter_filename'][n], df_config_inputs['receptor_parameter_basename'][n],
                                                                 split_job.rv(1), os.path.basename(str(split_job.rv(1))),
                                                                 get_output_dir(df_config_inputs['receptor_parameter_filename'][n],4),
-                                                                argSet, "_receptor",
-                                                                work_dir, argSet["parameters"]["freeze_restraints_forces"][-1], "solvent turned off")
+                                                                argSet, "solvent off for receptor",
+                                                                work_dir, conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], solvent_turned_off=True)
         #set ligand net charge to 0 with full force of conformational restraints 
         turn_off_ligand_charges_job = split_job.addChildJobFn(run_md,
                                                               df_config_inputs['ligand_parameter_filename'][n], df_config_inputs['ligand_parameter_basename'][n],
                                                               split_job.rv(0), os.path.basename(str(split_job.rv(0))),
                                                               get_output_dir(df_config_inputs['ligand_parameter_filename'][n],5),
-                                                              argSet, "_ligand",
-                                                              work_dir, argSet["parameters"]["freeze_restraints_forces"][-1], 
-                                                              "solvent turned off", "turn off charges", 
-                                                              argSet["parameters"]["ligand_mask"][n])
+                                                              argSet, "ligand charge to zero and full conformational",
+                                                              work_dir, argSet["parameters"]["ligand_mask"][n], 
+                                                              conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], 
+                                                              solvent_turned_off=True, charge_off= True,
+                                                             )
+        # turn on all restraints conformational and orientational and exclusions 
+        add_orientational_restraints = restraint_job.addChildJobFn(run_md, 
+                                                                 df_config_inputs['complex_parameter_filename'][n], df_config_inputs['complex_parameter_basename'][n], 
+                                                                 complex_job.rv(0), os.path.basename(str(complex_job.rv(0))),  
+                                                                 get_output_dir(df_config_inputs['complex_parameter_filename'][n],7),
+                                                                 argSet, "_orientatinal restraints on",
+                                                                 work_dir, argSet["parameters"]["ligand_mask"][n], argSet["parameters"]["receptor_mask"][n],
+                                                                 conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], orientational_restraint = argSet["parameters"]["orientational_restriant_forces"][-1],
+                                                                 solvent_turned_off=True, charge_off= True, exculsions=True,
+                                                                 
+                                                             )
+        # turn on interactions with receptor and ligand 
+        add_back_ligand_receptor_interactions = restraint_job.addChildJobFn(run_md, 
+                                                                 df_config_inputs['complex_parameter_filename'][n], df_config_inputs['complex_parameter_basename'][n], 
+                                                                 complex_job.rv(0), os.path.basename(str(complex_job.rv(0))),  
+                                                                 get_output_dir(df_config_inputs['complex_parameter_filename'][n],'7a'),
+                                                                 argSet, "_orientatinal restraints on",
+                                                                 work_dir, argSet["parameters"]["ligand_mask"][n], argSet["parameters"]["receptor_mask"][n],
+                                                                 conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], orientational_restraint = argSet["parameters"]["orientational_restriant_forces"][-1],
+                                                                 solvent_turned_off=True, charge_off= True, exculsions=False)
+        # turn charges back on of the ligand 
+        add_back_charges_complex = restraint_job.addChildJobFn(run_md, 
+                                                                 df_config_inputs['complex_parameter_filename'][n], df_config_inputs['complex_parameter_basename'][n], 
+                                                                 complex_job.rv(0), os.path.basename(str(complex_job.rv(0))),  
+                                                                 get_output_dir(df_config_inputs['complex_parameter_filename'][n],'7b'),
+                                                                 argSet, "_orientatinal restraints on",
+                                                                 work_dir, argSet["parameters"]["ligand_mask"][n], argSet["parameters"]["receptor_mask"][n],
+                                                                 conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], orientational_restraint = argSet["parameters"]["orientational_restriant_forces"][-1],
+                                                                 solvent_turned_off=True, charge_off= False, exculsions=False)
+        # turn back on solvent interactions 
+        add_back_solvent_complex = restraint_job.addChildJobFn(run_md, 
+                                                                 df_config_inputs['complex_parameter_filename'][n], df_config_inputs['complex_parameter_basename'][n], 
+                                                                 complex_job.rv(0), os.path.basename(str(complex_job.rv(0))),  
+                                                                 get_output_dir(df_config_inputs['complex_parameter_filename'][n],'7c'),
+                                                                 argSet, "_orientatinal restraints on",
+                                                                 work_dir, argSet["parameters"]["ligand_mask"][n], argSet["parameters"]["receptor_mask"][n],
+                                                                 conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], orientational_restraint = argSet["parameters"]["orientational_restriant_forces"][-1],
+                                                                 solvent_turned_off=False, charge_off= False, exculsions=False)
+        # slowly turn off the restraints 
+        for restraints_forces in restraint_tuples:
+            complex_intermidate = restraint_job.addChildJobFn(run_md, 
+                                                                 df_config_inputs['complex_parameter_filename'][n], df_config_inputs['complex_parameter_basename'][n], 
+                                                                 complex_job.rv(0), os.path.basename(str(complex_job.rv(0))),  
+                                                                 get_output_dir(df_config_inputs['complex_parameter_filename'][n],'8'),
+                                                                 argSet, "_orientatinal restraints on",
+                                                                 work_dir, argSet["parameters"]["ligand_mask"][n], argSet["parameters"]["receptor_mask"][n],
+                                                                 conformational_restraint = restraints_forces[0], orientational_restraint = restraints_forces[1],
+                                                                 solvent_turned_off=False, charge_off= False, exculsions=False)
     return end_state_job
 
 def main():
@@ -152,14 +206,16 @@ def main():
 
     with Toil(options) as toil:
         #dataFrame containing absolute paths of topology and coordinate files. Also contains basenames of both file types 
-        dataframe_parameter_inputs = input_parser(argSet,toil)
+        if not toil.options.restart:
+            dataframe_parameter_inputs = input_parser(argSet,toil)
         
-        ddm_workflow_job = ddm_workflow(toil, dataframe_parameter_inputs, argSet, work_dir)
+            ddm_workflow_job = ddm_workflow(toil, dataframe_parameter_inputs, argSet, work_dir)
         
-        #dataframe_parameter_inputs.to_hdf('parameter_data_frame.h5',key='df', mode='w')
+            #dataframe_parameter_inputs.to_hdf('parameter_data_frame.h5',key='df', mode='w')
 
-        toil.start(ddm_workflow_job)
-
+            toil.start(ddm_workflow_job)
+        else:
+            toil.restart()
 
 def run_simrun(argSet, dirstruct = "dirstruct"):
     """
@@ -185,6 +241,7 @@ def run_simrun(argSet, dirstruct = "dirstruct"):
     for key in argSet['parameters'].keys():
         if key == 'complex_parameter_filename':
             complex_state = 7
+            intermidate_state = 7
             while complex_state <= 9:
                 for complex in argSet['parameters'][key]:
                     argSet['solute'] = complex
@@ -195,6 +252,9 @@ def run_simrun(argSet, dirstruct = "dirstruct"):
                     print('root',root)
                     argSet['state_label'] = complex_state
                     run = sim.getRun(argSet)
+                    for inter_state in ['a','b','c']:
+                        argSet['state_label'] = str(intermidate_state) + inter_state
+                        run = sim.getRun(argSet)
                 complex_state = complex_state + 1
         if key == 'ligand_parameter_filename':
             ligand_state = 2

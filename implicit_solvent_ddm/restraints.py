@@ -52,8 +52,8 @@ def make_restraints_file(job, complex_file, complex_filename, complex_restrt, co
     if not os.path.exists(work_dir + '/mdgb/freeze_restraints_folder/complex'):
          os.makedirs(work_dir + '/mdgb/freeze_restraints_folder/complex')
 
-    if not os.path.exists(work_dir + '/mdgb/orientational_restraints_folder'):
-        os.makedirs(work_dir + '/mdgb/orientational_restraints_folder')
+    if not os.path.exists(work_dir + '/mdgb/orientational_restraints_folder/complex/'):
+        os.makedirs(work_dir + '/mdgb/orientational_restraints_folder/complex/')
     
     #restraint_type = argSet["parameters"]["restraint_type"]
     #receptor_mask = argSet["parameters"]["receptor_mask"]
@@ -311,7 +311,7 @@ def write_orientational_restraints(complex_file, complex_name, complex_coordinat
             trest = '$trest'
             )
 
-    with open(work_dir + '/mdgb/orientational_restraints_folder/'+ complex_name +'_orientational.RST', "a+") as output:
+    with open(work_dir + '/mdgb/orientational_restraints_folder/complex/'+ complex_name +'_orientational.RST', "a+") as output:
         output.write(restraint_template)
 
 def write_empty_restraint_file():
@@ -334,39 +334,78 @@ def write_empty_restraint_file():
     file.close()
     return os.path.abspath("restraint.RST")
 
-def write_conformational_restraints(solute_filename, conformational_restraint, work_dir):
+def write_restraint_forces(solute_filename, work_dir, conformational_restraint, orientational_restraint):
 
 
     #tempDir = job.fileStore.getLocalTempDir()
     current_toil_dir = os.getcwd()
     #solute = job.fileStore.readGlobalFile(solute_file, userPath=os.path.join(tempDir, solute_filename))
     #traj_file = job.fileStore.readGlobalFile(solute_traj_file, userPath=os.path.join(tempDir, solute_traj_filename))
-
-    restraint_path = os.path.abspath(work_dir + '/mdgb/freeze_restraints_folder/')
+   
+    #restraint paths for orientational and conformational restraint templates 
+    restraint_paths = []
+    if conformational_restraint != None:
+        restraint_paths.append(os.path.abspath(work_dir + '/mdgb/freeze_restraints_folder/'))
+    if orientational_restraint != None:
+        restraint_paths.append(os.path.abspath(work_dir + '/mdgb/orientational_restraints_folder/'))
     
     solu = re.sub(r"\..*", "", solute_filename)
 
-    os.chdir(restraint_path)
+    #os.chdir(restraint_path)
+    #restraint template files 
+    restraint_template_filenames = []
+    for path in restraint_paths:
+        os.chdir(path)
+        for directory in os.listdir():
+            os.chdir(directory)
+            for file in glob.glob(solu + "*"):
+                restraint_template_filenames.append(os.path.abspath(file))
+            os.chdir('../')
 
-    for directory in os.listdir():
-        os.chdir(directory)
-        for file in glob.glob(solu + "*"):
-            conformational_restraint_path = os.path.abspath(file)
-        os.chdir('../')
+    #for directory in os.listdir():
+     #   os.chdir(directory)
+      #  for file in glob.glob(solu + "*"):
+       #     conformational_restraint_path = os.path.abspath(file)
+        #os.chdir('../')
+    
     #move back to toil temporary directory
     os.chdir(current_toil_dir)
     
-    #con_basename = os.path.basename(conformational_restraint_path)
-    #con_file = job.fileStore.importFile("file://" +conformational_restraint_path)
+    # con_basename = os.path.basename(conformational_restraint_path)
+    # con_file = job.fileStore.importFile("file://" +conformational_restraint_path)
     
     #conformational_rest = job.fileStore.readGlobalFile(con_file, userPath=os.path.join(tempDir,con_basename))
     
-    with open(conformational_restraint_path) as t:
+    with open(restraint_template_filenames[0]) as t:
         template = Template(t.read())
         restraint_temp = template.substitute(
             frest = conformational_restraint
             )
-    with open('restraint.RST', 'a+') as output:
+   
+    if orientational_restraint != None:
+        with open(restraint_template_filenames[1]) as ot:
+            orientational_temp = Template(ot.read())
+            orientational_restraint_temp = orientational_temp.substitute(
+              drest = conformational_restraint,
+              arest = orientational_restraint,
+              trest = orientational_restraint
+            )
+        with open('temp_restraint.RST', 'a+') as output:
+            output.write(orientational_restraint_temp)
+
+    with open('temp_restraint.RST', 'a+') as output:
         output.write(restraint_temp)
+        #return os.path.abspath('restraint.RST')
     
-        return os.path.abspath('restraint.RST')
+    reading_file = open('temp_restraint.RST')
+    new_file_content = ""
+    for line in reading_file:
+        new_line = line.replace("&end", "")
+        new_file_content += new_line 
+    reading_file.close()
+    #write new restraint file 
+    writing_file = open("restraint.RST", "w")
+    writing_file.write(new_file_content)
+    writing_file.write("&end")
+    writing_file.close()
+    return os.path.abspath('restraint.RST')
