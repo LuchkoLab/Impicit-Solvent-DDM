@@ -1,5 +1,6 @@
 
 
+from genericpath import exists
 import subprocess
 import string
 import os, os.path 
@@ -9,8 +10,10 @@ from string import Template
 from implicit_solvent_ddm.restraints import write_empty_restraint_file
 from implicit_solvent_ddm.restraints import write_restraint_forces
 from implicit_solvent_ddm.alchemical import turn_off_charges 
+from implicit_solvent_ddm.alchemical import alter_topology_file
 
-def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, output_dir, argSet, message, work_dir= None, ligand_mask = None, conformational_restraint = None, orientational_restraint = None, solvent_turned_off=False, charge_off = False, exculsions=False):
+
+def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, output_dir, argSet, message, work_dir= None, ligand_mask = None, receptor_mask = None, conformational_restraint = None, orientational_restraint = None, solvent_turned_off=False, charge_off = False, exculsions=False):
     """
     Locally run AMBER library engines for molecular dynamics
 
@@ -53,10 +56,12 @@ def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, o
     if charge_off: 
         temp_solute_filename = job.fileStore.readGlobalFile(solute_file,  userPath=os.path.join(tempDir, solute_filename))
         rst = job.fileStore.readGlobalFile(solute_rst, userPath=os.path.join(tempDir, solute_rst_filename))
+        # import ligand parmtop into temporary directory 
+        #charge_off_solute_filename = job.fileStore.importFile("file://" + turn_off_charges(temp_solute_filename, rst, ligand_mask))        
+        altered_solute_filename = job.fileStore.importFile("file://" + alter_topology_file(temp_solute_filename, rst, ligand_mask, receptor_mask, charge_off, exculsions))
+        #solute = job.fileStore.readGlobalFile(charge_off_solute_filename,  userPath=os.path.join(tempDir, os.path.basename(charge_off_solute_filename)))
+        solute = job.fileStore.readGlobalFile(altered_solute_filename, userPath=os.path.join(tempDir, os.path.basename(altered_solute_filename)))
 
-        charge_off_solute_filename = job.fileStore.importFile("file://" + turn_off_charges(temp_solute_filename, rst, ligand_mask))        
-        solute = job.fileStore.readGlobalFile(charge_off_solute_filename,  userPath=os.path.join(tempDir, os.path.basename(charge_off_solute_filename)))
-        
     else:
         solute = job.fileStore.readGlobalFile(solute_file,  userPath=os.path.join(tempDir, solute_filename))
         rst = job.fileStore.readGlobalFile(solute_rst, userPath=os.path.join(tempDir, solute_rst_filename))
@@ -85,11 +90,16 @@ def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, o
         job.log('restraint_freeze_file : ' + str(restraint_file))
         restraint = job.fileStore.readGlobalFile(restraint_file, userPath=os.path.join(tempDir,'restraint.RST'))
 
+        if orientational_restraint != None:
+            if not os.path.exists(output_dir + '/' + str(conformational_restraint) + '_' + str(orientational_restraint)):
+                output_dir = os.path.join(output_dir + '/'+ str(conformational_restraint) + '_' + str(orientational_restraint))
+                os.makedirs(output_dir)
+        else:
         #make directory for specific conformational restraint force 
-        if not os.path.exists(output_dir + '/' + str(conformational_restraint)):
-            output_dir = os.path.join(output_dir + '/'+ str(conformational_restraint))
-            os.makedirs(output_dir)
-
+            if not os.path.exists(output_dir + '/' + str(conformational_restraint)):
+                output_dir = os.path.join(output_dir + '/'+ str(conformational_restraint))
+                os.makedirs(output_dir)
+        
     if argSet["parameters"]["mpi"]:
         exe = argSet["parameters"]["executable"]
         np = str(argSet["parameters"]["mpi"])
@@ -111,7 +121,9 @@ def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, o
     if conformational_restraint != None:
         job.log("running current conformational restraint value : " +str(conformational_restraint))
         job.log("conformational restraint mdout file: " + str(mdout_file))
-
+    
+    #export all files 
+    job.fileStore.exportFile(mdin,"file://" + os.path.abspath(os.path.join(output_dir, "mdin")))
     job.fileStore.exportFile(mdout_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdout")))
     job.fileStore.exportFile(mdinfo_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdinfo")))
     job.fileStore.exportFile(restrt_file, "file://" + os.path.abspath(os.path.join(output_dir,"restrt")))
@@ -128,7 +140,7 @@ def initilized_jobs(job, work_dir):
     job.log(f'initialized job, the current working directory is {work_dir}')
 
 
-def make_mdin_file(turn_on_conformational_rest=None, turn_off_solvent=None):
+def make_mdin_file(turn_on_conformational_rest, turn_off_solvent):
     """ Creates an molecular dynamics input file
 
     Function will fill a template and write an MD input file
@@ -149,7 +161,7 @@ def make_mdin_file(turn_on_conformational_rest=None, turn_off_solvent=None):
     with open(mdin_path) as t:
         template = Template(t.read())
     
-    if turn_on_conformational_rest == None:
+    if turn_on_conformational_rest==None:
         final_template = template.substitute(
             nstlim=1000,
             ntx=1,
@@ -166,7 +178,7 @@ def make_mdin_file(turn_on_conformational_rest=None, turn_off_solvent=None):
             )
 
 
-    if turn_on_conformational_rest != None and turn_off_solvent == None:
+    if turn_on_conformational_rest != None and turn_off_solvent == False:
          final_template = template.substitute(
             nstlim=100,
             ntx=1,
@@ -182,7 +194,7 @@ def make_mdin_file(turn_on_conformational_rest=None, turn_off_solvent=None):
             nmropt=1
             )
     
-    if turn_on_conformational_rest != None and turn_off_solvent != None:
+    if turn_on_conformational_rest != None and turn_off_solvent:
         final_template = template.substitute(
             nstlim=100,
             ntx=1,
