@@ -4,7 +4,6 @@ channels:
 - defaults
 dependencies:
 - _libgcc_mutex
-- _openmp_mutex
 - ambertools
 - arpack
 - boost-cpp
@@ -34,19 +33,15 @@ dependencies:
 - libedit
 - libev
 - libffi
-- libgcc-ng
 - libgfortran-ng
 - libgfortran4
 - libgfortran5
-- libgomp
 - liblapack
 - libnetcdf
 - libnghttp2
-- libnsl
 - libopenblas
 - libpng
 - libssh2
-- libstdcxx-ng
 - libtiff
 - libuuid
 - libwebp-base
@@ -94,6 +89,13 @@ dependencies:
 - xz
 - zlib
 - zstd
+
+# palmetto depencies unresolved 
+#- libstdcxx-ng
+#- libnsl
+#- libgomp
+#- libgcc-ng
+#- _openmp_mutex
 
 # Testing 
 - pytest
