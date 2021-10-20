@@ -69,9 +69,7 @@ dependencies:
 - pip=21.3=pyhd8ed1ab_0
 - pthread-stubs=0.4=h36c2ea0_1001
 - pyparsing=2.4.7=pyh9f0ad1d_0
-- python=3.7.10=hb7a2778_104_cpython
-- python-dateutil=2.8.2=pyhd8ed1ab_0
-- python_abi=3.7=2_cp37m
+- python 
 - pytz=2021.3=pyhd8ed1ab_0
 - readline=8.1=h46c0cb4_0
 - scipy=1.7.1=py37hf2a6cf1_0
