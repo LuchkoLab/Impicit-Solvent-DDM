@@ -4,7 +4,6 @@ channels:
   - defaults
 dependencies: 
   - _libgcc_mutex
-  - ambertools
   - arpack
   - boost-cpp
   - bzip2
@@ -101,6 +100,11 @@ dependencies:
   - pytest
   - pytest-cov
   - codecov
+# conda install ambertools 
+- name: Install ambertools
+  shell: bash -l {0}
+  run: |
+    conda install -c conda-forge ambertools 
 
 #prefix: /home/stevenayoub/.conda/envs/mol_ddm_env
 
