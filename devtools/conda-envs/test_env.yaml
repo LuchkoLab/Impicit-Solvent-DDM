@@ -1,20 +1,105 @@
-name: test
+name: mol_ddm_env
 channels:
-
   - conda-forge
-
   - defaults
-dependencies:
-    # Base depends
-  - python
+dependencies: 
+  - ambertools
+  - _libgcc_mutex
+  - arpack
+  - boost-cpp
+  - bzip2
+  - c-ares
+  - ca-certificates
+  - certifi
+  - curl
+  - cycler
+  - cython
+  - fftw
+  - freetype
+  - hdf4
+  - hdf5
+  - icu
+  - jbig
+  - jpeg
+  - kiwisolver
+  - krb5
+  - lcms2
+  #- ld_impl_linux-64
+  - lerc
+  - libblas
+  - libcblas
+  - libcurl
+  - libdeflate
+  #- libedit
+  #- libev
+  - libffi
+  #- libgfortran-ng
+  #- libgfortran4
+  #- libgfortran5
+  - liblapack
+  - libnetcdf
+  #- libnghttp2
+  - libopenblas
+  - libpng
+  - libssh2
+  - libtiff
+  #- libuuid
+  - libwebp-base
+  - libxcb
+  - libzip
+  - libzlib
+  - lz4-c
+  - matplotlib-base
+  #- ncurses
+  #- netcdf-fortran
+  - numpy
+  - olefile
+  - openjpeg
+  - openssl
+  #- packmol
+  - pandas
+  - parmed
+  - perl
+  - pillow
   - pip
+  - pthread-stubs
+  - pyparsing
+  - python 
+  - python-dateutil
+  - python_abi
+  - pytz
+  #- readline
+  - scipy
+  - setuptools
+  - six
+  - sqlite
+  - tk
+  - tornado
+  - wheel
+  - xorg-kbproto
+  - xorg-libice
+  - xorg-libsm
+  - xorg-libx11
+  - xorg-libxau
+  - xorg-libxdmcp
+  - xorg-libxext
+  - xorg-libxt
+  - xorg-xextproto
+  - xorg-xproto
+  - xz
+  - zlib
+  - zstd
 
-    # Testing
+# palmetto depencies unresolved 
+#- libstdcxx-ng
+#- libnsl
+#- libgomp
+#- libgcc-ng
+#- _openmp_mutex
+
+# Testing 
   - pytest
   - pytest-cov
   - codecov
-
-    # Pip-only installs
-  #- pip:
-  #  - codecov
+#prefix: /home/stevenayoub/.conda/envs/mol_ddm_env
 
