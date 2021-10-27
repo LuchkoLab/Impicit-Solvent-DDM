@@ -76,7 +76,9 @@ def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, o
         
     if conformational_restraint == None:
         restraint_file = job.fileStore.importFile("file://" + write_empty_restraint_file())
-        restraint = job.fileStore.readGlobalFile( restraint_file, userPath=os.path.join(tempDir,'restraint.RST'))
+
+        restraint_basename = os.path.basename(restraint_file)
+        restraint = job.fileStore.readGlobalFile( restraint_file, userPath=os.path.join(tempDir, restraint_basename))
              
         if not os.path.exists(output_dir + '/0'):
             output_dir = os.path.join(output_dir + '/0')
@@ -88,7 +90,7 @@ def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, o
 
         restraint_basename = os.path.basename(restraint_file)
         job.log('restraint_freeze_file : ' + str(restraint_file))
-        restraint = job.fileStore.readGlobalFile(restraint_file, userPath=os.path.join(tempDir,'restraint.RST'))
+        restraint = job.fileStore.readGlobalFile(restraint_file, userPath=os.path.join(tempDir, restraint_basename))
 
         if orientational_restraint != None:
             if not os.path.exists(output_dir + '/' + str(conformational_restraint) + '_' + str(orientational_restraint)):
