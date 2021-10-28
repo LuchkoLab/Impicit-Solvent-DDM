@@ -1,21 +1,23 @@
 #user input values
 
+#user input values
+
  parameters:
-  complex_parameter_filename: # list of topology file of a complex 
-  complex_coordinate_filename: # list of coordinate file of a complex 
-  restraint_file: # optional restraint file 
+  complex_parameter_filename: [structs/complex/cb7-mol01.parm7] # list of topology file of a complex 
+  complex_coordinate_filename: [structs/complex/cb7-mol01.ncrst] # list of coordinate file of a complex 
+  restraint_file: false # optional restraint file 
   orientational_restraint_type: # list of orientational restraint values 
   mdin: #optional mdin 
-  executable: # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
-  mpi: # number of core for CPU run 
-  restraint_type: # choices: [ 1: CoM-CoM, 2: CoM-Heavy_Atom, 3: Heavy_Atom-Heavy_Atom, must be 1, 2 or 3 ]
-  receptor_mask: # list of Amber masks denoting receptor atoms in respected complex file 
-  ligand_mask: # list of Amber masks denoting ligand atoms in respected complex file 
-  freeze_restraints_forces: # list of conformational force values 
-
+  executable: sander # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
+  mpi:  # number of core for CPU run 
+  restraint_type: 1 # choices: [ 1: CoM-CoM, 2: CoM-Heavy_Atom, 3: Heavy_Atom-Heavy_Atom, must be 1, 2 or 3 ]
+  receptor_mask: ':CB7' # list of Amber masks denoting receptor atoms in respected complex file 
+  ligand_mask: [':M01'] # list of Amber masks denoting ligand atoms in respected complex file 
+  freeze_restraints_forces: [0.00390625,0.0069601462354714, 0.012401570718501561, 0.02209708691207961, 0.0393725328092148, 0.07015387801933583, 0.125, 0.22272467953508493, 0.39685026299204995, 0.7071067811865476, 1.2599210498948736, 2.244924096618748, 4.0] # list of conformational force values 
+  orientational_restriant_forces: [0.00390625, 0.0078125, 0.015625, 0.03125, 0.0625,0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0 ]
  optional_parameters:
-  ligand_parameter_file: #paramter file for only the ligand
-  ligand_coordinate_file: # restart file for ligand only
-  receptor_parameter_file:  #parameter file for only the receptor
-  receptor_coordinate_file:  # restart file for receptor only
+  ligand_parameter_filename: #paramter file for only the ligand
+  ligand_coordinate_filename: # restart file for ligand only
+  receptor_parameter_filename:  #parameter file for only the receptor
+  receptor_coordinate_filename:  # restart file for receptor only
 
