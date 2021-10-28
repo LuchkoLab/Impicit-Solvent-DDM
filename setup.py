@@ -48,7 +48,7 @@ setup(
 
     # Additional entries you may want simply uncomment the lines you want and fill in the data
     # url='http://www.my_package.com',  # Website
-    install_requires=['toil[all]',
+    install_requires=['toil',
                       'pandas>=1.01',
                       'numpy>=1.18.1',
                       'pyyaml>=5.4.1',
