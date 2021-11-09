@@ -103,6 +103,3 @@ dependencies:
   - pytest-cov
   - codecov
 #prefix: /home/stevenayoub/.conda/envs/mol_ddm_env
-
-- pip:
-  - toil
