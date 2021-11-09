@@ -35,13 +35,15 @@ setup(
     # Which Python importable modules should be included when your package is installed
     # Handled automatically by setuptools. Use 'exclude' to prevent some specific
     # subpackage(s) from being added, if needed
-    packages=find_packages(),
+    packages=find_packages(
+        exclude=("tests")
+    ),
     #scripts 
     scripts = ['implicit_solvent_ddm/run_implicit_ddm.py'],
     # Optional include package data to ship with your package
     # Customize MANIFEST.in if the general case does not suit your needs
     # Comment out this line to prevent the files from being packaged with your software
-    include_package_data=True,
+    include_package_data=False,
 
     # Allows `setup.py test` to work correctly with pytest
     setup_requires=[] + pytest_runner,
