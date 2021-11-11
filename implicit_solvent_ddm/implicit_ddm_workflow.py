@@ -129,13 +129,13 @@ def ddm_workflow(toil, df_config_inputs, argSet, work_dir):
                                                               conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], 
                                                               solvent_turned_off=True, charge_off= True,
                                                              )
-        # turn on all restraints conformational and orientational and exclusions 
+        # turn on all restraints conformational/orientational with exclusions 
         add_orientational_restraints = restraint_job.addChildJobFn(run_md, 
                                                                  df_config_inputs['complex_parameter_filename'][n], df_config_inputs['complex_parameter_basename'][n], 
                                                                  complex_job.rv(0), os.path.basename(str(complex_job.rv(0))),  
                                                                  get_output_dir(df_config_inputs['complex_parameter_filename'][n],7),
                                                                  argSet, "_orientatinal restraints on",
-                                                                 work_dir, argSet["parameters"]["ligand_mask"][n], argSet["parameters"]["receptor_mask"][n],
+                                                                 work_dir, ligand_mask = argSet["parameters"]["ligand_mask"][n], receptor_mask = argSet["parameters"]["receptor_mask"],
                                                                  conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], orientational_restraint = argSet["parameters"]["orientational_restriant_forces"][-1],
                                                                  solvent_turned_off=True, charge_off= True, exculsions=True,
                                                                  
@@ -146,7 +146,7 @@ def ddm_workflow(toil, df_config_inputs, argSet, work_dir):
                                                                  complex_job.rv(0), os.path.basename(str(complex_job.rv(0))),  
                                                                  get_output_dir(df_config_inputs['complex_parameter_filename'][n],'7a'),
                                                                  argSet, "_orientatinal restraints on",
-                                                                 work_dir, argSet["parameters"]["ligand_mask"][n], argSet["parameters"]["receptor_mask"][n],
+                                                                 work_dir, ligand_mask = argSet["parameters"]["ligand_mask"][n],receptor_mask = argSet["parameters"]["receptor_mask"],
                                                                  conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], orientational_restraint = argSet["parameters"]["orientational_restriant_forces"][-1],
                                                                  solvent_turned_off=True, charge_off= True, exculsions=False)
         # turn charges back on of the ligand 
@@ -155,7 +155,7 @@ def ddm_workflow(toil, df_config_inputs, argSet, work_dir):
                                                                  complex_job.rv(0), os.path.basename(str(complex_job.rv(0))),  
                                                                  get_output_dir(df_config_inputs['complex_parameter_filename'][n],'7b'),
                                                                  argSet, "_orientatinal restraints on",
-                                                                 work_dir, argSet["parameters"]["ligand_mask"][n], argSet["parameters"]["receptor_mask"][n],
+                                                                 work_dir, ligand_mask = argSet["parameters"]["ligand_mask"][n], receptor_mask =  argSet["parameters"]["receptor_mask"],
                                                                  conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], orientational_restraint = argSet["parameters"]["orientational_restriant_forces"][-1],
                                                                  solvent_turned_off=True, charge_off= False, exculsions=False)
         # turn back on solvent interactions 
@@ -164,7 +164,7 @@ def ddm_workflow(toil, df_config_inputs, argSet, work_dir):
                                                                  complex_job.rv(0), os.path.basename(str(complex_job.rv(0))),  
                                                                  get_output_dir(df_config_inputs['complex_parameter_filename'][n],'7c'),
                                                                  argSet, "_orientatinal restraints on",
-                                                                 work_dir, argSet["parameters"]["ligand_mask"][n], argSet["parameters"]["receptor_mask"][n],
+                                                                 work_dir, ligand_mask = argSet["parameters"]["ligand_mask"][n], receptor_mask = argSet["parameters"]["receptor_mask"],
                                                                  conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], orientational_restraint = argSet["parameters"]["orientational_restriant_forces"][-1],
                                                                  solvent_turned_off=False, charge_off= False, exculsions=False)
         # slowly turn off the restraints 
@@ -174,7 +174,7 @@ def ddm_workflow(toil, df_config_inputs, argSet, work_dir):
                                                                  complex_job.rv(0), os.path.basename(str(complex_job.rv(0))),  
                                                                  get_output_dir(df_config_inputs['complex_parameter_filename'][n],'8'),
                                                                  argSet, "_orientatinal restraints on",
-                                                                 work_dir, argSet["parameters"]["ligand_mask"][n], argSet["parameters"]["receptor_mask"][n],
+                                                                 work_dir, ligand_mask = argSet["parameters"]["ligand_mask"][n], receptor_mask = argSet["parameters"]["receptor_mask"],
                                                                  conformational_restraint = restraints_forces[0], orientational_restraint = restraints_forces[1],
                                                                  solvent_turned_off=False, charge_off= False, exculsions=False)
     return end_state_job
@@ -199,10 +199,15 @@ def main():
     argSet["parameters"].update(get_receptor_ligand_topologies(argSet))
     #create initial directory structure 
     run_simrun(argSet)
+    
     #create a log file
     Path('mdgb/log_file.txt').touch()
     options.logFile = "mdgb/log_file.txt"
-    work_dir = os.getcwd()
+
+    if not options.workDir: 
+        work_dir = os.getcwd()
+    else:
+        work_dir = options.workDir 
 
     with Toil(options) as toil:
         #dataFrame containing absolute paths of topology and coordinate files. Also contains basenames of both file types 
@@ -216,7 +221,7 @@ def main():
             toil.start(ddm_workflow_job)
         else:
             toil.restart()
-
+    
 def run_simrun(argSet, dirstruct = "dirstruct"):
     """
     Creates unique directory structure for all output files when created.
@@ -233,8 +238,6 @@ def run_simrun(argSet, dirstruct = "dirstruct"):
     None
     """
     sim = simrun.SimRun("mdgb", description = '''Perform molecular dynamics with GB or in vacuo''')
-
-
     struct = sim.getDirectoryStructure(dirstruct)
    #iterate through solutes
 
