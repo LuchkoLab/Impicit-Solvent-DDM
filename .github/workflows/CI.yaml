@@ -50,7 +50,7 @@ jobs:
       # conda setup requires this special shell
       shell: bash -l {0}
       run: |
-        python setup.py bdist_wheel 
+        python setup.py sdist 
         pip install dist/*
 
 
