@@ -146,7 +146,7 @@ def alter_topology_file(solute_topology_filename, solute_coordinate_filename, li
         pmd.tools.actions.change(solute_traj, 'charge', ligand_mask, 0).execute()
         saved_filename = "charges_off_"
     if add_exclusions:
-        pmd.tools.actions.addExclusions(solute_traj, ligand_mask, receptor_mask)
+        pmd.tools.actions.addExclusions(solute_traj, ligand_mask, receptor_mask).execute()
         saved_filename = saved_filename + "exculsions_"
     
     solute_traj.save(saved_filename + str(os.path.basename(solute_topology_filename)))
