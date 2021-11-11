@@ -1,0 +1,25 @@
+{
+    "comment" : ["Global command line options."],
+    "arguments" : {
+        "debug" : {
+            "--debug" : {
+                "nargs" : "*",
+                "default" : null,
+                "type" : {"<type>" : "str"},
+                "choices" : ["file","stderr","stdout","all"],
+                "help" : "Turns on debugging output. With no options, debug info is only output to each run log. 'file', 'stderr' and 'stdout' direct all debug output to 'debug.log', standard error and out respectively. 'all' turns on debugging for the entire script but does nothing with out an output option."
+            }
+        }
+    },
+    "comment" : ["Global submission methods.  The files referenced here",
+                 "provide submission methods for all simrun executable.",
+                 "Submission methods are mutually exclusive."
+                ],
+    "submit" : {
+        "local" : {
+            "templates" : {
+                "local.cmd" :{"string":"$COMMAND"}
+            }
+        }
+    }
+}
