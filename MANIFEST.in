@@ -5,3 +5,6 @@ include versioneer.py
 
 graft implicit_solvent_ddm
 global-exclude *.py[cod] __pycache__ *.so
+prune implicit_solvent_ddm/tests/
+
+
