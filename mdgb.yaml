@@ -1,20 +1,20 @@
 #user input values
 
-#user input values
-
  parameters:
-  complex_parameter_filename: [structs/complex/cb7-mol01.parm7] # list of topology file of a complex 
-  complex_coordinate_filename: [structs/complex/cb7-mol01.ncrst] # list of coordinate file of a complex 
-  restraint_file: false # optional restraint file 
-  orientational_restraint_type: # list of orientational restraint values 
-  mdin: #optional mdin 
-  executable: sander # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
-  mpi:  # number of core for CPU run 
-  restraint_type: 1 # choices: [ 1: CoM-CoM, 2: CoM-Heavy_Atom, 3: Heavy_Atom-Heavy_Atom, must be 1, 2 or 3 ]
-  receptor_mask: ':CB7' # list of Amber masks denoting receptor atoms in respected complex file 
-  ligand_mask: [':M01'] # list of Amber masks denoting ligand atoms in respected complex file 
-  freeze_restraints_forces: [0.00390625,0.0069601462354714, 0.012401570718501561, 0.02209708691207961, 0.0393725328092148, 0.07015387801933583, 0.125, 0.22272467953508493, 0.39685026299204995, 0.7071067811865476, 1.2599210498948736, 2.244924096618748, 4.0] # list of conformational force values 
-  orientational_restriant_forces: [0.00390625, 0.0078125, 0.015625, 0.03125, 0.0625,0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0 ]
+  complex_parameter_filename: [] # list of topology file of a complex. ex: [directory/path/solute1.parm7, directory/path/solute2.parm7] 
+  complex_coordinate_filename: [] # list of coordinate file of a complex 
+  executable:  # executable machine for MD choices :[sander, sander.MPI, pmemed, pemed.MPI] ex: sander
+  mpi:  # number of core for CPU run.  
+  restraint_type: # choices: [ 1: CoM-CoM, 2: CoM-Heavy_Atom, 3: Heavy_Atom-Heavy_Atom, must be 1, 2 or 3 ]
+  receptor_mask: # type Amber masks denoting receptor atoms in respected complex file. ex: ':CB7' (current software supports only one receptor input)
+  ligand_mask: [ ]# list of Amber masks denoting ligand atoms for eache respected complex file. ex: [':M01', ':M02'] 
+  freeze_restraints_forces: [ ] # list of conformational force values. ex:  [0.00390625, 0.5, 4.0] (note, orientational and conformational values need to be the same length)
+  orientational_restriant_forces: [ ] # list all orientational force values. ex: [0.00390625, 0.125, 16.0 ] (note, orientational and conformational values need to be the same length)
+
+  # mdin and restraint file currently not supported in the current software 
+  mdin: # currently software does not support user specified mdin file.
+  restraint_file: # currently does not support user specified restraint_file. leave as false
+  
  optional_parameters:
   ligand_parameter_filename: #paramter file for only the ligand
   ligand_coordinate_filename: # restart file for ligand only
