@@ -1,0 +1,27 @@
+
+{
+    "dirstruct" : [ 
+	{
+	    "static" : "mdgb",
+	    "format" : "s"
+	},
+	{
+	    "variable" : "solute",
+	    "format" : "s",
+	    "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+	    "replace" : "\\1"
+	},
+	{
+	    "variable" : "state_label",
+            "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+            "replace"  : "\\1"
+        }
+	
+	
+    ]
+
+}
+
+
+ 

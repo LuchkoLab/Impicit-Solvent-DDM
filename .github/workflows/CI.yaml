@@ -50,8 +50,8 @@ jobs:
       # conda setup requires this special shell
       shell: bash -l {0}
       run: |
-        python -m pip install . --no-deps
-        conda list
+        python setup.py sdist 
+        pip install dist/*
 
 
     - name: Run tests

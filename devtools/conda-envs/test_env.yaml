@@ -4,6 +4,7 @@ channels:
   - defaults
 dependencies: 
   - ambertools
+  - pyyaml
   - _libgcc_mutex
   - arpack
   - boost-cpp
@@ -102,4 +103,3 @@ dependencies:
   - pytest-cov
   - codecov
 #prefix: /home/stevenayoub/.conda/envs/mol_ddm_env
-
