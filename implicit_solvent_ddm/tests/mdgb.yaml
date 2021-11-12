@@ -1,8 +1,8 @@
 #user input values
 
  parameters:
-  complex_parameter_filename: [solutes/cb7-mol01.parm7] # list of topology file of a complex 
-  complex_coordinate_filename: [solutes/cb7-mol01.ncrst]# list of coordinate file of a complex 
+  complex_parameter_filename: [implicit_solvent_ddm/tests/solutes/cb7-mol01.parm7] # list of topology file of a complex 
+  complex_coordinate_filename: [implicit_solvent_ddm/tests/solutes/cb7-mol01.ncrst]# list of coordinate file of a complex 
   restraint_file: false# optional restraint file 
   orientational_restraint_type: # list of orientational restraint values 
   mdin: #optional mdin 

@@ -12,11 +12,13 @@ import parmed as pmd
 from implicit_solvent_ddm.alchemical import alter_topology_file
 
 
+#global path to default files for testing 
+file_path ='implicit_solvent_ddm/tests/'
 class Implicit_solvent_Tests:
 
     def __init__(self):
-        self.work_dir = tempfile.mkdtemp()
-        self.workflow_command = ['run_implicit_ddm.py', 'file:jobstore', '--config_file', 'mdgb.yaml', '--workDir', str(self.work_dir)]
+        self.work_dir = file_path
+        self.workflow_command = ['run_implicit_ddm.py', 'file:jobstore', '--config_file', file_path +'mdgb.yaml']
     def _run(self):
         subprocess.check_call(self.workflow_command)
 
@@ -31,17 +33,17 @@ def workflow():
 #load in topology file with exclusions and without charge
 @pytest.fixture 
 def load_exclusions_no_charge():
-    return pmd.load_file('solutes/exclusions_no_charge_cb7-M01.parm7', xyz= 'solutes/cb7-mol01.ncrst')
+    return pmd.load_file(file_path + 'solutes/exclusions_no_charge_cb7-M01.parm7', xyz= file_path + 'solutes/cb7-mol01.ncrst')
 
 # load topology without exclusions and charge 
 @pytest.fixture
 def load_no_charge_topology():
-    return pmd.load_file('solutes/no_charge_cb7-M01.parm7',xyz= 'solutes/cb7-mol01.ncrst') 
+    return pmd.load_file(file_path +'solutes/no_charge_cb7-M01.parm7',xyz= file_path +'solutes/cb7-mol01.ncrst') 
 
 # load topology without any changes 
 @pytest.fixture
 def load_topology():
-    return pmd.load_file('solutes/cb7-mol01.parm7', xyz= 'solutes/cb7-mol01.ncrst')
+    return pmd.load_file(file_path +'solutes/cb7-mol01.parm7', xyz= file_path +'solutes/cb7-mol01.ncrst')
 
 # test complex w/ exclusions & w/o charges/GB
 def test_complex_exclusions_no_charge_no_gb(load_exclusions_no_charge, workflow):
@@ -73,9 +75,9 @@ def test_complex_no_exclusions(load_topology):
 # unittest for altering the charges or adding exclusion 
 def test_charge_off_exclusions(load_exclusions_no_charge, workflow):
     
-    parm_file = alter_topology_file('solutes/cb7-mol01.parm7', 'solutes/cb7-mol01.ncrst', ':M01', receptor_mask = ':CB7', turn_off_charges = True, add_exclusions = True)
+    parm_file = alter_topology_file(file_path +'solutes/cb7-mol01.parm7', file_path +'solutes/cb7-mol01.ncrst', ':M01', receptor_mask = ':CB7', turn_off_charges = True, add_exclusions = True)
 
-    parm_traj = pmd.load_file(parm_file, xyz = 'solutes/cb7-mol01.ncrst')
+    parm_traj = pmd.load_file(parm_file, xyz = file_path+'solutes/cb7-mol01.ncrst')
 
     for charge in parm_traj[':M01'].parm_data['CHARGE']:
         assert 0.0 == charge
