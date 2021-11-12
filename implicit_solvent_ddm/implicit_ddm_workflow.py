@@ -1,7 +1,7 @@
 
 
 
-import simrun
+
 import os, os.path
 import yaml
 import re 
@@ -13,6 +13,7 @@ from toil.job import Job
 
 #local imports 
 import implicit_solvent_ddm.restraints as restraints
+import implicit_solvent_ddm.dirstruct_core as dc 
 from implicit_solvent_ddm.toil_parser import input_parser
 from implicit_solvent_ddm.toil_parser import get_output_dir
 from implicit_solvent_ddm.simulations import run_md
@@ -198,8 +199,8 @@ def main():
     #updates argSet to contain ligand and receptor respective topology and coordinate files. 
     argSet["parameters"].update(get_receptor_ligand_topologies(argSet))
     #create initial directory structure 
-    run_simrun(argSet)
-    
+    create_dirstruct(argSet)
+     
     #create a log file
     Path('mdgb/log_file.txt').touch()
     options.logFile = "mdgb/log_file.txt"
@@ -221,8 +222,8 @@ def main():
             toil.start(ddm_workflow_job)
         else:
             toil.restart()
-    
-def run_simrun(argSet, dirstruct = "dirstruct"):
+      
+def create_dirstruct(argSet, dirstruct = "dirstruct"):
     """
     Creates unique directory structure for all output files when created.
 
@@ -237,8 +238,7 @@ def run_simrun(argSet, dirstruct = "dirstruct"):
     -------
     None
     """
-    sim = simrun.SimRun("mdgb", description = '''Perform molecular dynamics with GB or in vacuo''')
-    struct = sim.getDirectoryStructure(dirstruct)
+    sim = dc.Dirstruct("mdgb", description='''Perform molecular dynamics with GB or in vacuo''')
    #iterate through solutes
 
     for key in argSet['parameters'].keys():
