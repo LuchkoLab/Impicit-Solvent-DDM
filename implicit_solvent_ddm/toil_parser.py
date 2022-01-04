@@ -43,7 +43,6 @@ def input_parser(argSet, toil):
         coordinate_key = 'receptor_coordinate_filename'
         receptor_parameter_filename, receptor_parameter_basename, receptor_coordinate_filename, receptor_coordinate_basename = getfiles(toil, argSet, parmtop_key, coordinate_key)
 
-   
     data_inputs = {
         'ligand_parameter_filename': ligand_parameter_filename, 
         'ligand_parameter_basename': ligand_parameter_basename, 
@@ -176,9 +175,23 @@ def getfiles(toil, argSet, parm_key, coord_key):
           solute_coordinate_basename.append(re.sub(r".*/([^/.]*)",r"\1",argSet['parameters'][coord_key][-num_of_solutes]))
           #output_dir.append(os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(state)))
           num_of_solutes = num_of_solutes -1 
-
+        
      return solute_filename, solute_basename, solute_coordinate_filename, solute_coordinate_basename
-          
+
+def get_mdins(config, toil):
+
+    equilibration_mdins = []
+    production_mdins = []
+
+    for mdin in config["replica_exchange_parameters"]["equilibration_replica_mdins"]:
+        equilibration_mdins.append(toil.importFile("file://" + os.path.abspath(os.path.join(mdin))))
+
+    df_equilibration = {'equilibrate_mdins' : equilibration_mdins}
+
+    return df_equilibration
+
+
+
 def get_output_dir(solute_filename, state):
      '''
      A designated directory path to export output data
@@ -198,4 +211,5 @@ def get_output_dir(solute_filename, state):
      solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",solute_filename)
      output_dir = os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(state))
      
-     return output_dir 
+     return output_dir  
+    
