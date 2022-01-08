@@ -1,7 +1,8 @@
 
 import os, os.path
 import re 
-import pandas as pd 
+import pandas as pd
+import itertools
 import pytraj as pt
 #will not need these imports 
 #from toil.common import Toil
@@ -180,16 +181,21 @@ def getfiles(toil, argSet, parm_key, coord_key):
 
 def get_mdins(config, toil):
 
-    equilibration_mdins = []
-    production_mdins = []
+    equil_mdins = config["replica_exchange_parameters"]["equilibration_replica_mdins"]
+    remd_mdins = config["replica_exchange_parameters"]["remd_mdins"]
+    #list of equilibration and remd mdins being imported by toil
+    equilibration_import_mdins = []
+    remd_import_mdins = []
+    
+    for equil, remd in itertools.zip_longest(equil_mdins, remd_mdins, fillvalue=-1):
+        equilibration_import_mdins.append(toil.importFile("file://" + os.path.abspath(os.path.join(equil))))
+        remd_import_mdins.append(toil.importFile("file://" + os.path.abspath(os.path.join(remd))))
 
-    for mdin in config["replica_exchange_parameters"]["equilibration_replica_mdins"]:
-        equilibration_mdins.append(toil.importFile("file://" + os.path.abspath(os.path.join(mdin))))
-
-    df_equilibration = {'equilibrate_mdins' : equilibration_mdins}
-
-    return df_equilibration
-
+    simulation_mdins = {
+        "equilibrate_mdins" : equilibration_import_mdins,
+        "remd_mdins" : remd_import_mdins}
+    
+    return simulation_mdins
 
 
 def get_output_dir(solute_filename, state):
