@@ -1,13 +1,27 @@
 import os 
-
-def export_outputs(toil_job, output_dir, **kwargs):
-    for arg in kwargs:
-        output_filename = os.path.basename(kwargs[arg])
-        output_file = toil_job.fileStore.writeGlobalFile(output_filename)
-        toil_job.fileStore.exportFile(output_file,"file://" + os.path.abspath(os.path.join(output_dir, output_filename)))
-        if arg == 'restart':
-            coordinate_restart = output_file
-    return coordinate_restart
+import re 
+def export_outputs(toil_job, output_dir, files_to_ignore):
+    toil_job.log(f"Exporting files to {output_dir} ")
+    restart_files = []
+    for root, dirs, files in os.walk(".", topdown=False):
+        for name in files:
+            if name in files_to_ignore:
+                continue
+            output_file = toil_job.fileStore.writeGlobalFile(name)
+            toil_job.fileStore.exportFile(output_file,"file://" + os.path.abspath(os.path.join(output_dir, name)))
+            if re.match(r".*.rst.*", name):
+                restart_files.append(str(output_file))
+                
+    return restart_files
+    # if runtype == 'min':
+    #     for arg in kwargs:
+    #         output_filename = os.path.basename(kwargs[arg])
+    #         output_file = toil_job.fileStore.writeGlobalFile(output_filename)
+    #         toil_job.fileStore.exportFile(output_file,"file://" + os.path.abspath(os.path.join(output_dir, output_filename)))
+    #         if arg == 'restart':
+    #             coordinate_restart = output_file
+    #     return coordinate_restart
+    
     '''
     mdout_filename = "mdout"
     mdinfo_filename = "mdinfo"
