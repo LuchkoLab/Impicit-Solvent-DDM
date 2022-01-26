@@ -1,14 +1,17 @@
 #from genericpath import exists
+from ast import arguments
+from pickle import NONE
 import subprocess
-import string
 import os, os.path 
 import re 
 import itertools
+import shutil
 from string import Template
+import parmed as pmd 
 #from string import Template 
 #local imports 
-from implicit_solvent_ddm.simulations import run_md
-from implicit_solvent_ddm.simulations import initilized_jobs
+#from implicit_solvent_ddm.simulations import run_md
+#from implicit_solvent_ddm.sim4ulations import initilized_jobs 
 from implicit_solvent_ddm.IO import export_outputs 
 from toil.common import Toil
 from toil.job import Job
@@ -16,53 +19,65 @@ from toil.job import Job
 #from implicit_solvent_ddm.restraints import write_restraint_forces
 #from implicit_solvent_ddm.alchemical import turn_off_charges 
 #from implicit_solvent_ddm.alchemical import alter_topology_file
-def remd_workflow(df_config_inputs, argSet, mdins, work_dir):
+def remd_workflow(job, df_config_inputs, argSet, work_dir):
     
-    end_state_job = Job.wrapJobFn(initilized_jobs, work_dir)
+    # end_state_job = Job.wrapJobFn(initilized_jobs, work_dir)
+    # job.addChild(end_state_job)
     
     for n in range(len(df_config_inputs)):
         
-        minimization_ligand = end_state_job.addChildJobFn(run_remd,
+        minimization_ligand = Job.wrapJobFn(run_remd,
                                     df_config_inputs['ligand_parameter_filename'][n],df_config_inputs['ligand_coordinate_filename'][n], 
                                     argSet, work_dir, "minimization")
-
+        job.addChild(minimization_ligand)
+        
         equilibrate_ligand = minimization_ligand.addFollowOnJobFn(run_remd,
                                                                     df_config_inputs['ligand_parameter_filename'][n], minimization_ligand.rv(0),
-                                                                    argSet, work_dir, "equil", mdins_config = mdins)
+                                                                    argSet, work_dir, "equil")
+        job.addChild(equilibrate_ligand)
+        
         remd_ligand = equilibrate_ligand.addFollowOnJobFn(run_remd,
                                                                     df_config_inputs['ligand_parameter_filename'][n], equilibrate_ligand.rv(0),
-                                                                    argSet, work_dir, "remd", mdins_config = mdins)
+                                                                    argSet, work_dir, "remd")
         ligand_extract = remd_ligand.addFollowOnJobFn(extract_traj, df_config_inputs['ligand_parameter_filename'][n], remd_ligand.rv(1), 
                                                       work_dir, argSet)
+        job.addChild(ligand_extract)
            
-        minimization_receptor = end_state_job.addChildJobFn(run_remd, 
+        minimization_receptor = Job.wrapJobFn(run_remd, 
                                     df_config_inputs['receptor_parameter_filename'][n], df_config_inputs['receptor_coordinate_filename'][n],
                                     argSet, work_dir, "minimization")
-        
+        job.addChild(minimization_receptor)
         equilibrate_receptor = minimization_receptor.addFollowOnJobFn(run_remd,
                                                                     df_config_inputs['receptor_parameter_filename'][n], minimization_receptor.rv(0),
-                                                                    argSet, work_dir, "equil", mdins_config = mdins)
-        
+                                                                    argSet, work_dir, "equil")
+        job.addChild(equilibrate_receptor)
         remd_receptor = equilibrate_receptor.addFollowOnJobFn(run_remd,
                                                                     df_config_inputs['receptor_parameter_filename'][n], equilibrate_receptor.rv(0),
-                                                                    argSet, work_dir, "remd", mdins_config = mdins)
+                                                                    argSet, work_dir, "remd")
         extract_receptor = remd_receptor.addFollowOnJobFn(extract_traj, df_config_inputs['receptor_parameter_filename'][n], remd_receptor.rv(1), 
                                                       work_dir, argSet)
+        job.addChild(extract_receptor)
+        minimization_complex = Job.wrapJobFn(run_remd, 
+                                                  df_config_inputs['complex_parameter_filename'][n],df_config_inputs['complex_coordinate_filename'][n],  
+                                                  argSet, work_dir, "minimization", COM=True)
+        job.addChild(minimization_complex)
+        equilibrate_complex = minimization_complex.addFollowOnJobFn(run_remd, 
+                                                  df_config_inputs['complex_parameter_filename'][n], minimization_complex.rv(0),  
+                                                  argSet, work_dir, "equil",  COM=True)
+        job.addChild(equilibrate_complex)
         
-        # minimization_complex = end_state_job.addChildJobFn(run_remd, 
-        #                                           df_config_inputs['complex_parameter_filename'][n],df_config_inputs['complex_coordinate_filename'][n],  
-        #                                           argSet, work_dir, "minimization")
-        # equilibrate_complex = minimization_complex.addFollowOnJobFn(run_remd, 
-        #                                           df_config_inputs['complex_parameter_filename'][n], minimization_complex.rv(),  
-        #                                           argSet, work_dir, "equil",  mdins_config = mdins)
+        remd_complex = equilibrate_complex.addFollowOnJobFn(run_remd, 
+                                                  df_config_inputs['complex_parameter_filename'][n], equilibrate_complex.rv(0),  
+                                                  argSet, work_dir, "remd", COM=True)
+        job.addChild(remd_complex)
         
-        # remd_complex = equilibrate_complex.addFollowOnJobFn(run_remd, 
-        #                                           df_config_inputs['complex_parameter_filename'][n], equilibrate_complex.rv(),  
-        #                                           argSet, work_dir, "remd",  mdins_config = mdins)
+        complex_extract = remd_complex.addFollowOnJobFn(extract_traj, df_config_inputs['complex_parameter_filename'][n], remd_complex.rv(1), 
+                                                      work_dir, argSet)
+        job.addChild(complex_extract)
         
-    return end_state_job
+    return complex_extract.rv()
 
-def run_remd(job, solute_file, solute_rst, arguments, working_directory, runtype, mdins_config=None):
+def run_remd(job, solute_file, solute_rst, arguments, working_directory, runtype, COM=False):
     # temporary directory 
     tempDir = job.fileStore.getLocalTempDir()
     solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",solute_file)
@@ -73,13 +88,17 @@ def run_remd(job, solute_file, solute_rst, arguments, working_directory, runtype
     output_path = os.path.join(f"{working_directory}/mdgb/{runtype}/{solu}")
     
     if runtype == "minimization":
-        restart_file = run_minimization(job, solute_file, solute_rst, tempDir, output_path) 
+        restart_file = run_minimization(job, solute_file, solute_rst, arguments, output_path, COM) 
     else:
-        restart_file = run_MD_groups(job, solute_file, solute_rst, tempDir, runtype, arguments, mdins_config, output_path)
+        restart_file = run_MD_groups(job, solute_file, solute_rst, tempDir, runtype, arguments, output_path,COM)
     return restart_file
 #function read in all mdins and create the groupfile template?
 
-def run_minimization(min_job, solute_topology_file, solute_coordinate_file, temporary_directory, output_path):
+def run_minimization(min_job, solute_topology_file, solute_coordinate_file, args, output_path, COM):
+    
+    temporary_directory =  min_job.fileStore.getLocalTempDir()
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
     
     #read in topology file 
     solute_filename = os.path.basename(str(solute_topology_file))
@@ -90,7 +109,18 @@ def run_minimization(min_job, solute_topology_file, solute_coordinate_file, temp
     solute_rst_filename = os.path.basename(str(solute_coordinate_file))
     rst = min_job.fileStore.readGlobalFile(solute_coordinate_file, userPath=os.path.join(temporary_directory, solute_rst_filename))
     
-    #load and read mdin template
+    flat_bottom = args["parameters"]["flat_bottom_restraints"][0]
+    #if the system is an complex copy -> flat_bottom restraint file
+    if COM:
+        import_restraint = min_job.fileStore.importFile("file://" + copy(flat_bottom))
+    else:
+        import_restraint =  min_job.fileStore.importFile("file://" + write_empty_restraint(flat_bottom))
+        
+    min_job.log(f"the flat bottom import file {flat_bottom}")
+    restraint = min_job.fileStore.readGlobalFile(import_restraint, userPath=os.path.join(temporary_directory, os.path.basename(import_restraint)))
+    min_job.log(f"read in global flat bottom {restraint}")
+    
+    
     mdin_path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/templates/min.mdin")
     mdin_filename = min_job.fileStore.importFile("file://" + mdin_path)
     mdin = min_job.fileStore.readGlobalFile(mdin_filename, userPath=os.path.join(temporary_directory, os.path.basename(mdin_filename)))
@@ -101,22 +131,49 @@ def run_minimization(min_job, solute_topology_file, solute_coordinate_file, temp
     
     # Name: output final coordinates , velocity, and box dimensions if any -for restarting run
     restart_filename = f"{solu}_minimization.rst7"
+    
     #exectute serial Sander for minimization 
-    subprocess.run(["sander", "-O", "-i", mdin, "-p", solute, "-c", rst, "-r", restart_filename ])
+    output = subprocess.run(["sander", "-O", "-i", mdin, "-p", solute, "-c", rst, "-r", restart_filename], 
+                            capture_output=True)
+    min_job.log(f"the min output : {output}")
     minimization_restart = export_outputs(min_job, output_path, files_current_directory)
    
     #export solute parm and mdin 
     min_job.fileStore.exportFile(solute, "file://" + os.path.abspath(os.path.join(output_path, str(os.path.basename(solute)))))
     min_job.fileStore.exportFile(mdin,"file://" + os.path.abspath(os.path.join(output_path, os.path.basename(mdin))))
-    
+    min_job.fileStore.exportFile(restraint, "file://" + os.path.abspath(os.path.join(output_path,"COM.restraint")))
     return minimization_restart
 
-def run_MD_groups(md_group_job, solute_topology_file, solute_coordinate_file, temporary_directory, runtype, arguments, mdins, output_path):
+def copy(file):
+    basename = str(os.path.basename(file))
+    copied_file = shutil.copyfile(file, basename)
+    return os.path.abspath(copied_file)
+
+def write_empty_restraint(file):
+    restraint_basename = os.path.basename(file)
+    file = open(restraint_basename,"w+")
+    file.write("")
+    file.close()
+    return os.path.abspath(restraint_basename)
+    
+def run_MD_groups(md_group_job, solute_topology_file, solute_coordinate_file, temporary_directory, runtype, arguments, output_path,COM):
     #read in topology file 
     solute_filename = os.path.basename(str(solute_topology_file))
     solu = re.sub(r"\..*","",solute_filename)
     solute = md_group_job.fileStore.readGlobalFile(solute_topology_file,  userPath=os.path.join(temporary_directory, solute_filename))
     
+    flat_bottom = arguments["parameters"]["flat_bottom_restraints"][0]
+    #if the system is an complex copy -> flat_bottom restraint file
+    if COM:
+        import_restraint = md_group_job.fileStore.importFile("file://" + copy(flat_bottom))
+        #if system is complex read in flat bottom else write empty restraint  
+        #copy restraint file 
+        #copy_flat_bottom = shutil.copyfile(flat_bottom, restraint_basename)
+        #import_restraint = min_job.fileStore.importFile("file://" + os.path.abspath(copy_flat_bottom))
+    #write an empty restraint 
+    else:
+        import_restraint =  md_group_job.fileStore.importFile("file://" + write_empty_restraint(flat_bottom))
+        
     if runtype == 'equil':
         md_group_job.log("Running equilibration")
         md_group_job.log(f"current is equilibration the coordiate file is {solute_coordinate_file[0]}")
@@ -126,10 +183,11 @@ def run_MD_groups(md_group_job, solute_topology_file, solute_coordinate_file, te
     elif runtype == 'remd':
         md_group_job.log("Running Replica Exchange Molecular Dynamics")
         #write a groupfile for certain solute and coorindate files and read it in 
-    write_groupfile = md_group_job.fileStore.importFile("file://" + setup_remd(md_group_job, temporary_directory, solute, solute_coordinate_file, runtype, mdins))
+    write_groupfile = md_group_job.fileStore.importFile("file://" + setup_remd(md_group_job, temporary_directory, solute, solute_coordinate_file, runtype, arguments))
     groupfile = md_group_job.fileStore.readGlobalFile(write_groupfile, userPath=os.path.join(temporary_directory, os.path.basename(write_groupfile)))
     md_group_job.log(f"groupfile is {groupfile}")
     
+
     exe = arguments["replica_exchange_parameters"]["executable"].split()
     exe.append(groupfile)
     md_group_job.log(f"the execution is {exe}")
@@ -148,15 +206,15 @@ def run_MD_groups(md_group_job, solute_topology_file, solute_coordinate_file, te
 
     return restart_file
 
-def setup_remd(md_job, temp_directory, solute, solute_coordinate, runtype, mdins):
+def setup_remd(md_job, temp_directory, solute, solute_coordinate, runtype, arguments):
     
     if runtype == 'equil':
         solute_rst_filename = os.path.basename(str(solute_coordinate[0]))
         equil_coordinate = md_job.fileStore.readGlobalFile(solute_coordinate[0], userPath=os.path.join(temp_directory, solute_rst_filename))
         #equilibration mdins 
-        runtype_mdins = mdins["equilibrate_mdins"]
+        runtype_mdins = arguments["replica_exchange_parameters"]["equilibrate_mdins"]
     elif runtype == 'remd':
-        runtype_mdins = mdins["remd_mdins"]
+        runtype_mdins = arguments["replica_exchange_parameters"]["remd_mdins"]
 
     with open('equilibrate.groupfile', 'a+') as group:
         for count, mdin in enumerate(runtype_mdins):
@@ -182,22 +240,10 @@ def extract_traj(job, solute_topology, traj_files, workdir, arguments):
     job.log(f"extracting trajectories {traj_files}")
     read_trajectories = readfn(job, traj_files)
     read_solute = readfn(job, [solute_topology])
-    #read_trajectories = Job.wrapJobFn(readfn, traj_files)
-    #read_solute = Job.wrapJobFn(readfn, [solute_topology])
-    
-    #job.addChild(read_trajectories)
-    #job.addChild(read_solute)
-    
     temperature = arguments["replica_exchange_parameters"]["target_temperature"]
     
     job.log(f"get the bash script with target temp {temperature}")    
     
-    # bash_script = Job.wrapJobFn(get_bash,
-    #                          solute=read_solute.rv(),
-    #                          coordinate_files=read_trajectories.rv(),
-    #                          target_temperature=temperature
-    #                          )
-    #job.addFollowOn(bash_script)
     bash_script = get_bash(job, solute=read_solute, 
                            coordinate_files=read_trajectories,
                            target_temperature=temperature)
@@ -208,6 +254,7 @@ def extract_traj(job, solute_topology, traj_files, workdir, arguments):
     solu = re.sub(r"\..*", "", os.path.basename(read_solute[0]))
     lastframe = f"{solu}_{temperature}K_lastframe.ncrst"
     lastframe_rst7 = f"{solu}_{temperature}K_lastframe.rst7"
+    
     subprocess.run(['cpptraj', '-p', read_solute[0] , '-y', read_extract_traj, '-ya', 'lastframe','-x', lastframe])
     
     output = subprocess.run(['cpptraj', '-p', read_solute[0] , '-y', lastframe, '-x', lastframe_rst7], 
@@ -219,21 +266,10 @@ def extract_traj(job, solute_topology, traj_files, workdir, arguments):
     final_traj = job.fileStore.writeGlobalFile(lastframe)
     job.fileStore.exportFile(final_traj,"file://" + 
                              os.path.abspath(os.path.join("/home/ayoub/nas0/Impicit-Solvent-DDM/mdgb/", lastframe)))
-    
-    return final_traj
-    #job.
-    #job.fileStore.exportFile(output_file,"file://" + os.path.abspath(os.path.join(output_dir, name)))
-    
-    #cpptraj = Job.wrapJobFn(run_bash, bash_script.rv())
-    #bash_script.addChild(cpptraj)
-    
-    #subprocess.run(["bash", bash_script.rv()])
-    
-    #
-    #import_bash = job.fileStore.importFile("file://" + bash_script)
-    
-
-    #output_path = f"{workdir}/mdgb/remd/{solu}"
+    ncrst = [final_traj]
+    rst7 = [lastframe_rst7]
+    return (ncrst, rst7)
+   
 def run_bash(job, executable_file):
     job.log(f"running bash {executable_file}")
     current_files = os.listdir()
