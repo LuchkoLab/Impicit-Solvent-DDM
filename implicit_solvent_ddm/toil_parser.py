@@ -102,29 +102,30 @@ def get_receptor_ligand_topologies(argSet):
     
 
     for complexes in argSet["parameters"]["complex_parameter_filename"]:
-
         complex_coodinates = pt.load(argSet["parameters"]["complex_coordinate_filename"][-number_complexes], complexes)
         receptor = pt.strip(complex_coodinates, argSet["parameters"]["ligand_mask"][-number_complexes])
         ligand = pt.strip(complex_coodinates, argSet["parameters"]["receptor_mask"])
         
+        receptor_name = argSet["parameters"]["receptor_mask"].strip(":")
+        ligand_name = argSet["parameters"]["ligand_mask"][0].strip(":")
         file_number = 0
         while os.path.exists(receptor_ligand_path[0] + '/' + f"topology_ligand_{file_number}.parm7"):
             file_number +=1 
 
-        pt.write_parm(receptor_ligand_path[0] + '/' + f"topology_ligand_{file_number}.parm7", ligand.top)
-        pt.write_traj(receptor_ligand_path[0]+ '/'+ f"coordinate_ligand_{file_number}.ncrst", ligand)
-        ligand_parameter_filename.append(receptor_ligand_path[0] + '/' + f"topology_ligand_{file_number}.parm7")
-        ligand_coordinate_filename.append(receptor_ligand_path[0] + '/' + f"coordinate_ligand_{file_number}.ncrst.1")
+        pt.write_parm(receptor_ligand_path[0] + '/' + f"{ligand_name}_{file_number}.parm7", ligand.top)
+        pt.write_traj(receptor_ligand_path[0]+ '/'+ f"{ligand_name}_{file_number}.ncrst", ligand)
+        ligand_parameter_filename.append(receptor_ligand_path[0] + '/' + f"{ligand_name}_{file_number}.parm7")
+        ligand_coordinate_filename.append(receptor_ligand_path[0] + '/' + f"{ligand_name}_{file_number}.ncrst.1")
          
         file_number = 0
         
         while os.path.exists(receptor_ligand_path[1] + '/' + f"topology_receptor_{file_number}.parm7"):
             file_number += 1
 
-        pt.write_parm( receptor_ligand_path[1] + '/' + f"topology_receptor_{file_number}.parm7", receptor.top)
-        pt.write_traj(receptor_ligand_path[1] + '/' + f"coordinate_receptor_{file_number}.ncrst", receptor)
-        receptor_parameter_filename.append(receptor_ligand_path[1] + '/' + f"topology_receptor_{file_number}.parm7")
-        receptor_coordinate_filename.append(receptor_ligand_path[1] + '/' + f"coordinate_receptor_{file_number}.ncrst.1")
+        pt.write_parm( receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.parm7", receptor.top)
+        pt.write_traj(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.ncrst", receptor)
+        receptor_parameter_filename.append(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.parm7")
+        receptor_coordinate_filename.append(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.ncrst.1")
         
         number_complexes = number_complexes - 1 
 
@@ -192,11 +193,22 @@ def get_mdins(config, toil):
         remd_import_mdins.append(toil.importFile("file://" + os.path.abspath(os.path.join(remd))))
 
     simulation_mdins = {
-        "equilibrate_mdins" : equilibration_import_mdins,
-        "remd_mdins" : remd_import_mdins}
+            "equilibrate_mdins" : equilibration_import_mdins,
+            "remd_mdins" : remd_import_mdins
+        }
     
     return simulation_mdins
 
+def import_restraint_files(config, toil):
+    flat_bottom = config["parameters"]["flat_bottom_restraints"] 
+    import_flat_bottom = []
+    for restraint in flat_bottom:
+        #import_flat_bottom.append(toil.importFile("file://" + os.path.abspath(os.path.join(restraint))))
+        import_flat_bottom.append(os.path.abspath(os.path.join(restraint)))
+    flat_bottom = {
+            "flat_bottom_restraints" : import_flat_bottom
+    }
+    return flat_bottom
 
 def get_output_dir(solute_filename, state):
      '''
