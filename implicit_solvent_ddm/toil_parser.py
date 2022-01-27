@@ -1,7 +1,8 @@
 
 import os, os.path
 import re 
-import pandas as pd 
+import pandas as pd
+import itertools
 import pytraj as pt
 #will not need these imports 
 #from toil.common import Toil
@@ -43,7 +44,6 @@ def input_parser(argSet, toil):
         coordinate_key = 'receptor_coordinate_filename'
         receptor_parameter_filename, receptor_parameter_basename, receptor_coordinate_filename, receptor_coordinate_basename = getfiles(toil, argSet, parmtop_key, coordinate_key)
 
-   
     data_inputs = {
         'ligand_parameter_filename': ligand_parameter_filename, 
         'ligand_parameter_basename': ligand_parameter_basename, 
@@ -102,29 +102,30 @@ def get_receptor_ligand_topologies(argSet):
     
 
     for complexes in argSet["parameters"]["complex_parameter_filename"]:
-
         complex_coodinates = pt.load(argSet["parameters"]["complex_coordinate_filename"][-number_complexes], complexes)
         receptor = pt.strip(complex_coodinates, argSet["parameters"]["ligand_mask"][-number_complexes])
         ligand = pt.strip(complex_coodinates, argSet["parameters"]["receptor_mask"])
         
+        receptor_name = argSet["parameters"]["receptor_mask"].strip(":")
+        ligand_name = argSet["parameters"]["ligand_mask"][0].strip(":")
         file_number = 0
         while os.path.exists(receptor_ligand_path[0] + '/' + f"topology_ligand_{file_number}.parm7"):
             file_number +=1 
 
-        pt.write_parm(receptor_ligand_path[0] + '/' + f"topology_ligand_{file_number}.parm7", ligand.top)
-        pt.write_traj(receptor_ligand_path[0]+ '/'+ f"coordinate_ligand_{file_number}.ncrst", ligand)
-        ligand_parameter_filename.append(receptor_ligand_path[0] + '/' + f"topology_ligand_{file_number}.parm7")
-        ligand_coordinate_filename.append(receptor_ligand_path[0] + '/' + f"coordinate_ligand_{file_number}.ncrst.1")
+        pt.write_parm(receptor_ligand_path[0] + '/' + f"{ligand_name}_{file_number}.parm7", ligand.top)
+        pt.write_traj(receptor_ligand_path[0]+ '/'+ f"{ligand_name}_{file_number}.ncrst", ligand)
+        ligand_parameter_filename.append(receptor_ligand_path[0] + '/' + f"{ligand_name}_{file_number}.parm7")
+        ligand_coordinate_filename.append(receptor_ligand_path[0] + '/' + f"{ligand_name}_{file_number}.ncrst.1")
          
         file_number = 0
         
         while os.path.exists(receptor_ligand_path[1] + '/' + f"topology_receptor_{file_number}.parm7"):
             file_number += 1
 
-        pt.write_parm( receptor_ligand_path[1] + '/' + f"topology_receptor_{file_number}.parm7", receptor.top)
-        pt.write_traj(receptor_ligand_path[1] + '/' + f"coordinate_receptor_{file_number}.ncrst", receptor)
-        receptor_parameter_filename.append(receptor_ligand_path[1] + '/' + f"topology_receptor_{file_number}.parm7")
-        receptor_coordinate_filename.append(receptor_ligand_path[1] + '/' + f"coordinate_receptor_{file_number}.ncrst.1")
+        pt.write_parm( receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.parm7", receptor.top)
+        pt.write_traj(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.ncrst", receptor)
+        receptor_parameter_filename.append(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.parm7")
+        receptor_coordinate_filename.append(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.ncrst.1")
         
         number_complexes = number_complexes - 1 
 
@@ -176,9 +177,39 @@ def getfiles(toil, argSet, parm_key, coord_key):
           solute_coordinate_basename.append(re.sub(r".*/([^/.]*)",r"\1",argSet['parameters'][coord_key][-num_of_solutes]))
           #output_dir.append(os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(state)))
           num_of_solutes = num_of_solutes -1 
-
+        
      return solute_filename, solute_basename, solute_coordinate_filename, solute_coordinate_basename
-          
+
+def get_mdins(config, toil):
+
+    equil_mdins = config["replica_exchange_parameters"]["equilibration_replica_mdins"]
+    remd_mdins = config["replica_exchange_parameters"]["remd_mdins"]
+    #list of equilibration and remd mdins being imported by toil
+    equilibration_import_mdins = []
+    remd_import_mdins = []
+    
+    for equil, remd in itertools.zip_longest(equil_mdins, remd_mdins, fillvalue=-1):
+        equilibration_import_mdins.append(toil.importFile("file://" + os.path.abspath(os.path.join(equil))))
+        remd_import_mdins.append(toil.importFile("file://" + os.path.abspath(os.path.join(remd))))
+
+    simulation_mdins = {
+            "equilibrate_mdins" : equilibration_import_mdins,
+            "remd_mdins" : remd_import_mdins
+        }
+    
+    return simulation_mdins
+
+def import_restraint_files(config, toil):
+    flat_bottom = config["parameters"]["flat_bottom_restraints"] 
+    import_flat_bottom = []
+    for restraint in flat_bottom:
+        #import_flat_bottom.append(toil.importFile("file://" + os.path.abspath(os.path.join(restraint))))
+        import_flat_bottom.append(os.path.abspath(os.path.join(restraint)))
+    flat_bottom = {
+            "flat_bottom_restraints" : import_flat_bottom
+    }
+    return flat_bottom
+
 def get_output_dir(solute_filename, state):
      '''
      A designated directory path to export output data
@@ -198,4 +229,5 @@ def get_output_dir(solute_filename, state):
      solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",solute_filename)
      output_dir = os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(state))
      
-     return output_dir 
+     return output_dir  
+    

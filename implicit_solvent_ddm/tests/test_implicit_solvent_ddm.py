@@ -14,14 +14,15 @@ from implicit_solvent_ddm.alchemical import alter_topology_file
 
 #global path to default files for testing 
 file_path ='implicit_solvent_ddm/tests/'
+working_directory = os.getcwd()
 class Implicit_solvent_Tests:
 
     def __init__(self):
         self.work_dir = file_path
-        self.workflow_command = ['run_implicit_ddm.py', 'file:jobstore', '--config_file', file_path +'mdgb.yaml']
+        self.workflow_command = ['run_implicit_ddm.py', 'file:jobstore', '--workDir' , working_directory, '--config_file', file_path +'mdgb.yaml']
     def _run(self):
-        subprocess.check_call(self.workflow_command)
-
+        #subprocess.check_call(self.workflow_command)
+        subprocess.run(self.workflow_command)
     def tearDown(self):
         shutil.rmtree('mdgb/')
 
@@ -49,7 +50,7 @@ def load_topology():
 def test_complex_exclusions_no_charge_no_gb(load_exclusions_no_charge, workflow):
     workflow._run()
     solute_parm = 'mdgb/cb7-mol01/7/4.0_16.0/charges_off_exculsions_cb7-mol01.parm7'
-    solute_resrt = 'mdgb/cb7-mol01/7/4.0_16.0/restrt'
+    solute_resrt = 'mdgb/cb7-mol01/7/4.0_16.0/orientatinal_cb7-mol01.rst7'
     output_solute_traj = pmd.load_file(solute_parm, xyz=solute_resrt)
     #test exclusions and charges  
     assert_exclusions_charges(output_solute_traj, load_exclusions_no_charge)
@@ -57,15 +58,15 @@ def test_complex_exclusions_no_charge_no_gb(load_exclusions_no_charge, workflow)
 #test for complex w/o exclusions, charge and GB 
 def test_complex_no_charge_no_gb(load_no_charge_topology):
     solute_parm = 'mdgb/cb7-mol01/7a/4.0_16.0/charges_off_cb7-mol01.parm7'
-    solute_resrt = 'mdgb/cb7-mol01/7a/4.0_16.0/restrt'
+    solute_resrt = 'mdgb/cb7-mol01/7a/4.0_16.0/exclusion_on_cb7-mol01.rst7'
     output_solute = pmd.load_file(solute_parm, xyz=solute_resrt)
     #test exclusions and charges 
     assert_exclusions_charges(output_solute, load_no_charge_topology)
 
 
 def test_complex_no_exclusions(load_topology):
-    solute_parm = 'mdgb/cb7-mol01/9/0/cb7-mol01.parm7'
-    solute_resrt = 'mdgb/cb7-mol01/9/0/restrt'
+    solute_parm = 'implicit_solvent_ddm/tests/solutes/cb7-mol01.parm7'
+    solute_resrt = 'mdgb/cb7-mol01/9/end_state_cb7-mol01.rst7'
     output_solute = pmd.load_file(solute_parm, xyz=solute_resrt)
     # test exclusions and charges 
     assert_exclusions_charges(output_solute,load_topology)

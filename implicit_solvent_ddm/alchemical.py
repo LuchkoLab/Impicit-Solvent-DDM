@@ -40,9 +40,10 @@ def split_complex(job, complex_topology_filename, complex_topology_basename, com
     '''
 
     tempDir = job.fileStore.getLocalTempDir()
-    complex_traj_filename = os.path.basename(complex_coordinate_restart_filename)
+    job.log(f"the restart file of the complex {complex_coordinate_restart_filename}")
+    complex_traj_filename = os.path.basename(complex_coordinate_restart_filename[0])
     solute = job.fileStore.readGlobalFile(complex_topology_filename, userPath=os.path.join(tempDir, complex_topology_basename))
-    traj_file = job.fileStore.readGlobalFile(complex_coordinate_restart_filename, userPath=os.path.join(tempDir, complex_traj_filename))
+    traj_file = job.fileStore.readGlobalFile(complex_coordinate_restart_filename[0], userPath=os.path.join(tempDir, complex_traj_filename))
    
     
     

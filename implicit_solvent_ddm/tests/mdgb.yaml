@@ -3,16 +3,21 @@
  parameters:
   complex_parameter_filename: [implicit_solvent_ddm/tests/solutes/cb7-mol01.parm7] # list of topology file of a complex 
   complex_coordinate_filename: [implicit_solvent_ddm/tests/solutes/cb7-mol01.ncrst]# list of coordinate file of a complex 
-  restraint_file: false# optional restraint file 
-  orientational_restraint_type: # list of orientational restraint values 
-  mdin: #optional mdin 
-  executable: sander # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
-  mpi:  # number of core for CPU run 
+  executable: "sander" # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
+  mpi: 24 # total number of CPUs in a single node
+  CUDA: False # run on GPU
   restraint_type: 1 # choices: [ 1: CoM-CoM, 2: CoM-Heavy_Atom, 3: Heavy_Atom-Heavy_Atom, must be 1, 2 or 3 ]
-  receptor_mask: ':CB7' # list of Amber masks denoting receptor atoms in respected complex file 
-  ligand_mask: [':M01'] # list of Amber masks denoting ligand atoms in respected complex file 
-  freeze_restraints_forces: [0.00390625, 0.125, 4.0] # list of conformational force values 
-  orientational_restriant_forces: [0.00390625, 0.125, 16.0 ]
+  receptor_mask: ':CB7' # list of Amber masks denoting receptor atoms in respected complex file
+  ligand_mask: [':M01'] # list of Amber masks denoting ligand atoms in respected complex file
+  freeze_restraints_forces: [0.00390625, 0.125, 4.0] # list of conformational force values
+  orientational_restriant_forces: [0.00390625, 0.125, 16.0]
+  #currently software does not support user mdin and restraint file: these file will created within the workflow
+  flat_bottom_restraints: [implicit_solvent_ddm/tests/solutes/COM.restraint] # flat bottom restraints restraint file 
+  end_state_mdin: [implicit_solvent_ddm/tests/solutes/end_state_mdin] # long MD if remd is False 
+  mdin_intermidate_config: implicit_solvent_ddm/tests/inter.yaml #intermidate mdins required states 3-8
+
+ replica_exchange_parameters:
+  replica_exchange: False   
  optional_parameters:
   ligand_parameter_file: #paramter file for only the ligand
   ligand_coordinate_file: # restart file for ligand only

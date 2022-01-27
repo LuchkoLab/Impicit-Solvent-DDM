@@ -42,7 +42,7 @@ def make_restraints_file(job, complex_file, complex_filename, complex_restrt, co
     '''
     tempDir = job.fileStore.getLocalTempDir()
     solute = job.fileStore.readGlobalFile(complex_file,  userPath=os.path.join(tempDir, complex_filename))
-    rst = job.fileStore.readGlobalFile(complex_restrt,  userPath=os.path.join(tempDir, complex_restrt_filename))
+    rst = job.fileStore.readGlobalFile(complex_restrt[0],  userPath=os.path.join(tempDir, complex_restrt_filename))
 
     #make conformational restraint folders 
     if not os.path.exists(work_dir + '/mdgb/freeze_restraints_folder/ligand'):
@@ -69,7 +69,7 @@ def make_restraints_file(job, complex_file, complex_filename, complex_restrt, co
     com_complex, num_atoms, ligand, com_ligand, receptor, com_receptor = map_molecule_parm(traj, receptor_mask, ligand_mask)
     
     job.log("\n parm7_file: " + complex_file)
-    job.log("\n rest_ref_file: " + complex_restrt)
+    job.log(f"\n rest_ref_file:  + {complex_restrt}")
     job.log("\n num_atoms: "+str(num_atoms))
     job.log("\n ligand: "+str(ligand))
     job.log("\n com_ligand: "+str(com_ligand))
