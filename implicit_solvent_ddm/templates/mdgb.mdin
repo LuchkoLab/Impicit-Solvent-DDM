@@ -14,7 +14,7 @@
   igb = $igb
   saltcon = $saltcon
   gbsa = $gbsa
-  rgbmax=999.0
+  rgbmax= $rgbmax
   cut = $cut
 
   ntt = 3
@@ -22,12 +22,11 @@
   gamma_ln=1
   temp0 = $temp0
 
-  ntc = 2              ! SHAKE all hydrogen bonds
-  ntf = 2
+  ntc = $ntc              ! SHAKE all hydrogen bonds
+  ntf = $ntc
 
   nmropt = $nmropt
   
-  nstlim = $nstlim
   ntxo=2,ioutfm=1    ! binary restart and trajectories
   ntpr=$ntpr         ! print energies 
   ntwx=$ntwx         ! write to trajectory 
