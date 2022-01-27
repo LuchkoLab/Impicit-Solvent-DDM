@@ -15,6 +15,7 @@ def export_outputs(toil_job, output_dir, files_to_ignore):
             if re.match(r".*.nc.*", name):
                 traj_files.append(str(output_file))
     toil_job.log(f"the current trajectory files {traj_files}")
+    toil_job.log(f"the restart files: {restart_files}")
     return restart_files, traj_files
     # if runtype == 'min':
     #     for arg in kwargs:
