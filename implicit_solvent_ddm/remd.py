@@ -42,21 +42,7 @@ def remd_workflow(job, df_config_inputs, argSet, work_dir):
         ligand_extract = remd_ligand.addFollowOnJobFn(extract_traj, df_config_inputs['ligand_parameter_filename'][n], remd_ligand.rv(1), 
                                                       work_dir, argSet)
         job.addChild(ligand_extract)
-           
-        minimization_receptor = Job.wrapJobFn(run_remd, 
-                                    df_config_inputs['receptor_parameter_filename'][n], df_config_inputs['receptor_coordinate_filename'][n],
-                                    argSet, work_dir, "minimization")
-        job.addChild(minimization_receptor)
-        equilibrate_receptor = minimization_receptor.addFollowOnJobFn(run_remd,
-                                                                    df_config_inputs['receptor_parameter_filename'][n], minimization_receptor.rv(0),
-                                                                    argSet, work_dir, "equil")
-        job.addChild(equilibrate_receptor)
-        remd_receptor = equilibrate_receptor.addFollowOnJobFn(run_remd,
-                                                                    df_config_inputs['receptor_parameter_filename'][n], equilibrate_receptor.rv(0),
-                                                                    argSet, work_dir, "remd")
-        extract_receptor = remd_receptor.addFollowOnJobFn(extract_traj, df_config_inputs['receptor_parameter_filename'][n], remd_receptor.rv(1), 
-                                                      work_dir, argSet)
-        job.addChild(extract_receptor)
+    
         minimization_complex = Job.wrapJobFn(run_remd, 
                                                   df_config_inputs['complex_parameter_filename'][n],df_config_inputs['complex_coordinate_filename'][n],  
                                                   argSet, work_dir, "minimization", COM=True)
@@ -74,6 +60,23 @@ def remd_workflow(job, df_config_inputs, argSet, work_dir):
         complex_extract = remd_complex.addFollowOnJobFn(extract_traj, df_config_inputs['complex_parameter_filename'][n], remd_complex.rv(1), 
                                                       work_dir, argSet)
         job.addChild(complex_extract)
+        
+        #if the ingore_receptor flag is not given then run REMD on receptor system 
+        if not argSet["ignore_receptor"]:
+            minimization_receptor = Job.wrapJobFn(run_remd, 
+                                        df_config_inputs['receptor_parameter_filename'][n], df_config_inputs['receptor_coordinate_filename'][n],
+                                        argSet, work_dir, "minimization")
+            job.addChild(minimization_receptor)
+            equilibrate_receptor = minimization_receptor.addFollowOnJobFn(run_remd,
+                                                                        df_config_inputs['receptor_parameter_filename'][n], minimization_receptor.rv(0),
+                                                                        argSet, work_dir, "equil")
+            job.addChild(equilibrate_receptor)
+            remd_receptor = equilibrate_receptor.addFollowOnJobFn(run_remd,
+                                                                        df_config_inputs['receptor_parameter_filename'][n], equilibrate_receptor.rv(0),
+                                                                        argSet, work_dir, "remd")
+            extract_receptor = remd_receptor.addFollowOnJobFn(extract_traj, df_config_inputs['receptor_parameter_filename'][n], remd_receptor.rv(1), 
+                                                        work_dir, argSet)
+            job.addChild(extract_receptor)
         
     return complex_extract.rv()
 
