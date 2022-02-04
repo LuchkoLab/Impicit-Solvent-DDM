@@ -267,8 +267,8 @@ def extract_traj(job, solute_topology, traj_files, workdir, arguments):
                             capture_output=True)
     job.log(f"last subprocess {output}")
     final_traj = job.fileStore.writeGlobalFile(lastframe)
-    job.fileStore.exportFile(final_traj,"file://" + 
-                             os.path.abspath(os.path.join("/home/ayoub/nas0/Impicit-Solvent-DDM/mdgb/", lastframe)))
+    #job.fileStore.exportFile(final_traj,"file://" + 
+                             #os.path.abspath(os.path.join("/home/ayoub/nas0/Impicit-Solvent-DDM/mdgb/", lastframe)))
     ncrst = [final_traj]
     rst7 = [lastframe_rst7]
     return (ncrst, rst7)
