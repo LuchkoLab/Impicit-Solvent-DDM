@@ -267,8 +267,7 @@ def extract_traj(job, solute_topology, traj_files, workdir, arguments):
                             capture_output=True)
     job.log(f"last subprocess {output}")
     final_traj = job.fileStore.writeGlobalFile(lastframe)
-    #job.fileStore.exportFile(final_traj,"file://" + 
-                             #os.path.abspath(os.path.join("/home/ayoub/nas0/Impicit-Solvent-DDM/mdgb/", lastframe)))
+    
     ncrst = [final_traj]
     rst7 = [lastframe_rst7]
     return (ncrst, rst7)
@@ -329,16 +328,17 @@ def get_bash(job, solute, coordinate_files, target_temperature):
     job.log(f"after import {import_bash}")
     read_bash = job.fileStore.readGlobalFile(import_bash,  userPath=os.path.join(tempDir , os.path.basename(import_bash)))
     job.log(f"readGlobal bash script {read_bash}")
-    #job.fileStore.exportFile(read_bash,"file://" + os.path.abspath(os.path.join("/home/ayoub/nas0/Impicit-Solvent-DDM/mdgb/", os.path.basename(read_bash))))
-    
+ 
     return read_bash
     #return os.path.abspath(f"cpptraj_extract_{target_temperature}K.x")
 
 def submit_job(executable, exe_job):
     try:
-        subprocess.run(executable, capture_output=True)
+        output = subprocess.run(executable, capture_output=True)
     except subprocess.CalledProcessError as e:
         exe_job.log(e.output)
+        
+    exe_job.log(f"submit job {executable}: {output}")
 
 
        
