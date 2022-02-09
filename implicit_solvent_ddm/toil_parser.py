@@ -28,36 +28,41 @@ def input_parser(argSet, toil):
     '''
    
     print('working directory', os.getcwd())
-
+    data_inputs = {}
     if argSet['parameters']['complex_parameter_filename']:
         parmtop_key = 'complex_parameter_filename'
         coordinate_key = 'complex_coordinate_filename'
         complex_parameter_filename, complex_parameter_basename, complex_coordinate_filename, complex_coordinate_basename = getfiles(toil, argSet, parmtop_key, coordinate_key)
-        
+        complex_inputs = {
+            'complex_parameter_filename': complex_parameter_filename,
+            'complex_parameter_basename': complex_parameter_basename,
+            'complex_coordinate_filename': complex_coordinate_filename,
+            'complex_coordinate_basename': complex_coordinate_basename
+        }
+        data_inputs.update(complex_inputs)
     if argSet['parameters']['ligand_parameter_filename']:
         parmtop_key = 'ligand_parameter_filename'
         coordinate_key = 'ligand_coordinate_filename'
         ligand_parameter_filename, ligand_parameter_basename, ligand_coordinate_filename, ligand_coordinate_basename = getfiles(toil, argSet, parmtop_key, coordinate_key)
-
-    if argSet['parameters']['receptor_parameter_filename']:
-        parmtop_key = 'receptor_parameter_filename'
-        coordinate_key = 'receptor_coordinate_filename'
-        receptor_parameter_filename, receptor_parameter_basename, receptor_coordinate_filename, receptor_coordinate_basename = getfiles(toil, argSet, parmtop_key, coordinate_key)
-
-    data_inputs = {
+        ligand_inputs = {
         'ligand_parameter_filename': ligand_parameter_filename, 
         'ligand_parameter_basename': ligand_parameter_basename, 
         'ligand_coordinate_filename': ligand_coordinate_filename, 
         'ligand_coordinate_basename': ligand_coordinate_basename,
-        'receptor_parameter_filename' : receptor_parameter_filename,
-        'receptor_parameter_basename': receptor_parameter_basename,
-        'receptor_coordinate_filename': receptor_coordinate_filename,
-        'receptor_coordinate_basename': receptor_coordinate_basename,
-        'complex_parameter_filename': complex_parameter_filename,
-        'complex_parameter_basename': complex_parameter_basename,
-        'complex_coordinate_filename': complex_coordinate_filename,
-        'complex_coordinate_basename': complex_coordinate_basename
         }
+        data_inputs.update(ligand_inputs)
+        
+    if not argSet["ignore_receptor"]:
+        parmtop_key = 'receptor_parameter_filename'
+        coordinate_key = 'receptor_coordinate_filename'
+        receptor_parameter_filename, receptor_parameter_basename, receptor_coordinate_filename, receptor_coordinate_basename = getfiles(toil, argSet, parmtop_key, coordinate_key)
+        receptor_inputs = {
+            'receptor_parameter_filename' : receptor_parameter_filename,
+            'receptor_parameter_basename': receptor_parameter_basename,
+            'receptor_coordinate_filename': receptor_coordinate_filename,
+            'receptor_coordinate_basename': receptor_coordinate_basename,     
+            }
+        data_inputs.update(receptor_inputs)
     
     df = pd.DataFrame(data=data_inputs)
 
@@ -118,22 +123,22 @@ def get_receptor_ligand_topologies(argSet):
         ligand_coordinate_filename.append(receptor_ligand_path[0] + '/' + f"{ligand_name}_{file_number}.ncrst.1")
          
         file_number = 0
-        
-        while os.path.exists(receptor_ligand_path[1] + '/' + f"topology_receptor_{file_number}.parm7"):
-            file_number += 1
-
-        pt.write_parm( receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.parm7", receptor.top)
-        pt.write_traj(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.ncrst", receptor)
-        receptor_parameter_filename.append(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.parm7")
-        receptor_coordinate_filename.append(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.ncrst.1")
-        
+        if not argSet["ignore_receptor"]:
+            while os.path.exists(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.parm7"):
+                file_number += 1
+            pt.write_parm( receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.parm7", receptor.top)
+            pt.write_traj(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.ncrst", receptor)
+            receptor_parameter_filename.append(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.parm7")
+            receptor_coordinate_filename.append(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.ncrst.1")
+            argSet["receptor_parameter_filename"] = receptor_parameter_filename
+            argSet["receptor_coordinate_filename"] = receptor_coordinate_filename
+        else:
+            argSet["receptor_parameter_filename"] = [f"{receptor_name}_{file_number}.parm7"]
         number_complexes = number_complexes - 1 
 
     argSet["ligand_parameter_filename"] = ligand_parameter_filename
     argSet["ligand_coordinate_filename"] = ligand_coordinate_filename
-    argSet["receptor_parameter_filename"] = receptor_parameter_filename
-    argSet["receptor_coordinate_filename"] = receptor_coordinate_filename
-
+    
     return argSet
 
 def getfiles(toil, argSet, parm_key, coord_key):
