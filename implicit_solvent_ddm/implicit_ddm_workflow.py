@@ -109,7 +109,7 @@ def ddm_workflow(df_config_inputs, argSet, work_dir):
                                                     argSet, "end_state", COM=True, input_mdin = argSet["parameters"]["end_state_mdin"][0],
                                                     work_dir=work_dir)
         #create orentational and conformational restraint templates  
-        restraint_job = complex_job.addFollowOnJobFn(restraints.make_restraint_file, complex_job.rv(0), argSet, df_config_inputs)
+        restraint_job = complex_job.addFollowOnJobFn(restraints.make_restraint_files, complex_job.rv(0), argSet, df_config_inputs)
 
         #split the complex coordinates once complex_job is completed 
         split_job = restraint_job.addFollowOnJobFn(split_complex, 
