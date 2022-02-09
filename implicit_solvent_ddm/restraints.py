@@ -1,5 +1,6 @@
 
 #ask luchko about parmed, for dependencies/requirment 
+from ast import arg
 import parmed as pmd 
 import pytraj as pt 
 import numpy as np
@@ -13,7 +14,7 @@ import implicit_solvent_ddm.restraint_finder as findrest
 
 
 
-def make_restraints_file(job, complex_file, complex_filename, complex_restrt, complex_restrt_filename, ligand_filename, receptor_filename, ligand_mask, receptor_mask,  restraint_type, work_dir):
+def make_restraint_files(job, complex_coordinate, arguments, df_inputs):
     '''
     purpose to create a series of conformational and oritentational restratins template files.
 
@@ -23,53 +24,45 @@ def make_restraints_file(job, complex_file, complex_filename, complex_restrt, co
     ----------
     job: toil.job.FunctionWrappingJob
         A context manager that represents a Toil workflow
-    complex_file: toil.fileStore.FileID
-        The jobStoreFileID of the imported file is an parameter file (.parm7) of a complex
-    complex_filename: str
-        Name of the parameter complex file
-    complex_restrt: toil.fileStore.FileID
+    complex_coordinate: toil.fileStore.FileID
         The jobStoreFileID of the imported file. The file being an coordinate file (.ncrst, .nc) of a complex
     complex_restrt_filename: srt
         Name of the coordinate complex file
-    argSet: dict
+    arguments: dict
         A dictionary of parameters from a .yaml configuation file
-    work_dir: str
+    df_inputs: pandas.Dataframe
         The absolute path to user's working directory
 
     Returns
     -------
     None
     '''
+    job.log("MAKING RESTRAINTS FILES")
     tempDir = job.fileStore.getLocalTempDir()
-    solute = job.fileStore.readGlobalFile(complex_file,  userPath=os.path.join(tempDir, complex_filename))
-    rst = job.fileStore.readGlobalFile(complex_restrt[0],  userPath=os.path.join(tempDir, complex_restrt_filename))
-
+    complex_file = df_inputs['complex_parameter_filename'][0]
+    temp_complex_topology = job.fileStore.readGlobalFile(complex_file,  userPath=os.path.join(tempDir, os.path.basename(complex_file)))
+    temp_complex_coordinate = job.fileStore.readGlobalFile(complex_coordinate[0],  userPath=os.path.join(tempDir, os.path.basename(complex_coordinate[0])))
+    work_dir = arguments["workDir"]
+    
     #make conformational restraint folders 
-    if not os.path.exists(work_dir + '/mdgb/freeze_restraints_folder/ligand'):
-        os.makedirs(work_dir + '/mdgb/freeze_restraints_folder/ligand')
-    if not os.path.exists(work_dir + '/mdgb/freeze_restraints_folder/receptor'):
-        os.makedirs(work_dir + '/mdgb/freeze_restraints_folder/receptor')
-    if not os.path.exists(work_dir + '/mdgb/freeze_restraints_folder/complex'):
-         os.makedirs(work_dir + '/mdgb/freeze_restraints_folder/complex')
+    if not os.path.exists(f"{arguments['workDir']}/mdgb/freeze_restraints_folder/ligand"):
+        os.makedirs(f"{arguments['workDir']}/mdgb/freeze_restraints_folder/ligand")
+    if not os.path.exists(f"{arguments['workDir']}/mdgb/freeze_restraints_folder/receptor"):
+        os.makedirs(f"{arguments['workDir']}/mdgb/freeze_restraints_folder/receptor")
+    if not os.path.exists(f"{arguments['workDir']}/mdgb/freeze_restraints_folder/complex"):
+         os.makedirs(f"{arguments['workDir']}/mdgb/freeze_restraints_folder/complex")
+    if not os.path.exists(f"{arguments['workDir']}/mdgb/orientational_restraints_folder/complex/"):
+        os.makedirs(f"{arguments['workDir']}/mdgb/orientational_restraints_folder/complex/")
+    
+    traj = pt.load(temp_complex_coordinate, temp_complex_topology)
 
-    if not os.path.exists(work_dir + '/mdgb/orientational_restraints_folder/complex/'):
-        os.makedirs(work_dir + '/mdgb/orientational_restraints_folder/complex/')
+    receptor_mask = arguments["parameters"]["receptor_mask"]
+    ligand_mask = arguments["parameters"]["ligand_mask"][0]
     
-    #restraint_type = argSet["parameters"]["restraint_type"]
-    #receptor_mask = argSet["parameters"]["receptor_mask"]
-    #ligand_mask = argSet["parameters"]["ligand_mask"]
-    
-    
-    traj = pt.load(rst, solute)
-    #if argSet['residue_label']:
-     #   pass
-    #if argSet['complex_label']: 
-      #  pass
- 
     com_complex, num_atoms, ligand, com_ligand, receptor, com_receptor = map_molecule_parm(traj, receptor_mask, ligand_mask)
     
     job.log("\n parm7_file: " + complex_file)
-    job.log(f"\n rest_ref_file:  + {complex_restrt}")
+    job.log(f"\n rest_ref_file:  + {temp_complex_coordinate}")
     job.log("\n num_atoms: "+str(num_atoms))
     job.log("\n ligand: "+str(ligand))
     job.log("\n com_ligand: "+str(com_ligand))
@@ -79,15 +72,12 @@ def make_restraints_file(job, complex_file, complex_filename, complex_restrt, co
     receptor_atom_neighbor_index = create_atom_neighbor_index(receptor.n_atoms, receptor)
     ligand_atom_neighbor_index = create_atom_neighbor_index(ligand.n_atoms, ligand)
     complex_atom_neighbor_index = create_atom_neighbor_index(traj.n_atoms, traj)
+   
     
+    write_freezing_restraints(receptor_atom_neighbor_index, ligand_atom_neighbor_index, receptor.n_atoms, arguments)
     
-    complex_name = re.sub(r"\..*","",complex_filename)
-    ligand_name =  re.sub(r"\..*","",ligand_filename)
-    receptor_name = re.sub(r"\..*","",receptor_filename)
+    write_orientational_restraints(temp_complex_topology, temp_complex_coordinate, arguments) 
 
-    write_freezing_restraints(receptor_atom_neighbor_index, ligand_atom_neighbor_index, complex_atom_neighbor_index, receptor.n_atoms, complex_name, ligand_name, receptor_name, work_dir)
-    
-    write_orientational_restraints(solute, complex_name, rst, restraint_type, work_dir)
    
 def map_molecule_parm(traj, receptor_mask, ligand_mask):
 
@@ -191,9 +181,14 @@ def distance_calculator(point_a, point_b):
 
     return distance
 
-def write_freezing_restraints(receptor_freezing_restraints, ligand_freezing_restraints, complex_freezing_restraints, num_atoms_receptor, complex_name, ligand_name, receptor_name, work_dir):
-    
 
+
+def write_freezing_restraints(receptor_freezing_restraints, ligand_freezing_restraints, num_atoms_receptor, arguments):
+    
+    complex_name = re.sub(r"\..*","",os.path.basename(arguments["parameters"]["complex_parameter_filename"][0]))
+    receptor_name = re.sub(r"\..*","", os.path.basename(arguments["parameters"]["receptor_parameter_filename"][0]))
+    ligand_name = re.sub(r"\..*","",os.path.basename(arguments["parameters"]["ligand_parameter_filename"][0]))
+    work_dir = arguments["workDir"]
     #restraint force constants are given as dummy_variable, actual values replace these when specified by mdgb.py
     for i in range(len(ligand_freezing_restraints)):
         lig_restraint_string = ('\n\n&rst iat = '+str(ligand_freezing_restraints[i][0])+', '+str(ligand_freezing_restraints[i][1])+',\n'
@@ -238,22 +233,22 @@ def write_freezing_restraints(receptor_freezing_restraints, ligand_freezing_rest
                                 +'\n'
                                 )
 
-
-        #file = open(work_dir + "/mdgb/freeze_restraints_folder/"+name_of_system+"_receptor_restraint.FRST", "a+")
-        file = open(work_dir + "/mdgb/freeze_restraints_folder/receptor/"+ receptor_name + "_restraint.FRST", "a+")
-        file.write(rec_restraint_string)
-        file.close()
+        if not arguments["ignore_receptor"]: 
+            #file = open(work_dir + "/mdgb/freeze_restraints_folder/"+name_of_system+"_receptor_restraint.FRST", "a+")
+            file = open(work_dir + "/mdgb/freeze_restraints_folder/receptor/"+ receptor_name + "_restraint.FRST", "a+")
+            file.write(rec_restraint_string)
+            file.close()
 
         #file = open(work_dir + "/mdgb/freeze_restraints_folder/"+name_of_system+"_complex_restraint.FRST", "a+")
         file = open(work_dir + "/mdgb/freeze_restraints_folder/complex/"+complex_name +"_restraint.FRST", "a+")
         file.write(rec_restraint_string)
         file.close()
-
-    #file = open(work_dir + "/mdgb/freeze_restraints_folder/"+name_of_system+"_receptor_restraint.FRST", "a+")
-    file = open(work_dir + "/mdgb/freeze_restraints_folder/receptor/"+receptor_name+"_restraint.FRST", "a+")
-    end_string = ('&end\n')
-    file.write(end_string)
-    file.close()
+    if not arguments["ignore_receptor"]:
+        #file = open(work_dir + "/mdgb/freeze_restraints_folder/"+name_of_system+"_receptor_restraint.FRST", "a+")
+        file = open(work_dir + "/mdgb/freeze_restraints_folder/receptor/"+receptor_name+"_restraint.FRST", "a+")
+        end_string = ('&end\n')
+        file.write(end_string)
+        file.close()
 
     #file = open(work_dir + "/mdgb/freeze_restraints_folder/"+name_of_system+"_complex_restraint.FRST", "a+")
     file = open(work_dir + "/mdgb/freeze_restraints_folder/complex/"+complex_name+"_restraint.FRST", "a+")
@@ -261,8 +256,7 @@ def write_freezing_restraints(receptor_freezing_restraints, ligand_freezing_rest
     file.write(end_string)
     file.close()
 
-def write_orientational_restraints(complex_file, complex_name, complex_coordinate, restraint_type, work_dir):
-
+def write_orientational_restraints(complex_file,  complex_coordinate, argSet):
     '''
     To create an orientational restraint .RST file
 
@@ -285,7 +279,9 @@ def write_orientational_restraints(complex_file, complex_name, complex_coordinat
     -------
     None
     '''
-     
+    restraint_type = argSet["parameters"]["restraint_type"]
+    work_dir = argSet["workDir"]
+    complex_name = re.sub(r"\..*","",os.path.basename(argSet["parameters"]["complex_parameter_filename"][0]))
     atom_R3, atom_R2, atom_R1, atom_L1, atom_L2, atom_L3, dist_rest, lig_angrest, rec_angrest, lig_torres, rec_torres, central_torres = findrest.remote_run_complex(complex_file, complex_coordinate, restraint_type)
     
     

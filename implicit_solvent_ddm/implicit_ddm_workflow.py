@@ -108,19 +108,14 @@ def ddm_workflow(df_config_inputs, argSet, work_dir):
                                                     get_output_dir(df_config_inputs['complex_parameter_filename'][n],9), 
                                                     argSet, "end_state", COM=True, input_mdin = argSet["parameters"]["end_state_mdin"][0],
                                                     work_dir=work_dir)
-            
         #create orentational and conformational restraint templates  
-        restraint_job = complex_job.addFollowOnJobFn(restraints.make_restraints_file, 
-                                                     df_config_inputs['complex_parameter_filename'][n], df_config_inputs['complex_parameter_basename'][n], 
-                                                     complex_job.rv(0), df_config_inputs['complex_coordinate_basename'][n],  
-                                                     df_config_inputs['ligand_parameter_basename'][n], df_config_inputs['receptor_parameter_basename'][n], 
-                                                     argSet["parameters"]["ligand_mask"][n], argSet["parameters"]["receptor_mask"], 
-                                                     argSet["parameters"]["restraint_type"], work_dir)
+        restraint_job = complex_job.addFollowOnJobFn(restraints.make_restraint_files, complex_job.rv(0), argSet, df_config_inputs)
+
         #split the complex coordinates once complex_job is completed 
-        split_job = complex_job.addFollowOnJobFn(split_complex, 
+        split_job = restraint_job.addFollowOnJobFn(split_complex, 
                                                  df_config_inputs['complex_parameter_filename'][n], df_config_inputs['complex_parameter_basename'][n], 
                                                  complex_job.rv(0),  
-                                                 df_config_inputs['ligand_parameter_basename'][n], df_config_inputs['receptor_parameter_basename'][n],  
+                                                 df_config_inputs['ligand_parameter_basename'][n], os.path.basename(argSet["parameters"]["receptor_parameter_filename"][n]),  
                                                  argSet["parameters"]["ligand_mask"][n],  argSet["parameters"]["receptor_mask"], 
                                                  work_dir)
         #loop through conformational restraint forces 
@@ -198,15 +193,6 @@ def ddm_workflow(df_config_inputs, argSet, work_dir):
                                                                  work_dir=work_dir, ligand_mask = argSet["parameters"]["ligand_mask"][n], receptor_mask =  argSet["parameters"]["receptor_mask"],
                                                                  conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], orientational_restraint = argSet["parameters"]["orientational_restriant_forces"][-1],
                                                                  solvent_turned_off=True, charge_off= False, exculsions=False)
-        # turn back on solvent interactions 
-        # add_back_solvent_complex = restraint_job.addChildJobFn(run_md, 
-        #                                                          df_config_inputs['complex_parameter_filename'][n], df_config_inputs['complex_parameter_basename'][n], 
-        #                                                          complex_job.rv(0), complex_job.rv(0),  
-        #                                                          get_output_dir(df_config_inputs['complex_parameter_filename'][n],'7c'),
-        #                                                          argSet, "solvent_on",
-        #                                                          work_dir=work_dir, ligand_mask = argSet["parameters"]["ligand_mask"][n], receptor_mask = argSet["parameters"]["receptor_mask"],
-        #                                                          conformational_restraint = argSet["parameters"]["freeze_restraints_forces"][-1], orientational_restraint = argSet["parameters"]["orientational_restriant_forces"][-1],
-        #                                                          solvent_turned_off=False, charge_off= False, exculsions=False)
         # slowly turn off the restraints 
         for restraints_forces in restraint_tuples:
             complex_intermidate = restraint_job.addChildJobFn(run_md, 
@@ -227,8 +213,7 @@ def main():
     parser.add_argument("--ignore_receptor", action= "store_true", help=" Receptor MD caluculations with not be performed.")
     options = parser.parse_args()
     options.logLevel = "INFO"
-    #options.clean = "always"
-
+    options.clean = "onSuccess"
     config = options.config_file[0]
     
     try:
@@ -245,8 +230,12 @@ def main():
     create_dirstruct(argSet)
      
     #create a log file
-    Path('mdgb/log_file.txt').touch()
-    options.logFile = "mdgb/log_file.txt"
+    job_number = 1
+    while os.path.exists(f"mdgb/log_job_{job_number:03}.txt"):
+        job_number +=1
+    Path(f"mdgb/log_job_{job_number:03}.txt").touch()
+    
+    options.logFile = f"mdgb/log_job_{job_number:03}.txt"
 
     # if not options.workDir: 
     #     work_dir = os.getcwd()
@@ -258,6 +247,7 @@ def main():
         #dataFrame containing absolute paths of topology and coordinate files. Also contains basenames of both file types 
         if not toil.options.restart:
             work_dir = os.getcwd()
+            argSet["workDir"] = work_dir
             argSet["parameters"].update(get_receptor_ligand_topologies(argSet))
             dataframe_parameter_inputs = input_parser(argSet,toil)
             argSet["parameters"].update(import_restraint_files(argSet, toil))
