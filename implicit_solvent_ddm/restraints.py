@@ -59,7 +59,7 @@ def make_restraint_files(job, complex_coordinate, arguments, df_inputs):
     receptor_mask = arguments["parameters"]["receptor_mask"]
     ligand_mask = arguments["parameters"]["ligand_mask"][0]
     
-    com_complex, num_atoms, ligand, com_ligand, receptor, com_receptor = map_molecule_parm(traj, receptor_mask, ligand_mask)
+    com_complex, num_atoms, ligand, com_ligand, receptor, com_receptor = findrest.map_molecule_parm(traj, receptor_mask, ligand_mask)
     
     job.log("\n parm7_file: " + complex_file)
     job.log(f"\n rest_ref_file:  + {temp_complex_coordinate}")
@@ -77,48 +77,6 @@ def make_restraint_files(job, complex_coordinate, arguments, df_inputs):
     write_freezing_restraints(receptor_atom_neighbor_index, ligand_atom_neighbor_index, receptor.n_atoms, arguments)
     
     write_orientational_restraints(temp_complex_topology, temp_complex_coordinate, arguments) 
-
-   
-def map_molecule_parm(traj, receptor_mask, ligand_mask):
-
-    '''
-    To map out the trajectory of the receptor and ligand separately 
-
-    Also computes the center of mass for complex, receptor and ligand 
-
-    Parameters
-    ----------
-    traj: pytraj.trajectory.trajectory.Trajectory
-        The last trajectory frame from complex simualtion (state 9)
-    receptor_mask: str
-        An AMBER mask notation to select the receptor atoms only 
-    ligand_mask: str
-        An AMBER mask notation to select the ligand atoms only
-
-    Returns
-    -------
-    com_complex: numpy.ndarray 
-        compute center of mass for complex 
-    num_atoms: int 
-        Total number of atoms 
-    ligand: pytraj.trajectory.trajectory.Trajectory
-        Trajectory frame of the ligand only 
-    com_ligand: numpy.ndarray
-        center of mass for ligand 
-    com_receptor: numpy.ndarray
-        center of mass for receptor 
-    '''
-    #prmtop_df.columns = prmtop_df.columns.get_level_values(0)
-    #ligand_label = prmtop_df['RESIDUE_LABEL'][1].rstrip()
-
-    num_atoms = traj.n_atoms
-    com_complex = pt.center_of_mass(traj)
-    ligand = traj[ligand_mask]
-    com_ligand = pt.center_of_mass(traj[ligand_mask])
-    receptor = traj[receptor_mask]
-    com_receptor = pt.center_of_mass(traj[receptor_mask])
-
-    return com_complex, num_atoms, ligand, com_ligand, receptor, com_receptor
 
 def create_atom_neighbor_index(num_atoms, molecule):
      '''                                                                                                                                   
@@ -282,7 +240,7 @@ def write_orientational_restraints(complex_file,  complex_coordinate, argSet):
     restraint_type = argSet["parameters"]["restraint_type"]
     work_dir = argSet["workDir"]
     complex_name = re.sub(r"\..*","",os.path.basename(argSet["parameters"]["complex_parameter_filename"][0]))
-    atom_R3, atom_R2, atom_R1, atom_L1, atom_L2, atom_L3, dist_rest, lig_angrest, rec_angrest, lig_torres, rec_torres, central_torres = findrest.remote_run_complex(complex_file, complex_coordinate, restraint_type)
+    atom_R3, atom_R2, atom_R1, atom_L1, atom_L2, atom_L3, dist_rest, lig_angrest, rec_angrest, lig_torres, rec_torres, central_torres = findrest.remote_run_complex(complex_file, complex_coordinate, argSet)
     
     
     restraint_path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/templates/restraint.RST")
