@@ -511,29 +511,42 @@ def screen_for_distance_restraints(num_atoms, com, mol):
     print ('Success!! Selected distance atom: Type:', selected_atom_name, 'At coordinates: ', selected_atom_position)
     return selected_atom_parmindex, selected_atom_position, saved_distance_value
 
-def map_molecule_parm(traj):
+def map_molecule_parm(traj, receptor_mask, ligand_mask):
     '''
-    This function maps a complex into it receptor and ligand parts.
-    It retruns the ligand and receptor as their own separate objects.
+    To map out the trajectory of the receptor and ligand separately 
 
-    NOTE:
-    It is important to evaluate what your ligand residue is called.  
-    The line: 
-    ligand = traj[':*'], * should be replaced by whatever string will select your ligand.
-    Similary for the line:
-    receptor = traj['!:*']
+    Also computes the center of mass for complex, receptor and ligand 
 
+    Parameters
+    ----------
+    traj: pytraj.trajectory.trajectory.Trajectory
+        The last trajectory frame from complex simualtion (state 9)
+    receptor_mask: str
+        An AMBER mask notation to select the receptor atoms only 
+    ligand_mask: str
+        An AMBER mask notation to select the ligand atoms only
+    Returns
+    -------
+    com_complex: numpy.ndarray 
+        compute center of mass for complex 
+    num_atoms: int 
+        Total number of atoms 
+    ligand: pytraj.trajectory.trajectory.Trajectory
+        Trajectory frame of the ligand only 
+    com_ligand: numpy.ndarray
+        center of mass for ligand 
+    com_receptor: numpy.ndarray
+        center of mass for receptor 
     '''
+    #prmtop_df.columns = prmtop_df.columns.get_level_values(0)
+    #ligand_label = prmtop_df['RESIDUE_LABEL'][1].rstrip()
 
-
-
-    
     num_atoms = traj.n_atoms
     com_complex = pt.center_of_mass(traj)
-    ligand = traj[':M*']
-    com_ligand = pt.center_of_mass(traj[':M*'])
-    receptor = traj['!:M*']
-    com_receptor = pt.center_of_mass(traj['!:M*'])
+    ligand = traj[ligand_mask]
+    com_ligand = pt.center_of_mass(traj[ligand_mask])
+    receptor = traj[receptor_mask]
+    com_receptor = pt.center_of_mass(traj[receptor_mask])
 
     return com_complex, num_atoms, ligand, com_ligand, receptor, com_receptor
 
@@ -641,7 +654,7 @@ def find_mol_cm(position_data, num_atoms, inputfile, lineflag):
 
     return center_of_mass
 
-def remote_run_complex(parmfile, coordfile, r1_input):
+def remote_run_complex(parmfile, coordfile, arguments):
     '''
     This function simply executes the program remotely, assumes a complex as input so finds 6 total restraints.
     It skips the drawing geometry portion and only returns the values needed, it does not print anything to screen.
@@ -650,7 +663,9 @@ def remote_run_complex(parmfile, coordfile, r1_input):
 
     #Get Pytraj information
     traj = pt.load(coordfile, parmfile)
-    com_complex, num_atoms, ligand, com_ligand, receptor, com_receptor = map_molecule_parm(traj)
+    receptor_mask = arguments["parameters"]["receptor_mask"]
+    ligand_mask = arguments["parameters"]["ligand_mask"][0]
+    com_complex, num_atoms, ligand, com_ligand, receptor, com_receptor = map_molecule_parm(traj, receptor_mask, ligand_mask)
 
     #Get ParmEd information
     parmed_traj = pmd.load_file(parmfile)
@@ -666,7 +681,8 @@ def remote_run_complex(parmfile, coordfile, r1_input):
     #print('lig_a1_coords', lig_a1_coords)
     #print('')
 
-    #a1_r_type = 1 chooses receptor_a1 to be receptor atom closest to ligand_a1, a1_r_type = 2 chooses receptor_a1 to be receptor atom closest to receptor CoM.  a1_r_type = 3 chooses both L1 and R1 to be the closest two heavy atoms in the ligand and r
+    r1_input = arguments["parameters"]["restraint_type"]
+    
     if (r1_input == 1):
         print ('Distance Restraints will be between CoM Ligand and CoM Receptor')
         #find atom closest to ligand's CoM and relevand information
