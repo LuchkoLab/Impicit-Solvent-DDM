@@ -118,7 +118,7 @@ def turn_off_charges(ligand_topology_filename, ligand_coordinate_filename, ligan
 
     return ligand_zero_charge_topology_filename
 
-def alter_topology_file(solute_topology_filename, solute_coordinate_filename, ligand_mask, receptor_mask, turn_off_charges, add_exclusions):
+def alter_topology_file(solute_topology_filename, solute_coordinate_filename, arguments_masks, workflow_args):
     '''
     Altering the ligand charge to zero and non-bonded interactions with receptor w/ligand will not be computed.
 
@@ -142,11 +142,14 @@ def alter_topology_file(solute_topology_filename, solute_coordinate_filename, li
     solute_altered_filename: str 
         absolute path to ligand topology file containing all modified parameters   
     '''
+    ligand_mask = arguments_masks["parameters"]["ligand_mask"]
+    receptor_mask = arguments_masks["parameters"]["receptor_mask"]
     solute_traj = pmd.load_file(solute_topology_filename, xyz=solute_coordinate_filename)
-    if turn_off_charges:
+    
+    if workflow_args["charge_off"]:
         pmd.tools.actions.change(solute_traj, 'charge', ligand_mask, 0).execute()
         saved_filename = "charges_off_"
-    if add_exclusions:
+    if workflow_args["exculsions"]:
         pmd.tools.actions.addExclusions(solute_traj, ligand_mask, receptor_mask).execute()
         saved_filename = saved_filename + "exculsions_"
     
