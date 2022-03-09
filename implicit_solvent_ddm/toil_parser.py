@@ -204,7 +204,7 @@ def import_restraint_files(config, toil):
     }
     return flat_bottom
 
-def get_output_dir(solute_filename, state):
+def get_output_dir(solute_filename, state, workdir):
      '''
      A designated directory path to export output data
 
@@ -220,8 +220,9 @@ def get_output_dir(solute_filename, state):
      output_dir: str 
          A path to a specific directory where the output data will be exported. 
      '''
+    
      solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",solute_filename)
-     output_dir = os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(state))
+     output_dir = os.path.join(workdir,'mdgb/'+ solu + '/' + str(state))
      
      return output_dir  
 
@@ -232,6 +233,7 @@ def create_workflow_config(arguments, df_inputs):
     
     with open(worflow_path) as t:
         template = Template(t.read())
+        
         
         workflow_template = template.substitute(
             ligand_top = df_inputs['ligand_parameter_filename'][0],
