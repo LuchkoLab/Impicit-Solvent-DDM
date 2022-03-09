@@ -4,6 +4,7 @@ import re
 import pandas as pd
 import itertools
 import pytraj as pt
+import sys
 #will not need these imports 
 #from toil.common import Toil
 #from toil.job import Job
@@ -89,55 +90,41 @@ def get_receptor_ligand_topologies(argSet):
     receptor_ligand_path = []
     if not os.path.exists(os.getcwd() + '/mdgb/structs/ligand'):
         os.makedirs(os.getcwd() +'/mdgb/structs/ligand')
-
     receptor_ligand_path.append(os.getcwd() +'/mdgb/structs/ligand')
-
     if not os.path.exists(os.getcwd() + '/mdgb/structs/receptor'):
         os.makedirs(os.getcwd() +'/mdgb/structs/receptor')
-
     receptor_ligand_path.append(os.getcwd() +'/mdgb/structs/receptor')
-
-
-    ligand_parameter_filename = []
-    ligand_coordinate_filename = []
-    receptor_parameter_filename = []
-    receptor_coordinate_filename = []
-    number_complexes = len(argSet["parameters"]["complex_parameter_filename"])
- 
     
-
-    for complexes in argSet["parameters"]["complex_parameter_filename"]:
-        complex_coodinates = pt.load(argSet["parameters"]["complex_coordinate_filename"][-number_complexes], complexes)
-        receptor = pt.strip(complex_coodinates, argSet["parameters"]["ligand_mask"][-number_complexes])
-        ligand = pt.strip(complex_coodinates, argSet["parameters"]["receptor_mask"])
+    complex_coodinates = pt.load(argSet["parameters"]["complex_coordinate_filename"][0], argSet["parameters"]["complex_parameter_filename"][0])
+    receptor = pt.strip(complex_coodinates, argSet["parameters"]["ligand_mask"][0])
+    ligand = pt.strip(complex_coodinates, argSet["parameters"]["receptor_mask"])
+     
+    
+    ligand_name = os.path.join(receptor_ligand_path[0], argSet["parameters"]["ligand_mask"][0].strip(":"))
+    receptor_name = os.path.join(receptor_ligand_path[1], argSet["parameters"]["receptor_mask"].strip(":"))
+ 
+    file_number = 0
+    while os.path.exists(f"{ligand_name}_{file_number:03}.parm7"):
+        file_number +=1    
+    pt.write_parm(f"{ligand_name}_{file_number:03}.parm7", ligand.top)
+    pt.write_traj(f"{ligand_name}_{file_number:03}.ncrst", ligand)
+    
+    ligand_inputs = (f"{ligand_name}_{file_number:03}.parm7", f"{ligand_name}_{file_number:03}.ncrst.1")
+    argSet["ligand_parameter_filename"] = [ligand_inputs[0]]
+    argSet["ligand_coordinate_filename"] = [ligand_inputs[1]]
+    
+    if not argSet["ignore_receptor"]:
+        try:
+            pt.write_parm(f"{receptor_name}_{0:03}.parm7",receptor.top)
+            pt.write_traj(f"{receptor_name}_{0:03}.ncrst",receptor)
+        except:
+            sys.exit(f"The receptor file exist {receptor_name}_{0:03}. Use --ignore_receptor flag to prevent duplicate runs")
+        receptor_inputs = (f"{receptor_name}_{0:03}.parm7", f"{receptor_name}_{0:03}.ncrst.1")
+        argSet["receptor_parameter_filename"] = [receptor_inputs[0]]
+        argSet["receptor_coordinate_filename"] = [receptor_inputs[1]]
+    else:
+        argSet["receptor_parameter_filename"] = [f"{receptor_name}_{0:03}.parm7"]
         
-        receptor_name = argSet["parameters"]["receptor_mask"].strip(":")
-        ligand_name = argSet["parameters"]["ligand_mask"][0].strip(":")
-        file_number = 0
-        while os.path.exists(receptor_ligand_path[0] + '/' + f"topology_ligand_{file_number}.parm7"):
-            file_number +=1 
-
-        pt.write_parm(receptor_ligand_path[0] + '/' + f"{ligand_name}_{file_number}.parm7", ligand.top)
-        pt.write_traj(receptor_ligand_path[0]+ '/'+ f"{ligand_name}_{file_number}.ncrst", ligand)
-        ligand_parameter_filename.append(receptor_ligand_path[0] + '/' + f"{ligand_name}_{file_number}.parm7")
-        ligand_coordinate_filename.append(receptor_ligand_path[0] + '/' + f"{ligand_name}_{file_number}.ncrst.1")
-         
-        file_number = 0
-        if not argSet["ignore_receptor"]:
-            while os.path.exists(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.parm7"):
-                file_number += 1
-            pt.write_parm( receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.parm7", receptor.top)
-            pt.write_traj(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.ncrst", receptor)
-            receptor_parameter_filename.append(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.parm7")
-            receptor_coordinate_filename.append(receptor_ligand_path[1] + '/' + f"{receptor_name}_{file_number}.ncrst.1")
-            argSet["receptor_parameter_filename"] = receptor_parameter_filename
-            argSet["receptor_coordinate_filename"] = receptor_coordinate_filename
-        else:
-            argSet["receptor_parameter_filename"] = [f"{receptor_name}_{file_number}.parm7"]
-        number_complexes = number_complexes - 1 
-
-    argSet["ligand_parameter_filename"] = ligand_parameter_filename
-    argSet["ligand_coordinate_filename"] = ligand_coordinate_filename
     
     return argSet
 

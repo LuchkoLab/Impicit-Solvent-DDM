@@ -242,13 +242,14 @@ def main():
     # else:
     #     work_dir = str(options.workDir)
         
-     
+    argSet["parameters"].update(get_receptor_ligand_topologies(argSet)) 
+    work_dir = os.getcwd()
+    argSet["workDir"] = work_dir
+    
+    
     with Toil(options) as toil:
         #dataFrame containing absolute paths of topology and coordinate files. Also contains basenames of both file types 
         if not toil.options.restart:
-            work_dir = os.getcwd()
-            argSet["workDir"] = work_dir
-            argSet["parameters"].update(get_receptor_ligand_topologies(argSet))
             dataframe_parameter_inputs = input_parser(argSet,toil)
             argSet["parameters"].update(import_restraint_files(argSet, toil))
             
@@ -266,7 +267,7 @@ def main():
 
         else:
             toil.restart()
-
+    
 def create_dirstruct(argSet, dirstruct = "dirstruct"):
     """
     Creates unique directory structure for all output files when created.
