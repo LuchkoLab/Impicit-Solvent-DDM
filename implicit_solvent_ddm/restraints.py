@@ -191,7 +191,7 @@ def write_freezing_restraints(receptor_freezing_restraints, ligand_freezing_rest
                                 +'\n'
                                 )
 
-        if not arguments["ignore_receptor"]: 
+        if not arguments["parameters"]["ignore_receptor"]: 
             #file = open(work_dir + "/mdgb/freeze_restraints_folder/"+name_of_system+"_receptor_restraint.FRST", "a+")
             file = open(work_dir + "/mdgb/freeze_restraints_folder/receptor/"+ receptor_name + "_restraint.FRST", "a+")
             file.write(rec_restraint_string)
@@ -201,7 +201,7 @@ def write_freezing_restraints(receptor_freezing_restraints, ligand_freezing_rest
         file = open(work_dir + "/mdgb/freeze_restraints_folder/complex/"+complex_name +"_restraint.FRST", "a+")
         file.write(rec_restraint_string)
         file.close()
-    if not arguments["ignore_receptor"]:
+    if not arguments["parameters"]["ignore_receptor"]:
         #file = open(work_dir + "/mdgb/freeze_restraints_folder/"+name_of_system+"_receptor_restraint.FRST", "a+")
         file = open(work_dir + "/mdgb/freeze_restraints_folder/receptor/"+receptor_name+"_restraint.FRST", "a+")
         end_string = ('&end\n')

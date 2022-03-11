@@ -1,4 +1,3 @@
-
 import os, os.path
 import re 
 import pandas as pd
@@ -53,7 +52,7 @@ def input_parser(argSet, toil):
         }
         data_inputs.update(ligand_inputs)
         
-    if not argSet["ignore_receptor"]:
+    if not argSet["parameters"]["ignore_receptor"]:
         parmtop_key = 'receptor_parameter_filename'
         coordinate_key = 'receptor_coordinate_filename'
         receptor_parameter_filename, receptor_parameter_basename, receptor_coordinate_filename, receptor_coordinate_basename = getfiles(toil, argSet, parmtop_key, coordinate_key)
@@ -113,17 +112,19 @@ def get_receptor_ligand_topologies(argSet):
     argSet["ligand_parameter_filename"] = [ligand_inputs[0]]
     argSet["ligand_coordinate_filename"] = [ligand_inputs[1]]
     
-    if not argSet["ignore_receptor"]:
-        try:
-            pt.write_parm(f"{receptor_name}_{0:03}.parm7",receptor.top)
-            pt.write_traj(f"{receptor_name}_{0:03}.ncrst",receptor)
-        except:
-            sys.exit(f"The receptor file exist {receptor_name}_{0:03}. Use --ignore_receptor flag to prevent duplicate runs")
+    
+    if os.path.exists(f"{receptor_name}_{0:03}.parm7"):
+        if not argSet["parameters"]["ignore_receptor"]:
+            argSet["parameters"]["ignore_receptor"] = True
+        argSet["receptor_parameter_filename"] = [f"{receptor_name}_{0:03}.parm7"]
+    
+    else:
+        pt.write_parm(f"{receptor_name}_{0:03}.parm7",receptor.top)
+        pt.write_traj(f"{receptor_name}_{0:03}.ncrst",receptor)
+            
         receptor_inputs = (f"{receptor_name}_{0:03}.parm7", f"{receptor_name}_{0:03}.ncrst.1")
         argSet["receptor_parameter_filename"] = [receptor_inputs[0]]
         argSet["receptor_coordinate_filename"] = [receptor_inputs[1]]
-    else:
-        argSet["receptor_parameter_filename"] = [f"{receptor_name}_{0:03}.parm7"]
         
     
     return argSet
