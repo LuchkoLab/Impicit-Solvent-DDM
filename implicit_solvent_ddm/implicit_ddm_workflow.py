@@ -22,7 +22,6 @@ from implicit_solvent_ddm.toil_parser import get_receptor_ligand_topologies
 from implicit_solvent_ddm.remd import remd_workflow
 from implicit_solvent_ddm.toil_parser import get_mdins
 from implicit_solvent_ddm.simulations import run_intermidate
-from implicit_solvent_ddm.toil_parser import import_restraint_files
 from implicit_solvent_ddm.remd import run_minimization
 from implicit_solvent_ddm.toil_parser import create_workflow_config
 #from implicit_solvent_ddm.remd import run_remd
@@ -122,8 +121,9 @@ def ddm_workflow(df_config_inputs, argSet, workflow_args):
                                                  work_dir)
         #loop through conformational restraint forces 
         for conformational_rest in argSet["parameters"]["freeze_restraints_forces"]:
-            workflow_args["jobs"]['add_ligand_conformational_restraints']['args']['conformational_restraint'] = conformational_rest
-            ligand_intermidate = split_job.addFollowOnJobFn(run_intermidate, 
+            workflow_args["jobs"]["add_ligand_conformational_restraints"]["args"]["conformational_restraint"] = conformational_rest
+            args_workflow = workflow_args["jobs"]["add_ligand_conformational_restraints"]["args"].copy()
+            split_job.addChildJobFn(run_intermidate, 
                                                     [split_job.rv(0)], argSet, 
                                                     workflow_args["jobs"]["add_ligand_conformational_restraints"]["args"])
         '''
@@ -136,6 +136,11 @@ def ddm_workflow(df_config_inputs, argSet, workflow_args):
                                                          work_dir=work_dir, conformational_restraint = conformational_rest)
             if not argSet["parameters"]["ignore_receptor"]: 
                 #begin running intermidate states for receptor 
+                receptor_intermidate = split_job.addChildJobFn(run_intermidate, 
+                                                               [split_job.rv(1)], argSet, 
+                                                               args_workflow
+                )
+        
                 receptor_intermidate = split_job.addChildJobFn(run_md,
                                                             df_config_inputs['receptor_parameter_filename'][n], df_config_inputs['receptor_parameter_basename'][n],
                                                             [split_job.rv(1)], os.path.basename(str(split_job.rv(1))),
@@ -239,7 +244,6 @@ def main():
     argSet = argSet.copy()
     intermidate_mdin = yaml.safe_load(open(argSet["parameters"]["mdin_intermidate_config"]))
     argSet["parameters"]["mdin_intermidate_config"] = intermidate_mdin
-    print(argSet)
     
     argSet["parameters"].update(get_receptor_ligand_topologies(argSet))
     #create initial directory structure 
