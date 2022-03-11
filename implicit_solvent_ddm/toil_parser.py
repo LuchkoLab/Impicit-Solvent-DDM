@@ -1,9 +1,19 @@
+<<<<<<< HEAD
+=======
+
+from ast import arg
+>>>>>>> 808a440... clean source code
 import os, os.path
 import re 
+import yaml
 import pandas as pd
 import itertools
 import pytraj as pt
+<<<<<<< HEAD
 import sys
+=======
+from string import Template 
+>>>>>>> 808a440... clean source code
 #will not need these imports 
 #from toil.common import Toil
 #from toil.job import Job
@@ -223,4 +233,29 @@ def get_output_dir(solute_filename, state):
      output_dir = os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(state))
      
      return output_dir  
+
+def create_workflow_config(arguments, df_inputs):
     
+    worflow_path = os.path.abspath(os.path.dirname(
+                os.path.realpath(__file__)) + "/templates/workflow.yaml")
+    
+    with open(worflow_path) as t:
+        template = Template(t.read())
+        
+        workflow_template = template.substitute(
+            ligand_top = df_inputs['ligand_parameter_filename'][0],
+            receptor_top = df_inputs['receptor_parameter_filename'][0],
+            intermidate_mdin = arguments["parameters"]["mdin_intermidate_config"],
+            complex_top = df_inputs['complex_parameter_filename'][0]
+        )
+        
+    with open('workflow.yaml', "w") as output:
+        output.write(workflow_template)
+        
+    with open("workflow.yaml") as f:
+        workflow = yaml.safe_load(f)
+    
+    workflow = workflow.copy()
+    os.remove('workflow.yaml')
+    return workflow
+            
