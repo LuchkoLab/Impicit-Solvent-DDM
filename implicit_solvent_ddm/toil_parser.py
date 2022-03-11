@@ -1,19 +1,10 @@
-<<<<<<< HEAD
-=======
-
-from ast import arg
->>>>>>> 808a440... clean source code
 import os, os.path
 import re 
 import yaml
 import pandas as pd
 import itertools
 import pytraj as pt
-<<<<<<< HEAD
 import sys
-=======
-from string import Template 
->>>>>>> 808a440... clean source code
 #will not need these imports 
 #from toil.common import Toil
 #from toil.job import Job
