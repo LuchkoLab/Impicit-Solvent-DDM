@@ -62,7 +62,7 @@ def remd_workflow(job, df_config_inputs, argSet, work_dir):
         job.addChild(complex_extract)
         
         #if the ingore_receptor flag is not given then run REMD on receptor system 
-        if not argSet["ignore_receptor"]:
+        if not argSet["parameters"]["ignore_receptor"]:
             minimization_receptor = Job.wrapJobFn(run_remd, 
                                         df_config_inputs['receptor_parameter_filename'][n], df_config_inputs['receptor_coordinate_filename'][n],
                                         argSet, work_dir, "minimization")

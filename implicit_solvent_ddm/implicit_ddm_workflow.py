@@ -82,7 +82,7 @@ def ddm_workflow(df_config_inputs, argSet, work_dir):
                                         argSet, "end_state", input_mdin=argSet["parameters"]["end_state_mdin"][0], work_dir=work_dir)
             
             # If the ignore_receptor flag is not called, then run long MD on receptor 
-            if not argSet["ignore_receptor"]:
+            if not argSet["parameters"]["ignore_receptor"]:
                 #run simulation for receptor only 
                 receptor_name =  re.sub(r".*/([^/.]*)\.[^.]*",r"\1",df_config_inputs['receptor_parameter_filename'][n])
                 
@@ -127,7 +127,7 @@ def ddm_workflow(df_config_inputs, argSet, work_dir):
                                                          get_output_dir(df_config_inputs['ligand_parameter_filename'][n],2), 
                                                          argSet, f"lambda_{conformational_rest}", 
                                                          work_dir=work_dir, conformational_restraint = conformational_rest)
-            if not argSet["ignore_receptor"]: 
+            if not argSet["parameters"]["ignore_receptor"]: 
                 #begin running intermidate states for receptor 
                 receptor_intermidate = split_job.addChildJobFn(run_md,
                                                             df_config_inputs['receptor_parameter_filename'][n], df_config_inputs['receptor_parameter_basename'][n],
@@ -145,7 +145,7 @@ def ddm_workflow(df_config_inputs, argSet, work_dir):
                                                               solvent_turned_off=True) 
         
         #turn off the solvent for receptor simulation with force of conformational restraints
-        if not argSet["ignore_receptor"]:
+        if not argSet["parameters"]["ignore_receptor"]:
             turn_off_solvent_receptor_job = split_job.addChildJobFn(run_md,
                                                                     df_config_inputs['receptor_parameter_filename'][n], df_config_inputs['receptor_parameter_basename'][n],
                                                                     [split_job.rv(1)], os.path.basename(str(split_job.rv(1))),
@@ -225,7 +225,7 @@ def main():
     #updates argSet to contain ligand and receptor respective topology and coordinate files. 
     
     argSet["parameters"]["mdin_intermidate_config"] = os.path.abspath(argSet["parameters"]["mdin_intermidate_config"])
-    argSet["ignore_receptor"] = options.ignore_receptor
+    argSet["parameters"]["ignore_receptor"] = options.ignore_receptor
     #create initial directory structure 
     create_dirstruct(argSet)
      
