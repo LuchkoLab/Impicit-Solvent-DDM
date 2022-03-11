@@ -6,6 +6,7 @@ import os, os.path
 import yaml
 import re 
 import string 
+import click
 from pathlib import Path
 from argparse import ArgumentParser
 from toil.common import Toil
@@ -24,6 +25,7 @@ from implicit_solvent_ddm.remd import remd_workflow
 from implicit_solvent_ddm.toil_parser import get_mdins
 from implicit_solvent_ddm.toil_parser import import_restraint_files
 from implicit_solvent_ddm.remd import run_minimization
+from implicit_solvent_ddm.toil_parser import create_workflow_config
 #from implicit_solvent_ddm.remd import run_remd
 
 def ddm_workflow(df_config_inputs, argSet, work_dir):
@@ -52,8 +54,6 @@ def ddm_workflow(df_config_inputs, argSet, work_dir):
     #run a simple log command 
     end_state_job = Job.wrapJobFn(initilized_jobs, work_dir)
 
-    lambda_windows = [i for i in string.ascii_lowercase] 
-    lambda_count = 0 
     # list of conformational restraint forces 
     con_rest = argSet["parameters"]["freeze_restraints_forces"]
     # list of orientational restraint forces 
@@ -205,7 +205,6 @@ def ddm_workflow(df_config_inputs, argSet, work_dir):
                                                                  solvent_turned_off=False, charge_off= False, exculsions=False)
 
     return end_state_job
-
 def main():
     
     parser = Job.Runner.getDefaultArgumentParser()
@@ -221,14 +220,20 @@ def main():
             argSet = yaml.safe_load(f)
     except yaml.YAMLError as e:
         print(e)
-
-    #updates argSet to contain ligand and receptor respective topology and coordinate files. 
+    #copy user config 
+    argSet = argSet.copy()
+    intermidate_mdin = yaml.safe_load(open(argSet["parameters"]["mdin_intermidate_config"]))
+    intermidate_mdin = intermidate_mdin.copy()
     
     argSet["parameters"]["mdin_intermidate_config"] = os.path.abspath(argSet["parameters"]["mdin_intermidate_config"])
     argSet["parameters"]["ignore_receptor"] = options.ignore_receptor
     #create initial directory structure 
     create_dirstruct(argSet)
-     
+    
+    work_dir = os.getcwd()
+    argSet["workDir"] = os.getcwd()
+    argSet["parameters"].update(get_receptor_ligand_topologies(argSet))
+    
     #create a log file
     job_number = 1
     while os.path.exists(f"mdgb/log_job_{job_number:03}.txt"):
@@ -256,10 +261,12 @@ def main():
             if argSet["replica_exchange_parameters"]["replica_exchange"]:
                 remd_mdins = get_mdins(argSet, toil)
                 argSet["replica_exchange_parameters"].update(remd_mdins)
+                workflow_args = create_workflow_config(argSet, dataframe_parameter_inputs)
+                print(workflow_args)
                 
-                replica_workflow = ddm_workflow(dataframe_parameter_inputs, argSet, work_dir)
+                #replica_workflow = ddm_workflow(dataframe_parameter_inputs, argSet, work_dir)
                 #toil.start(Job.wrapJobFn(remd_workflow))
-                toil.start(replica_workflow)
+                #toil.start(replica_workflow)
             #run long implicit MD simulation 
             else:
                 ddm_workflow_job = ddm_workflow(dataframe_parameter_inputs, argSet, work_dir)
@@ -290,7 +297,7 @@ def create_dirstruct(argSet, dirstruct = "dirstruct"):
         if key == 'complex_parameter_filename':
             complex_state = 7
             intermidate_state = 7
-            while complex_state <= 9:
+            while complex_state <= 8:
                 for complex in argSet['parameters'][key]:
                     argSet['solute'] = complex
                     solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
@@ -300,7 +307,7 @@ def create_dirstruct(argSet, dirstruct = "dirstruct"):
                     #print('root',root)
                     argSet['state_label'] = complex_state
                     run = sim.getRun(argSet)
-                    for inter_state in ['a','b','c']:
+                    for inter_state in ['a','b']:
                         argSet['state_label'] = str(intermidate_state) + inter_state
                         run = sim.getRun(argSet)
                 complex_state = complex_state + 1
