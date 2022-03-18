@@ -5,6 +5,7 @@ import pandas as pd
 import itertools
 import pytraj as pt
 import sys
+from string import Template
 #will not need these imports 
 #from toil.common import Toil
 #from toil.job import Job
@@ -113,7 +114,8 @@ def get_receptor_ligand_topologies(argSet):
     argSet["ligand_parameter_filename"] = [ligand_inputs[0]]
     argSet["ligand_coordinate_filename"] = [ligand_inputs[1]]
     
-    
+    file_exists = os.path.exists(f"{receptor_name}_{0:03}.parm7")
+    print(f"the receptor file exists? {file_exists}")
     if os.path.exists(f"{receptor_name}_{0:03}.parm7"):
         if not argSet["parameters"]["ignore_receptor"]:
             argSet["parameters"]["ignore_receptor"] = True
@@ -227,7 +229,13 @@ def get_output_dir(solute_filename, state, workdir):
      return output_dir  
 
 def create_workflow_config(arguments, df_inputs):
-    
+    #if receptor file was created then set the default name for the receptor_top key 
+    if not arguments["parameters"]["ignore_receptor"]:
+        receptor_file = df_inputs['receptor_parameter_filename'][0]
+    # If receptor file was not created then use the Toil import file ID
+    else:
+        receptor_file = arguments["parameters"]["receptor_parameter_filename"][0]
+    #load workflow template 
     worflow_path = os.path.abspath(os.path.dirname(
                 os.path.realpath(__file__)) + "/templates/workflow.yaml")
     
@@ -237,7 +245,7 @@ def create_workflow_config(arguments, df_inputs):
         
         workflow_template = template.substitute(
             ligand_top = df_inputs['ligand_parameter_filename'][0],
-            receptor_top = df_inputs['receptor_parameter_filename'][0],
+            receptor_top = receptor_file,
             intermidate_mdin = arguments["parameters"]["mdin_intermidate_config"],
             complex_top = df_inputs['complex_parameter_filename'][0]
         )
