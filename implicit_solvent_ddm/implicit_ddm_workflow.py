@@ -122,31 +122,25 @@ def ddm_workflow(df_config_inputs, argSet, workflow_args):
         #loop through conformational restraint forces 
         for conformational_rest in argSet["parameters"]["freeze_restraints_forces"]:
             workflow_args["jobs"]["add_ligand_conformational_restraints"]["args"]["conformational_restraint"] = conformational_rest
-            args_workflow = workflow_args["jobs"]["add_ligand_conformational_restraints"]["args"].copy()
-            split_job.addChildJobFn(run_intermidate, 
+            ligand_workflow = workflow_args["jobs"]["add_ligand_conformational_restraints"]["args"].copy()
+            ligand_intermidate = split_job.addChildJobFn(run_intermidate, 
                                                     [split_job.rv(0)], argSet, 
-                                                    workflow_args["jobs"]["add_ligand_conformational_restraints"]["args"])
-        '''
-            #begin running intermidate states for ligand 
-            ligand_intermidate = split_job.addChildJobFn(run_md, 
-                                                         df_config_inputs['ligand_parameter_filename'][n], df_config_inputs['ligand_parameter_basename'][n], 
-                                                         [split_job.rv(0)], os.path.basename(str(split_job.rv(0))), 
-                                                         get_output_dir(df_config_inputs['ligand_parameter_filename'][n],2), 
-                                                         argSet, f"lambda_{conformational_rest}", 
-                                                         work_dir=work_dir, conformational_restraint = conformational_rest)
+                                                    ligand_workflow)
+       
             if not argSet["parameters"]["ignore_receptor"]: 
                 #begin running intermidate states for receptor 
+                workflow_args["jobs"]["add_receptor_conformational_restraints"]["args"]["conformational_restraint"] = conformational_rest
                 receptor_intermidate = split_job.addChildJobFn(run_intermidate, 
                                                                [split_job.rv(1)], argSet, 
-                                                               args_workflow
-                )
-        
+                                                                workflow_args["jobs"]["add_receptor_conformational_restraints"]["args"].copy())
+        '''
                 receptor_intermidate = split_job.addChildJobFn(run_md,
                                                             df_config_inputs['receptor_parameter_filename'][n], df_config_inputs['receptor_parameter_basename'][n],
                                                             [split_job.rv(1)], os.path.basename(str(split_job.rv(1))),
                                                             get_output_dir(df_config_inputs['receptor_parameter_filename'][n],2),
                                                             argSet, f"lambda_{conformational_rest}",
                                                             work_dir=work_dir, conformational_restraint = conformational_rest)
+        
         #turning off the solvent for ligand simulation with force of conformational restraints
         turn_off_solvent_ligand_job = split_job.addChildJobFn(run_md,
                                                               df_config_inputs['ligand_parameter_filename'][n], df_config_inputs['ligand_parameter_basename'][n],
@@ -238,7 +232,7 @@ def main():
     else:
         argSet["workDir"] = os.getcwd()
     
-    argSet["ignore_receptor"] = options.ignore_receptor
+    argSet["parameters"]["ignore_receptor"] = options.ignore_receptor
     argSet["parameters"]["flat_bottom_restraints"] = [os.path.abspath(argSet["parameters"]["flat_bottom_restraints"][0])]
     #copy user config 
     argSet = argSet.copy()
@@ -248,6 +242,7 @@ def main():
     argSet["parameters"].update(get_receptor_ligand_topologies(argSet))
     #create initial directory structure 
     create_dirstruct(argSet)
+    '''
     #create a log file
     job_number = 1
     while os.path.exists(f"mdgb/log_job_{job_number:03}.txt"):
@@ -255,17 +250,7 @@ def main():
     Path(f"mdgb/log_job_{job_number:03}.txt").touch()
     
     options.logFile = f"mdgb/log_job_{job_number:03}.txt"
-
-    # if not options.workDir: 
-    #     work_dir = os.getcwd()
-    # else:
-    #     work_dir = str(options.workDir)
-        
-    argSet["parameters"].update(get_receptor_ligand_topologies(argSet)) 
-    work_dir = os.getcwd()
-    argSet["workDir"] = work_dir
-    
-    
+   
     with Toil(options) as toil:
         #dataFrame containing absolute paths of topology and coordinate files. Also contains basenames of both file types 
         if not toil.options.restart:
@@ -285,7 +270,7 @@ def main():
 
         else:
             toil.restart()
-    
+    '''
 def create_dirstruct(argSet, dirstruct = "dirstruct"):
     """
     Creates unique directory structure for all output files when created.
@@ -303,41 +288,43 @@ def create_dirstruct(argSet, dirstruct = "dirstruct"):
     """
     sim = dc.Dirstruct("mdgb", description='''Perform molecular dynamics with GB or in vacuo''')
    #iterate through solutes
+    dirs = sim.getDirectoryStructure("mdgb", argSet, dirstruct=dirstruct)
+    
+    print(f'directory fromArgs {dirs}')
+    # for key in argSet['parameters'].keys():
+    #     if key == 'complex_parameter_filename':
+    #         complex_state = 7
+    #         intermidate_state = 7
+    #         while complex_state <= 8:
+    #             for complex in argSet['parameters'][key]:
+    #                 argSet['solute'] = complex
+    #                 solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
+    #                 pathroot = re.sub(r"\.[^.]*","",argSet['solute'])
+    #                 #print('pathroot',pathroot)
+    #                 root = os.path.basename(pathroot)
+    #                 #print('root',root)
+    #                 argSet['state_label'] = complex_state
+    #                 run = sim.getRun(argSet)
+    #                 for inter_state in ['a','b']:
+    #                     argSet['state_label'] = str(intermidate_state) + inter_state
+    #                     run = sim.getRun(argSet)
+    #             complex_state = complex_state + 1
+    #     if key == 'ligand_parameter_filename':
+    #         ligand_state = 2
+    #         while ligand_state <= 5:
+    #             for ligand in argSet['parameters'][key]:
+    #                 argSet['solute'] = ligand
+    #                 solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
+    #                 argSet['state_label'] = ligand_state
+    #                 run = sim.getRun(argSet)
+    #             ligand_state = ligand_state + 1
 
-    for key in argSet['parameters'].keys():
-        if key == 'complex_parameter_filename':
-            complex_state = 7
-            intermidate_state = 7
-            while complex_state <= 8:
-                for complex in argSet['parameters'][key]:
-                    argSet['solute'] = complex
-                    solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
-                    pathroot = re.sub(r"\.[^.]*","",argSet['solute'])
-                    #print('pathroot',pathroot)
-                    root = os.path.basename(pathroot)
-                    #print('root',root)
-                    argSet['state_label'] = complex_state
-                    run = sim.getRun(argSet)
-                    for inter_state in ['a','b']:
-                        argSet['state_label'] = str(intermidate_state) + inter_state
-                        run = sim.getRun(argSet)
-                complex_state = complex_state + 1
-        if key == 'ligand_parameter_filename':
-            ligand_state = 2
-            while ligand_state <= 5:
-                for ligand in argSet['parameters'][key]:
-                    argSet['solute'] = ligand
-                    solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
-                    argSet['state_label'] = ligand_state
-                    run = sim.getRun(argSet)
-                ligand_state = ligand_state + 1
-
-        if key == 'receptor_parameter_filename':
-            receptor_state = 2
-            while receptor_state <= 5:
-                for receptor in argSet['parameters'][key]:
-                    argSet['solute'] = receptor
-                    solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
-                    argSet['state_label'] = receptor_state
-                    run = sim.getRun(argSet)
-                receptor_state = receptor_state + 1
+    #     if key == 'receptor_parameter_filename':
+    #         receptor_state = 2
+    #         while receptor_state <= 5:
+    #             for receptor in argSet['parameters'][key]:
+    #                 argSet['solute'] = receptor
+    #                 solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
+    #                 argSet['state_label'] = receptor_state
+    #                 run = sim.getRun(argSet)
+    #             receptor_state = receptor_state + 1
