@@ -167,9 +167,9 @@ def getfiles(toil, argSet, parm_key, coord_key):
      for solute in argSet['parameters'][parm_key]:
 
           solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",solute)
-          solute_filename.append(toil.importFile("file://" + os.path.abspath(os.path.join(solute))))
+          solute_filename.append(toil.import_file("file://" + os.path.abspath(os.path.join(solute))))
           solute_basename.append(re.sub(r".*/([^/.]*)",r"\1",solute))
-          solute_coordinate_filename.append(toil.importFile("file://" + os.path.abspath(os.path.join(argSet['parameters'][coord_key][-num_of_solutes]))))
+          solute_coordinate_filename.append(toil.import_file("file://" + os.path.abspath(os.path.join(argSet['parameters'][coord_key][-num_of_solutes]))))
           solute_coordinate_basename.append(re.sub(r".*/([^/.]*)",r"\1",argSet['parameters'][coord_key][-num_of_solutes]))
           #output_dir.append(os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(state)))
           num_of_solutes = num_of_solutes -1 
@@ -185,8 +185,8 @@ def get_mdins(config, toil):
     remd_import_mdins = []
     
     for equil, remd in itertools.zip_longest(equil_mdins, remd_mdins, fillvalue=-1):
-        equilibration_import_mdins.append(toil.importFile("file://" + os.path.abspath(os.path.join(equil))))
-        remd_import_mdins.append(toil.importFile("file://" + os.path.abspath(os.path.join(remd))))
+        equilibration_import_mdins.append(toil.import_file("file://" + os.path.abspath(os.path.join(equil))))
+        remd_import_mdins.append(toil.import_file("file://" + os.path.abspath(os.path.join(remd))))
 
     simulation_mdins = {
             "equilibrate_mdins" : equilibration_import_mdins,
@@ -199,7 +199,7 @@ def import_restraint_files(config, toil):
     flat_bottom = config["parameters"]["flat_bottom_restraints"] 
     import_flat_bottom = []
     for restraint in flat_bottom:
-        #import_flat_bottom.append(toil.importFile("file://" + os.path.abspath(os.path.join(restraint))))
+        #import_flat_bottom.append(toil.import_file("file://" + os.path.abspath(os.path.join(restraint))))
         import_flat_bottom.append(os.path.abspath(os.path.join(restraint)))
     flat_bottom = {
             "flat_bottom_restraints" : import_flat_bottom
