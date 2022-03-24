@@ -22,8 +22,8 @@ def setUp(config_workflow):
     complex_coordinate_file = os.path.abspath(config_workflow[0]["parameters"]["complex_coordinate_filename"][0])
     
     with Toil(options) as toil: 
-        toil_coord_import = [toil.importFile(f"file://{complex_coordinate_file}")]
-        config_workflow[0]['complex_parameter_filename'] = [toil.importFile(f"file://{complex_topology_file}")]
+        toil_coord_import = [toil.import_file(f"file://{complex_coordinate_file}")]
+        config_workflow[0]['complex_parameter_filename'] = [toil.import_file(f"file://{complex_topology_file}")]
         config_workflow[0]["parameters"]["receptor_parameter_filename"] = ["receptor_testing.parm7"]
         config_workflow[0]["parameters"]["ligand_parameter_filename"] = ["ligand_testing.parm7"]
         config_workflow[0]["parameters"]["ignore_receptor"] = False 
