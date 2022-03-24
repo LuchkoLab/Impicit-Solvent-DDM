@@ -33,17 +33,16 @@ def run_intermidate(job, solute_cordinate, config_args, intermidate_args):
     rst = job.fileStore.readGlobalFile(solute_cordinate[0], userPath=os.path.join(tempDir, os.path.basename(solute_cordinate[0])))
     #read in intermidate mdin 
     mdin_filename = job.fileStore.importFile("file://" + make_mdin_file(config_args, 
-                                                                        intermidate_args["conformational_restraint"], intermidate_args["charge_off"]))
+                                                                        intermidate_args["conformational_restraint"], intermidate_args["solvent_turned_off"]))
     mdin = job.fileStore.readGlobalFile(mdin_filename, userPath=os.path.join(tempDir, os.path.basename(mdin_filename)))
     
-    if intermidate_args["solvent_turned_off"]:      
+    if intermidate_args["charge_off"]:      
         altered_solute_filename = job.fileStore.importFile("file://" + alter_topology_file(solute, rst, config_args, intermidate_args))
         #solute = job.fileStore.readGlobalFile(charge_off_solute_filename,  userPath=os.path.join(tempDir, os.path.basename(charge_off_solute_filename)))
         solute = job.fileStore.readGlobalFile(altered_solute_filename, userPath=os.path.join(tempDir, os.path.basename(altered_solute_filename)))
     
     if intermidate_args["conformational_restraint"]:
         conformational_restraint = str(intermidate_args["conformational_restraint"]) 
-        orientational_restraint = intermidate_args["orientational_restraints"]
         job.log("CONFORMATIONAL TURN ON")
         restraint_file = job.fileStore.importFile("file://" + write_restraint_forces(solute_filename, config_args["workDir"], intermidate_args["conformational_restraint"], intermidate_args["orientational_restraints"])) 
         restraint_basename = os.path.basename(restraint_file)
@@ -306,44 +305,7 @@ def make_mdin_file(arguments, turn_on_conformational_rest, turn_off_solvent):
     with open(mdin_path) as t:
         template = Template(t.read())
     
-    if turn_on_conformational_rest==None:
-        final_template = template.substitute(
-            nstlim=user_inputs["nstlim"],
-            ntx=1,
-            irest=0,
-            dt=user_inputs["dt"],
-            igb =user_inputs["igb"],
-            saltcon =user_inputs["saltcon"],
-            rgbmax=user_inputs["rgbmax"],
-            gbsa=user_inputs["gbsa"],
-            temp0=user_inputs["temp0"],
-            ntpr=user_inputs["ntpr"],
-            ntwx=user_inputs["ntwx"],
-            cut=user_inputs["cut"],
-            ntc= user_inputs["ntc"],
-            nmropt=1
-            )
-
-
-    if turn_on_conformational_rest != None and turn_off_solvent == False:
-         final_template = template.substitute(
-            nstlim=user_inputs["nstlim"],
-            ntx=1,
-            irest=0,
-            dt=user_inputs["dt"],
-            igb =user_inputs["igb"],
-            saltcon =user_inputs["saltcon"],
-            rgbmax=user_inputs["rgbmax"],
-            gbsa=user_inputs["gbsa"],
-            temp0=user_inputs["temp0"],
-            ntpr=user_inputs["ntpr"],
-            ntwx=user_inputs["ntwx"],
-            cut=user_inputs["cut"],
-            ntc= user_inputs["ntc"],
-            nmropt=1
-            )
-    
-    if turn_on_conformational_rest != None and turn_off_solvent:
+    if turn_off_solvent: 
         final_template = template.substitute(
             nstlim=user_inputs["nstlim"],
             ntx=1,
@@ -360,6 +322,26 @@ def make_mdin_file(arguments, turn_on_conformational_rest, turn_off_solvent):
             ntc= user_inputs["ntc"],
             nmropt=1
             )
+        
+    else:
+        final_template = template.substitute(
+            nstlim=user_inputs["nstlim"],
+            ntx=1,
+            irest=0,
+            dt=user_inputs["dt"],
+            igb =user_inputs["igb"],
+            saltcon =user_inputs["saltcon"],
+            rgbmax=user_inputs["rgbmax"],
+            gbsa=user_inputs["gbsa"],
+            temp0=user_inputs["temp0"],
+            ntpr=user_inputs["ntpr"],
+            ntwx=user_inputs["ntwx"],
+            cut=user_inputs["cut"],
+            ntc= user_inputs["ntc"],
+            nmropt=1
+            )
+
+
     with open('mdin', "w") as output:
         output.write(final_template)
     return os.path.abspath('mdin')
