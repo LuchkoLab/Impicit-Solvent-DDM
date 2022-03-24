@@ -14,7 +14,7 @@
   #currently software does not support user mdin and restraint file: these file will created within the workflow
   flat_bottom_restraints: [implicit_solvent_ddm/tests/solutes/COM.restraint] # flat bottom restraints restraint file 
   end_state_mdin: [implicit_solvent_ddm/tests/solutes/end_state_mdin] # long MD if remd is False 
-  mdin_intermidate_config: inter.yaml #intermidate mdins required states 3-8
+  mdin_intermidate_config: implicit_solvent_ddm/tests/inter.yaml #intermidate mdins required states 3-8
 
  replica_exchange_parameters:
   executable: "srun -n 8 pmemd.MPI -ng 4 -groupfile" # executable supports sander.MPI or pemed.MPI: example input "srun -n 4 sander.MPI -ng 4 -groupfile" 
