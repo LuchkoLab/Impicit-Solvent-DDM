@@ -1,5 +1,5 @@
 #mdin required input parameters for intermidates 
-nstlim: 1000
+nstlim: 100
 dt: 0.001
 igb: 2
 saltcon: 0.3
