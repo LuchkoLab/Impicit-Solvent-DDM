@@ -2,30 +2,35 @@
 
 
 
-import os, os.path
-import yaml
-import re 
-import string 
-from pathlib import Path
+import os
+import os.path
+import re
+import string
 from argparse import ArgumentParser
+from operator import index
+from pathlib import Path
+from posixpath import abspath
+
+import yaml
 from toil.common import Toil
 from toil.job import Job
 
+import implicit_solvent_ddm.dirstruct_core as dc
 #local imports 
 import implicit_solvent_ddm.restraints as restraints
-import implicit_solvent_ddm.dirstruct_core as dc 
-from implicit_solvent_ddm.toil_parser import input_parser
-from implicit_solvent_ddm.toil_parser import get_output_dir
-from implicit_solvent_ddm.simulations import run_md
-from implicit_solvent_ddm.simulations import initilized_jobs
 from implicit_solvent_ddm.alchemical import split_complex
-from implicit_solvent_ddm.toil_parser import get_receptor_ligand_topologies 
-from implicit_solvent_ddm.remd import remd_workflow
-from implicit_solvent_ddm.toil_parser import get_mdins
-from implicit_solvent_ddm.toil_parser import import_restraint_files
-from implicit_solvent_ddm.remd import run_minimization
-#from implicit_solvent_ddm.remd import run_remd
+from implicit_solvent_ddm.remd import remd_workflow, run_minimization
+from implicit_solvent_ddm.simulations import initilized_jobs, run_md
+from implicit_solvent_ddm.toil_parser import (get_mdins, get_output_dir,
+                                              get_receptor_ligand_topologies,
+                                              import_restraint_files,
+                                              input_parser)
 
+from .config import Config
+
+#from implicit_solvent_ddm.remd import run_remd
+  
+    
 def ddm_workflow(df_config_inputs, argSet, work_dir):
     '''
     Double decoupling workflow 
@@ -214,21 +219,33 @@ def main():
     options = parser.parse_args()
     options.logLevel = "INFO"
     options.clean = "onSuccess"
-    config = options.config_file[0]
+    config_file = options.config_file[0]
     
     try:
-        with open(config) as f:
-            argSet = yaml.safe_load(f)
+        with open(config_file) as f:
+            config_file = yaml.safe_load(f)
     except yaml.YAMLError as e:
         print(e)
-
-    #updates argSet to contain ligand and receptor respective topology and coordinate files. 
+        
+    config = Config.from_config(config_file)
     
-    argSet["parameters"]["mdin_intermidate_config"] = os.path.abspath(argSet["parameters"]["mdin_intermidate_config"])
-    argSet["parameters"]["ignore_receptor"] = options.ignore_receptor
-    #create initial directory structure 
-    create_dirstruct(argSet)
-     
+    if options.workDir:
+        config.system_settings.working_directory = os.path.abspath(options.workDir)
+    else:
+        config.system_settings.working_directory = os.getcwd()
+
+    config = Config.from_config(config_file)
+    
+    config.ignore_receptor = options.ignore_receptor
+    
+    if config.workflow.run_endstate_method: 
+        if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/ligand")):
+            os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/ligand"))
+        if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor")):
+            os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor"))
+    
+        config.get_receptor_ligand_topologies()
+    
     #create a log file
     job_number = 1
     while os.path.exists(f"mdgb/log_job_{job_number:03}.txt"):
@@ -236,90 +253,19 @@ def main():
     Path(f"mdgb/log_job_{job_number:03}.txt").touch()
     
     options.logFile = f"mdgb/log_job_{job_number:03}.txt"
-
-    # if not options.workDir: 
-    #     work_dir = os.getcwd()
-    # else:
-    #     work_dir = str(options.workDir)
-        
-    argSet["parameters"].update(get_receptor_ligand_topologies(argSet)) 
-    work_dir = os.getcwd()
-    argSet["workDir"] = work_dir
-    
-    
     with Toil(options) as toil:
-        #dataFrame containing absolute paths of topology and coordinate files. Also contains basenames of both file types 
         if not toil.options.restart:
-            dataframe_parameter_inputs = input_parser(argSet,toil)
-            argSet["parameters"].update(import_restraint_files(argSet, toil))
+            print(config.endstate_files)
+            print(config.endstate_files.complex_parameter_filename)
             
-            if argSet["replica_exchange_parameters"]["replica_exchange"]:
-                remd_mdins = get_mdins(argSet, toil)
-                argSet["replica_exchange_parameters"].update(remd_mdins)
-                
-                replica_workflow = ddm_workflow(dataframe_parameter_inputs, argSet, work_dir)
-                #toil.start(Job.wrapJobFn(remd_workflow))
-                toil.start(replica_workflow)
-            #run long implicit MD simulation 
-            else:
-                ddm_workflow_job = ddm_workflow(dataframe_parameter_inputs, argSet, work_dir)
-                toil.start(ddm_workflow_job)
-
-        else:
-            toil.restart()
-    
-def create_dirstruct(argSet, dirstruct = "dirstruct"):
-    """
-    Creates unique directory structure for all output files when created.
-
-    Parameters
-    ----------
-    argSet: dict
-        A dictionary of parameters from a .yaml configuation file
-    dirstruct: str
-        dirstruct is a preference File used to create new directory structures when simrun.getRun() is called.
-
-    Returns
-    -------
-    None
-    """
-    sim = dc.Dirstruct("mdgb", description='''Perform molecular dynamics with GB or in vacuo''')
-   #iterate through solutes
-
-    for key in argSet['parameters'].keys():
-        if key == 'complex_parameter_filename':
-            complex_state = 7
-            intermidate_state = 7
-            while complex_state <= 9:
-                for complex in argSet['parameters'][key]:
-                    argSet['solute'] = complex
-                    solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
-                    pathroot = re.sub(r"\.[^.]*","",argSet['solute'])
-                    #print('pathroot',pathroot)
-                    root = os.path.basename(pathroot)
-                    #print('root',root)
-                    argSet['state_label'] = complex_state
-                    run = sim.getRun(argSet)
-                    for inter_state in ['a','b','c']:
-                        argSet['state_label'] = str(intermidate_state) + inter_state
-                        run = sim.getRun(argSet)
-                complex_state = complex_state + 1
-        if key == 'ligand_parameter_filename':
-            ligand_state = 2
-            while ligand_state <= 5:
-                for ligand in argSet['parameters'][key]:
-                    argSet['solute'] = ligand
-                    solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
-                    argSet['state_label'] = ligand_state
-                    run = sim.getRun(argSet)
-                ligand_state = ligand_state + 1
-
-        if key == 'receptor_parameter_filename':
-            receptor_state = 2
-            while receptor_state <= 5:
-                for receptor in argSet['parameters'][key]:
-                    argSet['solute'] = receptor
-                    solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
-                    argSet['state_label'] = receptor_state
-                    run = sim.getRun(argSet)
-                receptor_state = receptor_state + 1
+            config.endstate_files.complex_parameter_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.complex_parameter_filename)))
+            config.endstate_files.complex_coordinate_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.complex_coordinate_filename)))
+            config.endstate_files.ligand_coordinate_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.ligand_coordinate_filename)))  
+            config.endstate_files.ligand_parameter_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.ligand_parameter_filename)))
+            
+            if config.endstate_method.endstate_method_type == 'remd':
+                for index, (equil_mdin, remd_mdin) in enumerate(zip(config.endstate_method.remd_args.equilibration_replica_mdins, config.endstate_method.remd_args.remd_mdins)):
+                    config.endstate_method.remd_args.equilibration_replica_mdins[index] = str(toil.import_file("file://" + os.path.abspath(equil_mdin)))
+                    config.endstate_method.remd_args.remd_mdins[index] = str(toil.import_file("file://" + os.path.abspath(remd_mdin)))
+            print(config.endstate_files)
+            # toil.start(Job.wrapJobFn(ddm_workflow, config))
