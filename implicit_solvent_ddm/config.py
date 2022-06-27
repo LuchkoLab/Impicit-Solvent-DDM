@@ -4,10 +4,13 @@ from typing import List, Optional, Type
 
 import pytraj as pt
 from pydantic import NoneIsAllowedError
+from toil.common import Toil
+from toil.job import Job
 
 
 @dataclass 
 class Workflow:
+    setup_workflow: bool = True
     run_endstate_method: bool = True
     add_ligand_conformational_restraints: bool = True
     remove_GB_solvent_ligand: bool = True
@@ -18,7 +21,7 @@ class Workflow:
     complex_turn_off_exclusions: bool = True
     complex_turn_on_ligand_charges: bool = True
     complex_remove_restraint: bool = True
-
+    ignore_receptor: bool = False 
     @classmethod
     def from_config(cls: Type["Workflow"], obj:dict):
         if "workflow_jobs" in obj.keys():
@@ -28,13 +31,45 @@ class Workflow:
         
     
     @classmethod
-    def update_worflow(cls:Type["Workflow"], system:str):
+    def update_worflow(cls: Type["Workflow"], system:str):
         
         if system == 'ligand':
             return cls(
+                setup_workflow = False, 
                 run_endstate_method = False, 
-                remove_GB_solvent_ligand= False, 
+                add_receptor_lambda_windows= False, 
+                ignore_receptor = True,
+                remove_GB_solvent_receptor = False, 
+                complex_ligand_exclusions = False, 
+                complex_turn_off_exclusions = False, 
+                complex_turn_on_ligand_charges = False, 
+                complex_remove_restraint = False
             )
+        elif system =='receptor':
+            return cls(
+                setup_workflow = False,
+                run_endstate_method = False,
+                add_ligand_conformational_restraints = False, 
+                remove_GB_solvent_ligand = False, 
+                remove_ligand_charges = False, 
+                complex_ligand_exclusions = False,
+                complex_turn_off_exclusions = False, 
+                complex_turn_on_ligand_charges = False, 
+                complex_remove_restraint = False, 
+            )
+        elif system == 'complex':
+            return cls(
+                setup_workflow = False,
+                run_endstate_method = False,
+                add_ligand_conformational_restraints = False,
+                remove_GB_solvent_ligand = False,
+                remove_ligand_charges  = False,
+                add_receptor_lambda_windows  = False,
+                remove_GB_solvent_receptor  = False,
+                ignore_receptor = True,
+                )
+        else:
+            raise Exception(f'system not valid: {system}')
     
 @dataclass
 class SystemSettings:
@@ -55,8 +90,8 @@ class ParameterFiles:
     ligand_coordinate_filename:  str = 'ligand_coordinate' 
     receptor_parameter_filename: str = 'receptor_parm' 
     receptor_coordinate_filename: str = 'receptor_coordinate' 
-   
-       
+    
+    
     def __post_init__(self):
         self.complex_parameter_filename = os.path.abspath(self.complex_parameter_filename)
         self.complex_coordinate_filename = os.path.abspath(self.complex_coordinate_filename)
@@ -64,8 +99,7 @@ class ParameterFiles:
     @classmethod 
     def from_config(cls: type["ParameterFiles"], obj:dict):
        return cls(**obj)
-   
-        
+    
 @dataclass
 class NumberOfCoresPerSystem:
     complex_ncores: int 
@@ -123,7 +157,7 @@ class EndStateMethod:
     
     @classmethod
     def from_config(cls:type["EndStateMethod"], obj:dict):
-        if obj["endstate_method"] == 'REMD':
+        if obj["endstate_method"].lower() == 'remd':
             return cls(
                 endstate_method_type=str(obj["endstate_method"]).lower(),
                 remd_args=REMD.from_config(obj=obj),
@@ -174,6 +208,7 @@ class Config:
     endstate_method:  EndStateMethod
     intermidate_args: IntermidateStatesArgs
     inputs: dict 
+    output: dict 
     ignore_receptor: bool = False 
     
     def __post_init__(self):
@@ -192,9 +227,20 @@ class Config:
             amber_masks=AmberMasks.from_config(user_config["AMBER_masks"]),
             endstate_method=EndStateMethod.from_config(user_config["workflow"]),     
             intermidate_args = IntermidateStatesArgs.from_config(user_config["workflow"]["intermidate_states_arguments"]),
-            inputs= {}
+            inputs= {},
+            output={}
         )  
-
+    @property 
+    def complex_pytraj_trajectory(self)->pt.Trajectory:
+        traj = pt.load(self.endstate_files.complex_coordinate_filename, self.endstate_files.complex_parameter_filename)
+        return traj 
+    @property 
+    def ligand_pytraj_trajectory(self)->pt.Trajectory:
+        return self.complex_pytraj_trajectory[self.amber_masks.ligand_mask]
+    @property 
+    def receptor_pytraj_trajectory(self)->pt.Trajectory:
+        return self.complex_pytraj_trajectory[self.amber_masks.receptor_mask]
+    
     def get_receptor_ligand_topologies(self):
         '''
         Splits the complex into the ligand and receptor individual files.
@@ -230,18 +276,37 @@ class Config:
             pt.write_traj(f"{receptor_name}_{0:03}.ncrst",receptor)
             self.endstate_files.receptor_parameter_filename = os.path.abspath(f"{receptor_name}_{0:03}.parm7")
             self.endstate_files.receptor_coordinate_filename = os.path.abspath(f"{receptor_name}_{0:03}.ncrst.1")
-        
+
+def workflow(job, config:Config):
+    
+    job.log(f"config.ligand_pytraj_trajectory : {config.ligand_pytraj_trajectory}")
+
 if __name__ == "__main__":
     import yaml
-    with open('new_workflow.yaml') as yaml_file:
-        config = yaml.safe_load(yaml_file)
+    with open("/home/ayoub/nas0/Impicit-Solvent-DDM/new_workflow.yaml") as fH:
+        config = yaml.safe_load(fH)
     config_object = Config.from_config(config)
-    config_object.ignore_receptor = True
-    # print(config_object.endstate_files)
-    # print("*" * 20)
-    config_object.get_receptor_ligand_topologies()
-    print(config_object.endstate_method.endstate_method_type)
+    
+    update_workflow = config_object.workflow.update_worflow(system='ligand')
+    print(f"update_workflow {update_workflow}\n")
+    print(f"config.workflow {config_object.workflow}")
+    # import yaml
+    # options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
+    # options.logLevel = "INFO"
+    # options.clean = "always"
+    
+    # with open('new_workflow.yaml') as yaml_file:
+    #     config = yaml.safe_load(yaml_file)
+    # config_object = Config.from_config(config)
+    # config_object.ignore_receptor = True
+    # print(config_object.ligand_pytraj_trajectory)
+    # with Toil(options) as toil:
 
+    #     print(toil.start(Job.wrapJobFn(workflow,  config_object)))   
+    # # print(config_object.endstate_files)
+    # # print("*" * 20)
+    # #config_object.get_receptor_ligand_topologies()
+    
    
     
   

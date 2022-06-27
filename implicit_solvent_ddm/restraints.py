@@ -98,6 +98,7 @@ def orientational_restraints_template(atom_R3, atom_R2, atom_R1, atom_L1, atom_L
             )
         string_template += restraint_template
     return string_template 
+
 def write_empty_restraint(job):
     temp_dir = job.fileStore.getLocalTempDir()
     with open('empty.restraint', "w") as fn:
