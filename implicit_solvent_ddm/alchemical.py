@@ -1,12 +1,16 @@
 
+import os
+import re
+from typing import Tuple
+
 import parmed as pmd
-import pytraj as pt 
-import os 
-import re 
+import pytraj as pt
+from black import out
+from toil.common import Toil
+from toil.job import Job
 
 
-def split_complex(job, complex_topology_filename, complex_topology_basename, complex_coordinate_restart_filename, ligand_topology_basename, receptor_topology_basename, ligand_mask, receptor_mask, work_dir):
-
+def split_complex_system(job, endstate_complex_parameter_filename, endstate_coordiante_complex_filename, ligand_mask, receptor_mask):
     '''
     Splitting a restart coordinate file of an complex into individual receptor and ligand topology and coordinate files 
 
@@ -14,127 +18,98 @@ def split_complex(job, complex_topology_filename, complex_topology_basename, com
     ----------
     job: toil.job.FunctionWrappingJob
         context manager that represents a Toil workflow
-    complex_topology_filename: str 
+    endstate_complex_parameter_filename: str 
         complex parameter topology file absolute path 
-    complex_topology_basename: str 
+    endstate_coordiante_complex_filename: str 
         basename for complex parameter topology file 
-    complex_coordinate_restart_filename: str 
-        absolute path for restart coordinate file of the complex
-    ligand_topology_basename: str 
-        basename for ligand parameter topology file 
-    receptor_topology_basename: str 
-        basename for receptor parameter topology file 
     ligand_mask: str 
         Amber mask which select ligand atoms from the complex
     receptor_mask: str 
         Amber mask which selects receptor atoms from the complex 
-    work_dir: str 
-        absolute working path 
-
+ 
     Returns
     -------
-    ligand_traj_file: str
-        jobStoreFileID representing ligand coordinate file in the file store
-    receptor_traj_file: str 
-        jobStoreFileID representing receptor coordinate file in the file store
+    receptor_ID: str
+        A jobStoreFileID to access receptor_ID globally during the workflow 
+    ligand_ID: str 
+        A jobStoreFileID to access ligand_ID globally during the workflow 
     '''
-
-    tempDir = job.fileStore.getLocalTempDir()
-    job.log(f"the restart file of the complex {complex_coordinate_restart_filename}")
-    complex_traj_filename = os.path.basename(complex_coordinate_restart_filename[0])
-    solute = job.fileStore.readGlobalFile(complex_topology_filename, userPath=os.path.join(tempDir, complex_topology_basename))
-    traj_file = job.fileStore.readGlobalFile(complex_coordinate_restart_filename[0], userPath=os.path.join(tempDir, complex_traj_filename))
-   
+    temp_dir = job.fileStore.getLocalTempDir()
+    #read files into temporary directory 
+    solute_file = job.fileStore.readGlobalFile(endstate_complex_parameter_filename, userPath= os.path.join(temp_dir, os.path.basename(endstate_complex_parameter_filename)))
+    coordinate_file = job.fileStore.readGlobalFile(endstate_coordiante_complex_filename, userPath=os.path.join(temp_dir, os.path.basename(endstate_coordiante_complex_filename)))
     
-    
-    
-    if not os.path.exists(work_dir + '/mdgb/split_complex_folder/ligand/'):
-        os.makedirs(work_dir + '/mdgb/split_complex_folder/ligand/')
-    
-    if not os.path.exists(work_dir + '/mdgb/split_complex_folder/receptor/'):
-        os.makedirs(work_dir + '/mdgb/split_complex_folder/receptor/')
-
-    job.log("starting to split the complex")
-
-    traj = pt.load(traj_file, solute)
-    
+    #load in endstate lastframe coordinate of complex file 
+    traj = pt.load(coordinate_file, solute_file)
+    #strip into receptor and ligand respectivlity 
     receptor = pt.strip(traj, ligand_mask)
-    
-    #receptor = traj[receptor_mask]
-
-    job.log("the receptor trajectory is :" + str(receptor))
-
     ligand = pt.strip(traj, receptor_mask)
-    #ligand = traj[ligand_mask]
-    job.log("the ligand trajectory is: " + str(ligand))
-
-    receptor_name = re.sub(r"\..*","",os.path.basename(receptor_topology_basename))
     
-    ligand_name = re.sub(r"\..*","",os.path.basename(ligand_topology_basename))
-
-    #pt.write_traj(work_dir + '/mdgb/split_complex_folder/ligand/'+ 'split_'+ ligand_name + '.ncrst', ligand, frame_indices=[ligand.n_frames-1], overwrite=True)
-    pt.write_traj(work_dir + '/mdgb/split_complex_folder/ligand/'+ 'split_'+ ligand_name + '.ncrst', ligand, overwrite=True)
-    pt.write_traj(work_dir + '/mdgb/split_complex_folder/receptor/'+ 'split_'+ receptor_name + '.ncrst', receptor, overwrite=True)
-
-    ligand_path = os.path.join(work_dir + '/mdgb/split_complex_folder/ligand/'+ 'split_'+ ligand_name + '.ncrst.1')
+    receptor_name = receptor_mask.strip(":")
+    ligand_name = ligand_mask.strip(":")
+    #write files into temporary directory 
+    pt.write_traj(f"{temp_dir}/split_{receptor_name}.ncrst", receptor, overwrite=True)
+    pt.write_traj(f"{temp_dir}/split_{ligand_name}.ncrst", ligand, overwrite=True)
+    #write global copies of receptor and ligand coordiante files into job-store 
+    receptor_ID = job.fileStore.writeGlobalFile(f"{temp_dir}/split_{receptor_name}.ncrst.1")
+    ligand_ID = job.fileStore.writeGlobalFile(f"{temp_dir}/split_{ligand_name}.ncrst.1")
     
-    receptor_path = os.path.join(work_dir + '/mdgb/split_complex_folder/receptor/'+ 'split_' + receptor_name + '.ncrst.1')
-    
-    ligand_traj_file = job.fileStore.importFile( "File://"+ligand_path)
-    receptor_traj_file =  job.fileStore.importFile( "File://"+receptor_path)
+    return receptor_ID, ligand_ID
 
-    job.log('writing global ligand file to jobstore: '+ str(ligand_traj_file))
-    job.log('writing global rec file to jobstore: ' + str(receptor_traj_file))
-
-    return ligand_traj_file, receptor_traj_file
-
-
-
-    
-def turn_off_charges(ligand_topology_filename, ligand_coordinate_filename, ligand_mask):
-
-    '''
-    Setting the atomic charge of every atom in a ligand parameter toplogy file to a zero charge
-
-    Parameters
-    ----------
-    ligand_topology_filename: str
-        absolute file path in job store to ligand parameter topology file 
-    ligand_coorindate_filename: str 
-        absolute file path in job store to ligand coordinate file 
-    ligand_mask: str
-        Amber mask which selects all ligand atoms from the complex
-   
-    Returns 
-    -------
-    ligand_zero_charge_topology_filename: str 
-        absolute path to ligand topology file containing zero charge atoms   
-    '''
-    ligand_traj = pmd.load_file(ligand_topology_filename, xyz=ligand_coordinate_filename)
-    pmd.tools.actions.change(ligand_traj, 'charge', ligand_mask, 0).execute()
-    
-    ligand_traj.save("charges_off_" + str(os.path.basename(ligand_topology_filename)))
-    ligand_zero_charge_topology_filename = os.path.abspath("charges_off_" + str(os.path.basename(ligand_topology_filename)))
-
-    return ligand_zero_charge_topology_filename
-
-def alter_topology_file(solute_topology_filename, solute_coordinate_filename, ligand_mask, receptor_mask, turn_off_charges, add_exclusions):
+def get_intermidate_parameter_files(job, complex_prmtop, complex_coordinate, ligand_mask, receptor_mask)->Tuple[str, str, str]:
     '''
     Altering the ligand charge to zero and non-bonded interactions with receptor w/ligand will not be computed.
 
     Parameters
     ----------
-    solute_topology_filename: str
-        absolute file path in job store to ligand parameter topology file 
-    solute_coordinate_filename: str 
-        absolute file path in job store to ligand coordinate file 
+    job: toil.job.FunctionWrappingJob
+        A context manager that represents a Toil workflow
+    complex_prmtop: toil.fileStores.FileID
+        file path to job store of a complex parameter file
+    complex_coordinate: toil.fileStores.FileID
+        file path to job store of a complex coordinate file
     ligand_mask: str
         Amber mask which selects all ligand atoms from the complex
     receptor_mask: str
         Amber mask which selects all recetor atoms from the complex 
-    turn_off_charges: bool
+        
+    Returns 
+    -------
+    ligand_no_charge_parm_ID: toil.fileStores.FileID 
+        Upload ligand_no_charge_parm_ID to the job store. 
+    complex_ligand_no_charge_ID: toil.fileStores.FileID
+        Upload complex_ligand_no_charge_ID to the job store. 
+    complex_no_ligand_interaction_ID: toil.fileStores.FileID
+        Upload complex_no_ligand_interaction_ID to the job store. 
+    '''
+    temp_dir = job.fileStore.getLocalTempDir()
+    read_complex_prmtop = job.fileStore.readGlobalFile(complex_prmtop, userPath= os.path.join(temp_dir, os.path.basename(complex_prmtop)))
+    read_complex_coordiate = job.fileStore.readGlobalFile(complex_coordinate, userPath= os.path.join(temp_dir, os.path.basename(complex_coordinate)))
+    complex_traj = pmd.load_file(read_complex_prmtop, read_complex_coordiate)
+    ligand_traj = complex_traj[ligand_mask]
+    
+    ligand_no_charge_parm_ID = job.fileStore.writeGlobalFile(alter_topology(ligand_traj, ligand_mask, receptor_mask, no_charge=True))
+    complex_ligand_no_charge_ID = job.fileStore.writeGlobalFile(alter_topology(complex_traj, ligand_mask, receptor_mask, no_charge=True))
+    complex_no_ligand_interaction_ID = job.fileStore.writeGlobalFile(alter_topology(complex_traj, ligand_mask, receptor_mask, no_charge=True, exculsions=True))
+    
+    #job.fileStore.export_file(complex_no_ligand_interaction_ID, "file://" + os.path.abspath(os.path.join('/home/ayoub/nas0/Impicit-Solvent-DDM/output_directory', os.path.basename(complex_no_ligand_interaction_ID))))
+    return (ligand_no_charge_parm_ID, complex_ligand_no_charge_ID, complex_no_ligand_interaction_ID)
+
+def alter_topology(solute_parm, ligand_mask, receptor_mask, no_charge=False, exculsions=False)-> str:
+    '''
+    Altering the ligand charge to zero and non-bonded interactions with receptor w/ligand will not be computed.
+
+    Parameters
+    ----------
+    solute_parm: parmed.amber._amberparm.AmberParm
+        Parmed parameter file  
+    ligand_mask: str
+        Amber mask which selects all ligand atoms from the complex
+    receptor_mask: str
+        Amber mask which selects all recetor atoms from the complex 
+    no_charge: bool
         If True the atom charges within the ligand will be set to zero.
-    add_exclusions: bool
+    exculsions: bool
         If True no non-bonded interactions between the ligand and receptor will be computed 
    
     Returns 
@@ -142,16 +117,17 @@ def alter_topology_file(solute_topology_filename, solute_coordinate_filename, li
     solute_altered_filename: str 
         absolute path to ligand topology file containing all modified parameters   
     '''
-    solute_traj = pmd.load_file(solute_topology_filename, xyz=solute_coordinate_filename)
-    if turn_off_charges:
-        pmd.tools.actions.change(solute_traj, 'charge', ligand_mask, 0).execute()
-        saved_filename = "charges_off_"
-    if add_exclusions:
-        pmd.tools.actions.addExclusions(solute_traj, ligand_mask, receptor_mask).execute()
-        saved_filename = saved_filename + "exculsions_"
+    saved_filename = ""
+    if no_charge:
+        pmd.tools.actions.change(solute_parm, 'charge', ligand_mask, 0).execute()
+        saved_filename += "charges_off_"
+    if exculsions:
+        pmd.tools.actions.addExclusions(solute_parm, ligand_mask, receptor_mask).execute()
+        saved_filename += "exclusions_"
+    if solute_parm.name is not None:
+        saved_filename += os.path.basename(solute_parm.name)
+    else:
+        saved_filename += f"{ligand_mask.strip(':')}.parm7"
+    solute_parm.save(saved_filename)
     
-    solute_traj.save(saved_filename + str(os.path.basename(solute_topology_filename)))
-    
-    solute_altered_filename = os.path.abspath(saved_filename + str(os.path.basename(solute_topology_filename)))
-
-    return solute_altered_filename
+    return os.path.abspath(saved_filename)
