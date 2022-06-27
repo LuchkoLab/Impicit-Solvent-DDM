@@ -11,5 +11,5 @@ energy minimization
 
 /
 
-DISANG=COM.restraint 
+DISANG=$restraint 
  
