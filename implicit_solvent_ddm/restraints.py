@@ -13,7 +13,7 @@ from implicit_solvent_ddm.config import Config
 
 def flat_bottom_restraints_template(host_guest_atoms, guest_atoms, flat_bottom_distances):
    
-    restraint_path = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)) ,"restraints/COM.restraint"))
+    restraint_path = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)) ,"templates/restraints/COM.restraint"))
     string_template = ""
     
     with open(restraint_path) as f:
@@ -34,7 +34,7 @@ def flat_bottom_restraints_template(host_guest_atoms, guest_atoms, flat_bottom_d
 
 def conformational_restraints_template(solute_conformational_restraint, num_receptor_atoms=0):
     
-    restraint_path = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)) ,"restraints/conformational_restraints.template"))
+    restraint_path = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)) ,"templates/restraints/conformational_restraints.template"))
     string_template = ""
     for index in range(len(solute_conformational_restraint)):
         with open(restraint_path) as f:
@@ -75,7 +75,7 @@ def orientational_restraints_template(atom_R3, atom_R2, atom_R1, atom_L1, atom_L
     '''
     
     string_template = ""
-    restraint_path = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/restraints/orientational.template")
+    restraint_path = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "templates/restraints/orientational.template"))
     # restraint_path = "/nas0/ayoub/Impicit-Solvent-DDM/implicit_solvent_ddm/templates/restraint.RST"
     with open(restraint_path) as t:
         template = Template(t.read())
