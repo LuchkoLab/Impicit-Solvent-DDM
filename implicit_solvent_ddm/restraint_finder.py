@@ -716,17 +716,6 @@ def remote_run_complex(parmfile, coordfile, arguments):
     print('distance of rec_a1 from rec CoM:', dist_reca1_com)
     print('distance between lig_a1 and rec_a1:', dist_rest)
 
-    #Create data Arrays of atoms in ligand, with corresponding ID and angles with distance restraints
-    #ligand_angleValues_array, ligand_distanceValues_array, ligand_atom_coordinates_array = create_DistanceAngle_array(ligand.n_atoms, lig_a1_coords, rec_a1_coords, ligand)
-    #print(' ligand_distanceValues_array: ', ligand_distanceValues_array)
-    #print(' ligand_atom_id_array: ',  ligand_atom_coordinates_array)
-    #print(' ligand_angleValues_array: ', ligand_angleValues_array)
-
-    #Create data Arrays of atoms in receptor, with corresponding ID and angles with distance restraints
-    #receptor_angleValues_array, receptor_distanceValues_array, receptor_atom_coordinates_array = create_DistanceAngle_array(receptor.n_atoms, rec_a1_coords, lig_a1_coords, receptor)
-    #print('receptor_distanceValues_array: ', receptor_distanceValues_array)
-    #print(' receptor_atom_id_array: ',  receptor_atom_coordinates_array)
-    #print('receptor_angleValues_array: ',receptor_angleValues_array)
 
     ligand_suba2, ligand_atom2_name,  lig_a2_coords, dist_liga2_a3, dist_liga1_a2, lig_angle1, lig_angle2, lig_torsion, ligand_suba3, ligand_atom3_name, lig_a3_coords = screen_arrays_for_angle_restraints(lig_a1_coords, rec_a1_coords, ligand, parmed_traj, traj)
     ligand_a2 = receptor.n_atoms + ligand_suba2
@@ -734,28 +723,6 @@ def remote_run_complex(parmfile, coordfile, arguments):
 
     receptor_a2, receptor_atom2_name,  rec_a2_coords, dist_reca2_a3, dist_reca1_a2, rec_angle1, rec_angle2, rec_torsion, receptor_a3, receptor_atom3_name, rec_a3_coords = screen_arrays_for_angle_restraints(rec_a1_coords, lig_a1_coords, receptor, parmed_traj, traj)
 
-    #screen_arrays_for_angle_restraints(rec_a1_coords, lig_a1_coords, receptor)
-
-    #find atom 2 in ligand     
-    #ligand_suba2, lig_a2_coords, dist_liga1_a2, lig_angle1 = screen_for_angle_restraints(ligand.n_atoms, lig_a1_coords, rec_a1_coords, ligand)
-    #ligand_a2 = receptor.n_atoms + ligand_suba2
-
-    #find atom 2 in receptor     
-    #receptor_a2, rec_a2_coords, dist_reca1_a2, rec_angle1 = screen_for_angle_restraints(receptor.n_atoms, rec_a1_coords, lig_a1_coords, receptor)
-
-    #find atom 3 in ligand 
-    #ligand_suba3, lig_a3_coords, dist_liga2_a3, lig_angle2 = screen_for_angle_restraints(ligand.n_atoms, lig_a2_coords, lig_a1_coords, ligand)
-    #ligand_a3 = receptor.n_atoms + ligand_suba3
-
-    #find atom 3 in receptor
-    #receptor_a3, rec_a3_coords, dist_reca2_a3, rec_angle2 = screen_for_angle_restraints(receptor.n_atoms, rec_a2_coords, rec_a1_coords, receptor)
-
-    #calculate torsion restraint inside ligand
-    #lig_torsion = wikicalculate_dihedral_angle(rec_a1_coords, lig_a1_coords, lig_a2_coords, lig_a3_coords)
-
-    #calculate torsion restraint inside receptor                                                                                                                                                                    
-    #rec_torsion = wikicalculate_dihedral_angle(lig_a1_coords, rec_a1_coords, rec_a2_coords, rec_a3_coords)
- 
     #calculate torsion restraint inside receptor                                                                                                                                                                    
     central_torsion = wikicalculate_dihedral_angle(rec_a2_coords, rec_a1_coords, lig_a1_coords, lig_a2_coords)
 

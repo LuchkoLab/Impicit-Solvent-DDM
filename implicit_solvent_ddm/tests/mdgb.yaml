@@ -17,7 +17,12 @@
   mdin_intermidate_config: implicit_solvent_ddm/tests/inter.yaml #intermidate mdins required states 3-8
 
  replica_exchange_parameters:
-  replica_exchange: False   
+  executable: "srun -n 8 pmemd.MPI -ng 4 -groupfile" # executable supports sander.MPI or pemed.MPI: example input "srun -n 4 sander.MPI -ng 4 -groupfile" 
+  replica_exchange: True #True to initiate replica exchange, else running long MD simulatons
+  target_temperature: 300.0 #list of temperatures or temp.dat file 
+  equilibration_replica_mdins: [implicit_solvent_ddm/tests/equilibration_mdin/mdin.rep.001, implicit_solvent_ddm/tests/equilibration_mdin/mdin.rep.002, implicit_solvent_ddm/tests/equilibration_mdin/mdin.rep.003, implicit_solvent_ddm/tests/equilibration_mdin/mdin.rep.004]
+  remd_mdins: [implicit_solvent_ddm/tests/remd_mdins/remd.mdin.001, implicit_solvent_ddm/tests/remd_mdins/remd.mdin.002, implicit_solvent_ddm/tests/remd_mdins/remd.mdin.003, implicit_solvent_ddm/tests/remd_mdins/remd.mdin.004]
+   
  optional_parameters:
   ligand_parameter_file: #paramter file for only the ligand
   ligand_coordinate_file: # restart file for ligand only

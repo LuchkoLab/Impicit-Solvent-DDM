@@ -1,9 +1,11 @@
 import os, os.path
 import re 
+import yaml
 import pandas as pd
 import itertools
 import pytraj as pt
 import sys
+from string import Template
 #will not need these imports 
 #from toil.common import Toil
 #from toil.job import Job
@@ -112,7 +114,8 @@ def get_receptor_ligand_topologies(argSet):
     argSet["ligand_parameter_filename"] = [ligand_inputs[0]]
     argSet["ligand_coordinate_filename"] = [ligand_inputs[1]]
     
-    
+    file_exists = os.path.exists(f"{receptor_name}_{0:03}.parm7")
+    print(f"the receptor file exists? {file_exists}")
     if os.path.exists(f"{receptor_name}_{0:03}.parm7"):
         if not argSet["parameters"]["ignore_receptor"]:
             argSet["parameters"]["ignore_receptor"] = True
@@ -164,9 +167,9 @@ def getfiles(toil, argSet, parm_key, coord_key):
      for solute in argSet['parameters'][parm_key]:
 
           solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",solute)
-          solute_filename.append(toil.importFile("file://" + os.path.abspath(os.path.join(solute))))
+          solute_filename.append(toil.import_file("file://" + os.path.abspath(os.path.join(solute))))
           solute_basename.append(re.sub(r".*/([^/.]*)",r"\1",solute))
-          solute_coordinate_filename.append(toil.importFile("file://" + os.path.abspath(os.path.join(argSet['parameters'][coord_key][-num_of_solutes]))))
+          solute_coordinate_filename.append(toil.import_file("file://" + os.path.abspath(os.path.join(argSet['parameters'][coord_key][-num_of_solutes]))))
           solute_coordinate_basename.append(re.sub(r".*/([^/.]*)",r"\1",argSet['parameters'][coord_key][-num_of_solutes]))
           #output_dir.append(os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(state)))
           num_of_solutes = num_of_solutes -1 
@@ -182,8 +185,8 @@ def get_mdins(config, toil):
     remd_import_mdins = []
     
     for equil, remd in itertools.zip_longest(equil_mdins, remd_mdins, fillvalue=-1):
-        equilibration_import_mdins.append(toil.importFile("file://" + os.path.abspath(os.path.join(equil))))
-        remd_import_mdins.append(toil.importFile("file://" + os.path.abspath(os.path.join(remd))))
+        equilibration_import_mdins.append(toil.import_file("file://" + os.path.abspath(os.path.join(equil))))
+        remd_import_mdins.append(toil.import_file("file://" + os.path.abspath(os.path.join(remd))))
 
     simulation_mdins = {
             "equilibrate_mdins" : equilibration_import_mdins,
@@ -196,14 +199,14 @@ def import_restraint_files(config, toil):
     flat_bottom = config["parameters"]["flat_bottom_restraints"] 
     import_flat_bottom = []
     for restraint in flat_bottom:
-        #import_flat_bottom.append(toil.importFile("file://" + os.path.abspath(os.path.join(restraint))))
+        #import_flat_bottom.append(toil.import_file("file://" + os.path.abspath(os.path.join(restraint))))
         import_flat_bottom.append(os.path.abspath(os.path.join(restraint)))
     flat_bottom = {
             "flat_bottom_restraints" : import_flat_bottom
     }
     return flat_bottom
 
-def get_output_dir(solute_filename, state):
+def get_output_dir(solute_filename, state, workdir):
      '''
      A designated directory path to export output data
 
@@ -219,8 +222,41 @@ def get_output_dir(solute_filename, state):
      output_dir: str 
          A path to a specific directory where the output data will be exported. 
      '''
+    
      solu = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",solute_filename)
-     output_dir = os.path.join(os.path.dirname(os.path.abspath('__file__')),'mdgb/'+ solu + '/' + str(state))
+     output_dir = os.path.join(workdir,'mdgb/'+ solu + '/' + str(state))
      
      return output_dir  
+
+def create_workflow_config(arguments, df_inputs):
+    #if receptor file was created then set the default name for the receptor_top key 
+    if not arguments["parameters"]["ignore_receptor"]:
+        receptor_file = df_inputs['receptor_parameter_filename'][0]
+    # If receptor file was not created then use the Toil import file ID
+    else:
+        receptor_file = arguments["parameters"]["receptor_parameter_filename"][0]
+    #load workflow template 
+    worflow_path = os.path.abspath(os.path.dirname(
+                os.path.realpath(__file__)) + "/templates/workflow.yaml")
     
+    with open(worflow_path) as t:
+        template = Template(t.read())
+        
+        
+        workflow_template = template.substitute(
+            ligand_top = df_inputs['ligand_parameter_filename'][0],
+            receptor_top = receptor_file,
+            intermidate_mdin = arguments["parameters"]["mdin_intermidate_config"],
+            complex_top = df_inputs['complex_parameter_filename'][0]
+        )
+        
+    with open('workflow.yaml', "w") as output:
+        output.write(workflow_template)
+        
+    with open("workflow.yaml") as f:
+        workflow = yaml.safe_load(f)
+    
+    workflow = workflow.copy()
+    os.remove('workflow.yaml')
+    return workflow
+            
