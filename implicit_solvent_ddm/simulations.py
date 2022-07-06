@@ -39,8 +39,7 @@ class Calculation(Job):
         self.exec_list = [self.mpi_command]
         #self.exec_list = []
         self.read_files = {}
-        #self._output_directory()
-        
+        self._output_directory()
         
    
     def _output_directory(self):
@@ -51,8 +50,12 @@ class Calculation(Job):
             os.makedirs(output_dir)
             
         self.output_dir = output_dir
+        #self._path2dict(dirs)
         
+    def _path2dict(self, directory_object):
         
+        self.run_args = directory_object.fromPath2Dict(self.output_dir)
+    
     def _setLogging(self):
         
         file_handler = logging.FileHandler(os.path.join(self.output_dir, "simulations.log"), mode="w")
@@ -117,7 +120,7 @@ class Calculation(Job):
             calling this method. Command-line arguments should be set in setup()
         """
         fileStore.logToMaster(f"the self.directory_args {self.directory_args}")
-        self._output_directory()
+        #self._output_directory()
         self._setLogging()
         self.logger.info(f"{self.directory_args['runtype']}")
         
@@ -169,7 +172,7 @@ class Calculation(Job):
         
         restart_ID, trajectory_ID = self.export_files(fileStore, self.output_dir, files_in_current_directory)
         
-        return (restart_ID, trajectory_ID, self.output_dir)
+        return (restart_ID, trajectory_ID)
     
 
 class Simulation(Calculation):
@@ -303,7 +306,7 @@ class REMDSimulation(Calculation):
         return Calculation.run(self, fileStore)
 
 class ExtractTrajectories(Job):
-    def __init__(self, solute_topology, trajectory_files, target_temp):
+    def __init__(self, solute_topology, trajectory_files, target_temp=0.0):
         Job.__init__(self, memory="2G", cores=1, disk="3G")
         self.solute_topology = solute_topology
         self.trajectory_files = trajectory_files
@@ -314,16 +317,24 @@ class ExtractTrajectories(Job):
         temp_dir = fileStore.getLocalTempDir()
         self.read_solute = fileStore.readGlobalFile(self.solute_topology,  userPath=os.path.join(temp_dir, os.path.basename(self.solute_topology)))
         
-        for traj_file in self.trajectory_files:
-            self.read_trajs.append(fileStore.readGlobalFile(traj_file, userPath=os.path.join(temp_dir, os.path.basename(traj_file))))
-        
-        write_bash_script = fileStore.writeGlobalFile(self.bash_script)
-        read_bash_script = fileStore.readGlobalFile(write_bash_script, userPath=os.path.join(temp_dir, os.path.basename(write_bash_script)))
-        fileStore.logToMaster(f"read bash {read_bash_script}")
-        #extract trajectories at target temperature 
-        extract_target_temp_traj = self.run_bash(read_bash_script, fileStore)
-        read_target_traj = fileStore.readGlobalFile(extract_target_temp_traj, userPath=os.path.join(temp_dir, os.path.basename(extract_target_temp_traj)))
-        
+        #extract target temperture in REMD trajectories 
+        if self.target_temp is not 0.0:
+
+            for traj_file in self.trajectory_files:
+                self.read_trajs.append(fileStore.readGlobalFile(traj_file, userPath=os.path.join(temp_dir, os.path.basename(traj_file))))
+            
+            write_bash_script = fileStore.writeGlobalFile(self.bash_script)
+            read_bash_script = fileStore.readGlobalFile(write_bash_script, userPath=os.path.join(temp_dir, os.path.basename(write_bash_script)))
+            fileStore.logToMaster(f"read bash {read_bash_script}")
+            #extract trajectories at target temperature 
+            #extract_target_temp_traj = self.run_bash(read_bash_script, fileStore)
+            solute_traj = self.run_bash(read_bash_script, fileStore)
+            read_target_traj = fileStore.readGlobalFile(solute_traj, userPath=os.path.join(temp_dir, os.path.basename(solute_traj)))
+        #user provided there one endstate trajectory
+        else:
+            read_target_traj = fileStore.readGlobalFile(self.trajectory_files, userPath=os.path.join(temp_dir, os.path.basename(self.trajectory_files)))
+            solute_traj = self.trajectory_files
+            
         solu = re.sub(r"\..*", "", os.path.basename(self.read_solute))
         lastframe = f"{solu}_{self.target_temp}K_lastframe.ncrst"
         lastframe_rst7 = f"{solu}_{self.target_temp}K_lastframe.rst7"
@@ -339,7 +350,7 @@ class ExtractTrajectories(Job):
         final_rst7_frame = fileStore.writeGlobalFile(lastframe_rst7)
        
 
-        return (extract_target_temp_traj, final_ncrst_frame, final_rst7_frame)
+        return (solute_traj, final_ncrst_frame, final_rst7_frame)
         
     def run_bash(self, bash_script, fileStore):
         current_files = os.listdir()
