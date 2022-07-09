@@ -18,30 +18,39 @@ from typing import List, Optional, Type
 
 import numpy as np
 import yaml
-from click import option
-from pyparsing import opAssoc
-from setuptools import setup
 from toil.common import Toil
 from toil.job import Job, JobFunctionWrappingJob
 
-# from implicit_solvent_ddm.alchemical import (get_intermidate_parameter_files,
-#                                              split_complex)
-from alchemical import get_intermidate_parameter_files, split_complex_system
-# from implicit_solvent_ddm.config import Config
-from config import Config
+#from config import Config
+#from alchemical import get_intermidate_parameter_files, split_complex_system
+from implicit_solvent_ddm.alchemical import (get_intermidate_parameter_files,
+                                             split_complex_system)
+from implicit_solvent_ddm.config import Config
 #from implicit_solvent_ddm.mdin import get_mdins
 # from implicit_solvent_ddm.remd import remd_workflow, run_minimization
-from mdin import get_mdins
-# from implicit_solvent_ddm.restraints import (get_conformational_restraints,
-#                                              get_flat_bottom_restraints,
-#                                              get_orientational_restraints,
-#                                              write_empty_restraint)
-from restraints import (get_conformational_restraints,
-                        get_flat_bottom_restraints,
-                        get_orientational_restraints, write_empty_restraint,
-                        write_restraint_forces)
+#from mdin import get_mdins
+from implicit_solvent_ddm.mdin import get_mdins
+#from postTreatment import PostTreatment, create_mdout_dataframe
+from implicit_solvent_ddm.postTreatment import (PostTreatment,
+                                                create_mdout_dataframe)
+from implicit_solvent_ddm.restraints import (get_conformational_restraints,
+                                             get_flat_bottom_restraints,
+                                             get_orientational_restraints,
+                                             write_empty_restraint,
+                                             write_restraint_forces)
+# from restraints import (get_conformational_restraints,
+#                         get_flat_bottom_restraints,
+#                         get_orientational_restraints, write_empty_restraint,
+#                         write_restraint_forces)
 #from implicit_solvent_ddm.simulations import REMDSimulation, Simulation
-from simulations import ExtractTrajectories, REMDSimulation, Simulation
+from implicit_solvent_ddm.simulations import (ExtractTrajectories,
+                                              REMDSimulation, Simulation)
+
+#from simulations import ExtractTrajectories, REMDSimulation, Simulation
+
+# from implicit_solvent_ddm.alchemical import (get_intermidate_parameter_files,
+#                                              split_complex)
+
 
 #local imports 
 
@@ -77,8 +86,9 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
     
    
     calc_list = []
-    data_frames = []
-    
+    ligand_df = []
+    receptor_df = []
+    complex_df = []
     #post process setup workflow 
     if post_process:
         inptraj_ID = inptraj_ID
@@ -99,7 +109,8 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                         config.amber_masks.ligand_mask, config.amber_masks.receptor_mask)
         # Add inputs as first child to root job
         job.addChild(setup_inputs)
-        
+        #config.inputs["ligand_no_vdw_ID"] = setup_inputs.rv(0)
+        #config.inputs["receptor_no_vdw_ID"] = setup_inputs.rv(2)
         config.inputs["ligand_no_charge_parm_ID"] = setup_inputs.rv(0)
         config.inputs["complex_ligand_no_charge_ID"] = setup_inputs.rv(1)
         config.inputs["complex_no_ligand_interaction_ID"] = setup_inputs.rv(2)
@@ -117,18 +128,20 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
         #write empty restraint.RST 
         empty_restraint = setup_inputs.addChildJobFn(write_empty_restraint)
         config.inputs["empty_restraint"] = empty_restraint.rv()
-        #flat bottom restraints potential restraints 
-        flat_bottom_template = setup_inputs.addChildJobFn(get_flat_bottom_restraints, 
-                                                    config.endstate_files.complex_parameter_filename, config.endstate_files.complex_coordinate_filename,
-                                                    config.endstate_method.flat_bottom_restraints)
         
-        config.inputs["flat_bottom_restraint"] = flat_bottom_template.rv()
         
         
         #Begin running END State Simulations
         #config.workflow.run_endstate_method and post_process==False: 
         
         if workflow.run_endstate_method:
+            #flat bottom restraints potential restraints 
+            flat_bottom_template = setup_inputs.addChildJobFn(get_flat_bottom_restraints, 
+                                                    config.endstate_files.complex_parameter_filename, config.endstate_files.complex_coordinate_filename,
+                                                    config.endstate_method.flat_bottom_restraints)
+        
+            config.inputs["flat_bottom_restraint"] = flat_bottom_template.rv()
+            
             endstate_method = setup_inputs.addFollowOnJobFn(initilized_jobs)
     
             if config.endstate_method.endstate_method_type == 'remd':
@@ -191,7 +204,8 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                 #                                             config.endstate_files.receptor_parameter_filename, config.endstate_files.receptor_coordinate_filename,
                 #                                             config.inputs["min_mdin"], config.inputs["empty_restraint"], 
                 #                                             {"runtype": 'minimization', "filename": "min", "topology": config.endstate_files.receptor_parameter_filename}))
-        # user ran there own endstate calculation just split the coordinate 
+        
+        # user provided there own there own endstate calculation just split the coordinate 
         else:
             endstate_method = setup_inputs.addFollowOn(ExtractTrajectories(config.endstate_files.complex_parameter_filename, 
                                                                            config.endstate_files.complex_coordinate_filename))
@@ -263,9 +277,9 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                     "runtype": f"Running post process with trajectory: {config.inputs['endstate_ligand_traj']}"}.copy(), post_process = True)
         
         #begin running postprocess for endstate trajectories 
-        complex_endstate_post_completed = complex_endstate_post_workflow.addFollowOnJobFn(run_post_process, complex_endstate_post_workflow.rv())
+        # complex_endstate_post_completed = complex_endstate_post_workflow.addFollowOnJobFn(run_post_process, complex_endstate_post_workflow.rv())
         ligand_endstate_post_completed = ligand_endstate_post_workflow.addFollowOnJobFn(run_post_process, ligand_endstate_post_workflow.rv())
-        
+        ligand_df.append(ligand_endstate_post_completed.rv())
         #parse data 
 
     if workflow.end_state_postprocess: 
@@ -307,8 +321,8 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
     max_con_force = max(config.intermidate_args.conformational_restraints_forces)
     max_orien_force = max(config.intermidate_args.orientational_restriant_forces)
     
-    max_con_exponent = max(config.intermidate_args.exponent_conformational_forces)
-    max_orien_exponent = max(config.intermidate_args.exponent_orientational_forces)
+    max_con_exponent = float(max(config.intermidate_args.exponent_conformational_forces))
+    max_orien_exponent = float(max(config.intermidate_args.exponent_orientational_forces))
     
     #turning off the solvent for ligand simulation, set max force of conformational restraints    
     if workflow.remove_GB_solvent_ligand:
@@ -339,14 +353,16 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                                        "traj_igb": "igb_6",
                                                                                        "filename": "state_4_postprocess",
                                                                                        "runtype": f"Running post process with trajectory: {no_solv_ligand.rv(1)}"}.copy(), post_process = True)
-            post_process_ligand.addFollowOnJobFn(run_post_process, post_process_ligand.rv())
+            
+            ligand_df.append(post_process_ligand.addFollowOnJobFn(run_post_process, post_process_ligand.rv()).rv())
+            
         
         else: 
             calc_list.append(no_solv_ligand)
             
         
-    #set ligand overall charge to 0 
-    #if config.workflow.remove_ligand_charges:
+    # set ligand overall charge to 0 
+    # if config.workflow.remove_ligand_charges:
     if workflow.remove_ligand_charges:
         ligand_no_charge_args = {
             "topology": config.endstate_files.ligand_parameter_filename, 
@@ -377,7 +393,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                    "filename": "state_5_postprocess",
                                                                    "runtype": f"Running post process with trajectory: {ligand_no_charge.rv(1)}"}.copy(), post_process = True)
             
-            post_no_charge.addFollowOnJobFn(run_post_process, post_no_charge.rv())
+            ligand_df.append(post_no_charge.addFollowOnJobFn(run_post_process, post_no_charge.rv()).rv())
         
         else:
             calc_list.append(ligand_no_charge)
@@ -545,7 +561,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
         if workflow.add_ligand_conformational_restraints:
             ligand_window_args = {
                 "topology": config.endstate_files.ligand_parameter_filename, 
-                "state_label": 2,
+                "state_label": "2",
                 "conformational_restraint": exponent_conformational, 
                 "igb": f"igb_{config.intermidate_args.igb_solvent}",
                 "filename": f"state_2_{con_force}_prod",
@@ -567,13 +583,13 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                       inptraj_ID = ligand_windows.rv(1),
                                                                       solute = 'ligand',
                                                                       dirstuct_traj_args = {
-                                                                        "traj_state_label": 2,
+                                                                        "traj_state_label": "2",
                                                                         "trajectory_restraint": exponent_conformational,
                                                                         "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
                                                                         "filename": "state_2_postprocess",
                                                                         "runtype": f"Running post process with trajectory: {ligand_windows.rv(1)}"}.copy(), post_process = True)
                 
-                ligand_windows_post.addFollowOnJobFn(run_post_process, ligand_windows_post.rv())
+                ligand_df.append(ligand_windows_post.addFollowOnJobFn(run_post_process, ligand_windows_post.rv()).rv())
             else:
                 calc_list.append(ligand_windows)
                 
@@ -658,23 +674,18 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
         
     if post_process:
         return calc_list
-    #PARSE DATA AND DO 
-def return_trajectories(job, *args):
-    for arg in args:
-        job.log(f'arg: {arg}')
-    return args
-       
+    
+    
+    return ligand_df
+    
 def run_post_process(job, sims):
     
     output_data = []
     for sim in sims:
         output_sims = job.addChild(sim)
-        
-    #     # parse_data = output_sims.addFollowOnJobFn(parse_data, 
-    #     output_data.append((output_sims.rv(2), output_sims.rv(3)))
-    
-    # return output_data    
-    #parse in data and create pandas dataframe   
+        data_frame = output_sims.addFollowOnJobFn(create_mdout_dataframe, sim)
+        output_data.append(data_frame.rv())
+    return output_data
 
 
     
@@ -717,7 +728,7 @@ def main():
         if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor")):
             os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor"))
     
-    config.get_receptor_ligand_topologies()
+        config.get_receptor_ligand_topologies()
     
     #create a log file
     job_number = 1
@@ -742,8 +753,11 @@ def main():
                 for index, (equil_mdin, remd_mdin) in enumerate(zip(config.endstate_method.remd_args.equilibration_replica_mdins, config.endstate_method.remd_args.remd_mdins)):
                     config.endstate_method.remd_args.equilibration_replica_mdins[index] = str(toil.import_file("file://" + os.path.abspath(equil_mdin)))
                     config.endstate_method.remd_args.remd_mdins[index] = str(toil.import_file("file://" + os.path.abspath(remd_mdin)))
-            toil.start(Job.wrapJobFn(ddm_workflow, config))
-
+            output_data = toil.start(Job.wrapJobFn(ddm_workflow, config))
+            #postprocess analysis 
+            print(len(output_data))
+        else:
+            toil.restart()
 
 if __name__ == "__main__":
     main()

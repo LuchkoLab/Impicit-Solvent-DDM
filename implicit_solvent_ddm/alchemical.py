@@ -5,9 +5,6 @@ from typing import Tuple
 
 import parmed as pmd
 import pytraj as pt
-from black import out
-from toil.common import Toil
-from toil.job import Job
 
 
 def split_complex_system(job, endstate_complex_parameter_filename, endstate_coordiante_complex_filename, ligand_mask, receptor_mask):
@@ -75,8 +72,12 @@ def get_intermidate_parameter_files(job, complex_prmtop, complex_coordinate, lig
         
     Returns 
     -------
-    ligand_no_charge_parm_ID: toil.fileStores.FileID 
-        Upload ligand_no_charge_parm_ID to the job store. 
+    ligand_no_vdw_ID: toil.fileStore.FileID
+        Upload a ligand system with no VDW/electrostatic interactions. 
+    ligand_no_vdw_charge_parm_ID: toil.fileStores.FileID 
+        Upload a ligand system  with no VDW/electrostatic interactions and charge = 0
+    receptor_no_vdw_ID: toil.fileStores.FileID 
+         Upload a receptor system with no VDW/electrostatic interactions. 
     complex_ligand_no_charge_ID: toil.fileStores.FileID
         Upload complex_ligand_no_charge_ID to the job store. 
     complex_no_ligand_interaction_ID: toil.fileStores.FileID
@@ -87,12 +88,18 @@ def get_intermidate_parameter_files(job, complex_prmtop, complex_coordinate, lig
     read_complex_coordiate = job.fileStore.readGlobalFile(complex_coordinate, userPath= os.path.join(temp_dir, os.path.basename(complex_coordinate)))
     complex_traj = pmd.load_file(read_complex_prmtop, read_complex_coordiate)
     ligand_traj = complex_traj[ligand_mask]
+    receptor_traj = complex_traj[receptor_mask]
+    
+    ligand_no_vdw_ID = job.fileStore.writeGlobalFile(alter_topology(ligand_traj, ligand_mask=ligand_mask, receptor_mask=ligand_mask, exculsions=True))
+    receptor_no_vdw_ID = job.fileStore.writeGlobalFile(alter_topology(receptor_traj, ligand_mask=receptor_mask, receptor_mask=receptor_mask, exculsions=True))
     
     ligand_no_charge_parm_ID = job.fileStore.writeGlobalFile(alter_topology(ligand_traj, ligand_mask, receptor_mask, no_charge=True))
     complex_ligand_no_charge_ID = job.fileStore.writeGlobalFile(alter_topology(complex_traj, ligand_mask, receptor_mask, no_charge=True))
     complex_no_ligand_interaction_ID = job.fileStore.writeGlobalFile(alter_topology(complex_traj, ligand_mask, receptor_mask, no_charge=True, exculsions=True))
     
+    
     #job.fileStore.export_file(complex_no_ligand_interaction_ID, "file://" + os.path.abspath(os.path.join('/home/ayoub/nas0/Impicit-Solvent-DDM/output_directory', os.path.basename(complex_no_ligand_interaction_ID))))
+    
     return (ligand_no_charge_parm_ID, complex_ligand_no_charge_ID, complex_no_ligand_interaction_ID)
 
 def alter_topology(solute_parm, ligand_mask, receptor_mask, no_charge=False, exculsions=False)-> str:
@@ -131,3 +138,4 @@ def alter_topology(solute_parm, ligand_mask, receptor_mask, no_charge=False, exc
     solute_parm.save(saved_filename)
     
     return os.path.abspath(saved_filename)
+
