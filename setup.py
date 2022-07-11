@@ -1,5 +1,5 @@
 """
-Implicit_Solvent_DDM
+0;276;0cImplicit_Solvent_DDM
 Development of python command-line interface to simplify an absolute binding free energy cycle 
 """
 import sys
@@ -56,7 +56,7 @@ setup(
     #            'Unix',
     #            'Windows'],            # Valid platforms your code works on, adjust to your flavor
     # python_requires=">=3.5",          # Python version restrictions
-
+    python_requires = ">=3.8",
     # Manual control if final package is compressible or not, set False to prevent the .egg from being made
     # zip_safe=False,
 
