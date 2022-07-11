@@ -29,7 +29,7 @@ class Dirstruct():
     ``.`` prepended.  I.e., they are hidden files.  It then looks in the
     current working directory for ``.<name>.json`` and appends and
     overwrites the default preferences. 
-    '''#run_dirstruct.RunDirstruct(self.runtype, argset, self.prefs,dirstruct)
+    '''
     def __init__(self, runtype, parameters, dirstruct = "dirstruct"):
         self._setLogging()
         self.runtype = runtype

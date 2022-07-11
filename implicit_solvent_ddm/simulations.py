@@ -45,6 +45,7 @@ class Calculation(Job):
     def _output_directory(self):
          
         dirs = Dirstruct("mdgb", self.directory_args, dirstruct=self.dirstruct)
+       
         output_dir= os.path.join(working_directory,  dirs.dirStruct.fromArgs(**dirs.parameters))
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -52,9 +53,6 @@ class Calculation(Job):
         self.output_dir = output_dir
         #self._path2dict(dirs)
         
-    def _path2dict(self, directory_object):
-        
-        self.run_args = directory_object.fromPath2Dict(self.output_dir)
     
     def _setLogging(self):
         
@@ -167,9 +165,9 @@ class Calculation(Job):
         
         
         #export parameter files 
-        # fileStore.export_file(self.read_files["prmtop"],"file://" + os.path.abspath(os.path.join(output_dir, os.path.basename(self.read_files["prmtop"]))))
+        fileStore.export_file(self.read_files["prmtop"],"file://" + os.path.abspath(os.path.join(self.output_dir, os.path.basename(self.read_files["prmtop"]))))
         fileStore.export_file(self.read_files["restraint_file"], "file://" + os.path.abspath(os.path.join(self.output_dir, os.path.basename(self.read_files["restraint_file"]))))
-        
+      
         restart_ID, trajectory_ID = self.export_files(fileStore, self.output_dir, files_in_current_directory)
         
         return (restart_ID, trajectory_ID)
@@ -186,7 +184,8 @@ class Simulation(Calculation):
         for the MPI version (since one is *always* written and you don't want 2
         threads fighting to write the same dumb file)
         """
-        
+        if self.mpi_command == None:
+            self.exec_list.pop(0)
         if self.num_cores == 1:
             self.exec_list.append(re.sub(r"\..*","",self.executable))
         else:
@@ -318,7 +317,7 @@ class ExtractTrajectories(Job):
         self.read_solute = fileStore.readGlobalFile(self.solute_topology,  userPath=os.path.join(temp_dir, os.path.basename(self.solute_topology)))
         
         #extract target temperture in REMD trajectories 
-        if self.target_temp is not 0.0:
+        if self.target_temp != 0.0:
 
             for traj_file in self.trajectory_files:
                 self.read_trajs.append(fileStore.readGlobalFile(traj_file, userPath=os.path.join(temp_dir, os.path.basename(traj_file))))
