@@ -99,7 +99,7 @@ class ParameterFiles:
         self.complex_coordinate_filename = os.path.abspath(self.complex_coordinate_filename)
 
     @classmethod 
-    def from_config(cls: type["ParameterFiles"], obj:dict):
+    def from_config(cls: Type["ParameterFiles"], obj:dict):
        return cls(**obj)
     
 @dataclass
@@ -109,7 +109,7 @@ class NumberOfCoresPerSystem:
     receptor_ncores: int 
     
     @classmethod
-    def from_config(cls:type["NumberOfCoresPerSystem"], obj:dict):
+    def from_config(cls: Type["NumberOfCoresPerSystem"], obj:dict):
         return cls(
             complex_ncores=obj["complex_ncores"],
             ligand_ncores=obj["ligand_ncores"],
@@ -121,7 +121,7 @@ class AmberMasks:
     ligand_mask: str 
     
     @classmethod
-    def from_config(cls:type["AmberMasks"], obj:dict):
+    def from_config(cls: Type["AmberMasks"], obj:dict):
         return cls(
             receptor_mask=obj["receptor_mask"],
             ligand_mask=obj["ligand_mask"]
@@ -158,7 +158,7 @@ class EndStateMethod:
             raise NameError(f"'{self.endstate_method_type}' is not a valid endstate method. Options: {endstate_method_options}")
     
     @classmethod
-    def from_config(cls:type["EndStateMethod"], obj:dict):
+    def from_config(cls: Type["EndStateMethod"], obj:dict):
         if obj["endstate_method"] == 0:
             return cls(
                 endstate_method_type=obj["endstate_method"],
@@ -197,7 +197,7 @@ class IntermidateStatesArgs:
         self.mdin_intermidate_config = os.path.abspath(self.mdin_intermidate_config)
     
     @classmethod
-    def from_config(cls: type["IntermidateStatesArgs"], obj:dict):
+    def from_config(cls: Type["IntermidateStatesArgs"], obj:dict):
         return cls(**obj)   
 
 
@@ -229,7 +229,7 @@ class Config:
         pass
     
     @classmethod 
-    def from_config(cls:type["Config"], user_config:dict):
+    def from_config(cls: Type["Config"], user_config:dict):
         return cls(
             workflow=Workflow.from_config(user_config),
             system_settings=SystemSettings.from_config(user_config["system_parameters"]),
