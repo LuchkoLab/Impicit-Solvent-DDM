@@ -92,7 +92,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
     #post process setup workflow 
     if post_process:
         inptraj_ID = inptraj_ID
-        workflow = config.workflow.update_worflow(solute)
+        workflow = config.workflow.update_worflow(solute, config.workflow.run_endstate_method)
         ligand_receptor_dirstruct = "post_process_apo"
         complex_dirstruct = "post_process_halo"
         mdin_no_solv = config.inputs["post_nosolv_mdin"]
@@ -109,6 +109,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                         config.amber_masks.ligand_mask, config.amber_masks.receptor_mask)
         # Add inputs as first child to root job
         job.addChild(setup_inputs)
+        
         #config.inputs["ligand_no_vdw_ID"] = setup_inputs.rv(0)
         #config.inputs["receptor_no_vdw_ID"] = setup_inputs.rv(2)
         config.inputs["ligand_no_charge_parm_ID"] = setup_inputs.rv(0)
@@ -198,13 +199,36 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                                 config.endstate_method.remd_args.target_temperature))
                 config.inputs["endstate_ligand_traj"] = extract_ligand.rv(0)
                 config.inputs["endstate_ligand_lastframe"] = extract_ligand.rv(1)
+            
+            #once endstate is complete wrap the endstate trajectories for post process runs    
+            complex_endstate_post_workflow = job.wrapJobFn(ddm_workflow, 
+                                    config, 
+                                    inptraj_ID = [config.inputs["endstate_complex_traj"]], 
+                                    solute = 'complex',
+                                    dirstuct_traj_args= {
+                                    "traj_state_label": 8,
+                                    "traj_igb": config.intermidate_args.igb_solvent,
+                                    "trajectory_restraint_conrest": 0.0,
+                                    "trajectory_restraint_orenrest": 0.0,
+                                    "filename": "state_8_endstate_postprocess",
+                                    "runtype": f"Running post process with trajectory: {config.inputs['endstate_complex_traj']}"}.copy(), post_process = True)
+            
+            ligand_endstate_post_workflow = job.wrapJobFn(ddm_workflow, 
+                                    config, 
+                                    inptraj_ID = [config.inputs["endstate_ligand_traj"]], 
+                                    solute = 'ligand',
+                                    dirstuct_traj_args= {"traj_state_label": 2,
+                                    "traj_igb": config.intermidate_args.igb_solvent,
+                                    "filename": "state_2_endstate_postprocess",
+                                    "trajectory_restraint": 0.0,
+                                    "runtype": f"Running post process with trajectory: {config.inputs['endstate_ligand_traj']}"}.copy(), post_process = True)    
                
                 # minimization_receptor = endstate_method.addChild(Simulation(config.system_settings.executable, config.system_settings.mpi_command,
                 #                                             config.num_cores_per_system.receptor_ncores, 
                 #                                             config.endstate_files.receptor_parameter_filename, config.endstate_files.receptor_coordinate_filename,
                 #                                             config.inputs["min_mdin"], config.inputs["empty_restraint"], 
                 #                                             {"runtype": 'minimization', "filename": "min", "topology": config.endstate_files.receptor_parameter_filename}))
-        
+            
         # user provided there own there own endstate calculation just split the coordinate 
         else:
             endstate_method = setup_inputs.addFollowOn(ExtractTrajectories(config.endstate_files.complex_parameter_filename, 
@@ -253,35 +277,15 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                                                                     orientational_force=orientational_force).rv()
         md_jobs = orientational_restraints.addFollowOnJobFn(initilized_jobs)
         # split the complex coordinates into ligand and receptor systems once endstate simulation is completed. 
-        # post process endstates once the restraint files are created     
-        complex_endstate_post_workflow = md_jobs.addChildJobFn(ddm_workflow, 
-                                    config, 
-                                    inptraj_ID = [config.inputs["endstate_complex_traj"]], 
-                                    solute = 'complex',
-                                    dirstuct_traj_args= {
-                                    "traj_state_label": 8,
-                                    "traj_igb": config.intermidate_args.igb_solvent,
-                                    "trajectory_restraint_conrest": 0.0,
-                                    "trajectory_restraint_orenrest": 0.0,
-                                    "filename": "state_8_endstate_postprocess",
-                                    "runtype": f"Running post process with trajectory: {config.inputs['endstate_complex_traj']}"}.copy(), post_process = True)
-        
-        ligand_endstate_post_workflow = md_jobs.addChildJobFn(ddm_workflow, 
-                                    config, 
-                                    inptraj_ID = [config.inputs["endstate_ligand_traj"]], 
-                                    solute = 'ligand',
-                                    dirstuct_traj_args= {"traj_state_label": 2,
-                                    "traj_igb": config.intermidate_args.igb_solvent,
-                                    "filename": "state_2_endstate_postprocess",
-                                    "trajectory_restraint": 0.0,
-                                    "runtype": f"Running post process with trajectory: {config.inputs['endstate_ligand_traj']}"}.copy(), post_process = True)
-        
-        #begin running postprocess for endstate trajectories 
-        # complex_endstate_post_completed = complex_endstate_post_workflow.addFollowOnJobFn(run_post_process, complex_endstate_post_workflow.rv())
-        ligand_endstate_post_completed = ligand_endstate_post_workflow.addFollowOnJobFn(run_post_process, ligand_endstate_post_workflow.rv())
-        ligand_df.append(ligand_endstate_post_completed.rv())
-        #parse data 
-
+        # post process endstates once the restraint files are created 
+        try:
+            md_jobs.addChild(ligand_endstate_post_workflow)
+            md_jobs.addChild(complex_endstate_post_workflow)
+            # ligand_endstate_post_completed = ligand_endstate_post_workflow.addFollowOnJobFn(run_post_process, ligand_endstate_post_workflow.rv())
+            # ligand_df.append(ligand_endstate_post_completed.rv())
+        except NameError:
+            pass 
+      
     if workflow.end_state_postprocess: 
         state_label = 2
         restraint_file = config.inputs["empty_restraint"]
@@ -354,7 +358,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                                        "filename": "state_4_postprocess",
                                                                                        "runtype": f"Running post process with trajectory: {no_solv_ligand.rv(1)}"}.copy(), post_process = True)
             
-            ligand_df.append(post_process_ligand.addFollowOnJobFn(run_post_process, post_process_ligand.rv()).rv())
+            #ligand_df.append(post_process_ligand.addFollowOnJobFn(run_post_process, post_process_ligand.rv()).rv())
             
         
         else: 
@@ -393,7 +397,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                    "filename": "state_5_postprocess",
                                                                    "runtype": f"Running post process with trajectory: {ligand_no_charge.rv(1)}"}.copy(), post_process = True)
             
-            ligand_df.append(post_no_charge.addFollowOnJobFn(run_post_process, post_no_charge.rv()).rv())
+            #ligand_df.append(post_no_charge.addFollowOnJobFn(run_post_process, post_no_charge.rv()).rv())
         
         else:
             calc_list.append(ligand_no_charge)
@@ -431,7 +435,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                     "filename": "state_4_postprocess",
                                                                     "runtype": f"Running post process with trajectory: {no_solv_receptor.rv(1)}"}.copy(), post_process = True)
             
-            post_no_solv_receptor.addFollowOnJobFn(run_post_process, post_no_solv_receptor.rv())   
+            #post_no_solv_receptor.addFollowOnJobFn(run_post_process, post_no_solv_receptor.rv())   
         else:
             calc_list.append(no_solv_receptor)
             
@@ -462,7 +466,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
             complex_no_interactions_post = complex_no_interactions.addFollowOnJobFn(ddm_workflow, config, 
                                               inptraj_ID = complex_no_interactions.rv(1),
                                               solute = 'complex',
-                                              dirstuct_traj_args = {"traj_state_label": 7,
+                                              dirstuct_traj_args = {"traj_state_label": "7",
                                                                     "trajectory_restraint_conrest": max_con_exponent,
                                                                     "trajectory_restraint_orenrest": max_orien_exponent,
                                                                     "traj_igb": "igb_6",
@@ -470,7 +474,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                     "runtype": f"Running post process with trajectory: {complex_no_interactions.rv(1)}"}.copy(), 
                                               post_process = True)
             
-            complex_no_interactions_post.addFollowOnJobFn(run_post_process, complex_no_interactions_post.rv())
+            #complex_no_interactions_post.addFollowOnJobFn(run_post_process, complex_no_interactions_post.rv())
         else:
             job.log(f"update complex args {complex_ligand_exclusions_args}")
             calc_list.append(complex_no_interactions)
@@ -508,7 +512,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                     "runtype": f"Running post process with trajectory: {complex_no_electrostatics.rv(1)}"}.copy(), 
                                                 post_process = True)
             
-            complex_no_electrostatics_post.addFollowOnJobFn(run_post_process, complex_no_electrostatics_post.rv())
+            #complex_no_electrostatics_post.addFollowOnJobFn(run_post_process, complex_no_electrostatics_post.rv())
         else:
             job.log(f"update complex_turn_off_exclusions_args {complex_turn_off_exclusions_args}")
             calc_list.append(complex_no_electrostatics)
@@ -547,7 +551,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                                                                         "runtype": f"Running post process with trajectory: {complex_turn_on_ligand_charges.rv(1)}"}.copy(), 
                                                                                                   post_process = True)
             
-            complex_turn_on_ligand_charges_post.addFollowOnJobFn(run_post_process, complex_turn_on_ligand_charges_post.rv())
+            #complex_turn_on_ligand_charges_post.addFollowOnJobFn(run_post_process, complex_turn_on_ligand_charges_post.rv())
         
         else:
             calc_list.append(complex_turn_on_ligand_charges)
@@ -589,7 +593,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                         "filename": "state_2_postprocess",
                                                                         "runtype": f"Running post process with trajectory: {ligand_windows.rv(1)}"}.copy(), post_process = True)
                 
-                ligand_df.append(ligand_windows_post.addFollowOnJobFn(run_post_process, ligand_windows_post.rv()).rv())
+                #ligand_df.append(ligand_windows_post.addFollowOnJobFn(run_post_process, ligand_windows_post.rv()).rv())
             else:
                 calc_list.append(ligand_windows)
                 
@@ -626,7 +630,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                         "filename": "state_2_postprocess",
                                                                         "runtype": f"Running post process with trajectory: {receptor_windows.rv(1)}"}.copy(), post_process = True)
                 
-                receptor_windows_post.addFollowOnJobFn(run_post_process, receptor_windows_post.rv())
+                #receptor_windows_post.addFollowOnJobFn(run_post_process, receptor_windows_post.rv())
             
             else:
                 calc_list.append(receptor_windows)
@@ -640,9 +644,9 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                 "state_label": 8, 
                 "igb": config.intermidate_args.igb_solvent,
                 "conformational_restraint": exponent_conformational,
-                "orientational_restraints": orien_force,
+                "orientational_restraints": exponent_orientational,
                 "filename": f"state_8_{con_force}_{orien_force}_prod",
-                "runtype": f"Running restraint window. Conformational restraint: {con_force} and orientational restraint: {orien_force}"}
+                "runtype": f"Running restraint window. Conformational restraint: {con_force} and orientational restraint: {exponent_orientational}"}
             
             remove_restraints_args.update(dirstuct_traj_args)
             
@@ -667,7 +671,7 @@ def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, s
                                                                         "runtype": f"Running post process with trajectory: {remove_restraints.rv(1)}"}.copy(), 
                                                                       post_process = True)
                 
-                remove_restraints_windows_post.addFollowOnJobFn(run_post_process, remove_restraints_windows_post.rv())
+                #remove_restraints_windows_post.addFollowOnJobFn(run_post_process, remove_restraints_windows_post.rv())
             
             else:
                 calc_list.append(remove_restraints)
@@ -722,14 +726,14 @@ def main():
 
     config.ignore_receptor = False 
     
-    if config.workflow.run_endstate_method: 
-        if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/ligand")):
-            os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/ligand"))
-        if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor")):
-            os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor"))
     
-        config.get_receptor_ligand_topologies()
-    
+    if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/ligand")):
+        os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/ligand"))
+    if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor")):
+        os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor"))
+
+    config.get_receptor_ligand_topologies()
+
     #create a log file
     job_number = 1
     while os.path.exists(f"mdgb/log_job_{job_number:03}.txt"):
