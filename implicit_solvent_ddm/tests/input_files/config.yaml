@@ -1,0 +1,38 @@
+
+  
+system_parameters:
+  working_directory: '/nas0/ayoub/Impicit-Solvent-DDM/'
+  executable: "sander" # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
+  mpi_command:  # system dependent /
+  CUDA:  # run on GPU
+
+endstate_parameter_files:
+  complex_parameter_filename: implicit_solvent_ddm/tests/structs/cb7-mol01.parm7 # list of topology file of a complex
+  complex_coordinate_filename: implicit_solvent_ddm/tests/structs/cb7-mol01.ncrst # list of coordinate file of a complex  
+
+number_of_cores_per_system:
+  complex_ncores: 1 #total number of cores per job
+  ligand_ncores: 1 #total number of cores per ligand simulation
+  receptor_ncores: 1 #total number of cores per ligand simulation
+
+AMBER_masks:
+  receptor_mask: ':CB7' # list of Amber masks denoting receptor atoms in respected complex file
+  ligand_mask: ':M01' # list of Amber masks denoting ligand atoms in respected complex file
+
+
+workflow:
+  endstate_method: 0 #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates)endstate_method: REMD #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates) 
+ 
+
+  intermidate_states_arguments:
+    mdin_intermidate_config: implicit_solvent_ddm/tests/input_files/inter.yaml #intermidate mdins required states 3-8
+    igb_solvent: 2 #igb [1,2,3,7,8]
+    exponent_conformational_forces: [-8, -3, 2] # list exponent values 2**p 
+    exponent_orientational_forces: [-8, -3, 2] # list exponent values 2**p 
+    restraint_type: 1 # choices: [ 1: CoM-CoM, 2: CoM-Heavy_Atom, 3: Heavy_Atom-Heavy_Atom, must be 1, 2 or 3 ]
+
+workflow_jobs:
+  setup_workflow: False 
+  run_endstate_method: False 
+  end_state_postprocess: False 
+  #complex_turn_off_exclusions: False 

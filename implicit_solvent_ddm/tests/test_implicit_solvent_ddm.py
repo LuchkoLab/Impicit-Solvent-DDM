@@ -1,110 +1,131 @@
+import logging
+import os
+import random
+import re
+import shutil
+import time
+
+import parmed as pmd
 import pytest
 import yaml
-import shutil
-import os 
-import re 
-import random
-import time
-import parmed as pmd 
-from implicit_solvent_ddm.simulations import run_intermidate
-from implicit_solvent_ddm.restraints import make_restraint_files
+from implicit_solvent_ddm.config import Config
+from implicit_solvent_ddm.implicit_ddm_workflow import ddm_workflow
+from matplotlib.pyplot import get
 from toil.common import Toil
 from toil.job import Job
 
+working_directory = os.getcwd()
 
 @pytest.fixture(scope="module")
-def setUp(config_workflow):
-    
+def run_workflow():
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "INFO"
     options.clean = "always"
-    complex_topology_file = os.path.abspath(config_workflow[0]["parameters"]["complex_parameter_filename"][0])
-    complex_coordinate_file = os.path.abspath(config_workflow[0]["parameters"]["complex_coordinate_filename"][0])
+    yaml_file = os.path.join(working_directory, "implicit_solvent_ddm/tests/input_files/config.yaml")
+    with open(yaml_file) as yml:
+        config_file = yaml.safe_load(yml)
     
-    with Toil(options) as toil: 
-        toil_coord_import = [toil.import_file(f"file://{complex_coordinate_file}")]
-        config_workflow[0]['complex_parameter_filename'] = [toil.import_file(f"file://{complex_topology_file}")]
-        config_workflow[0]["parameters"]["receptor_parameter_filename"] = ["receptor_testing.parm7"]
-        config_workflow[0]["parameters"]["ligand_parameter_filename"] = ["ligand_testing.parm7"]
-        config_workflow[0]["parameters"]["ignore_receptor"] = False 
-        
-        make_template_restraints = Job.wrapJobFn(make_restraint_files, toil_coord_import, config_workflow[0], config_workflow[0])
-        
-        toil.start(make_template_restraints)
-           
-        yield [toil, toil_coord_import, config_workflow[0], config_workflow[1]]
+    config = Config.from_config(config_file)
+    
+    if options.workDir:
+        config.system_settings.working_directory = os.path.abspath(options.workDir)
+    else:
+        config.system_settings.working_directory = os.getcwd()
+
+    config.ignore_receptor = False 
+    
+    if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/ligand")):
+        os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/ligand"))
+    if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor")):
+        os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor"))
+    
+    config.get_receptor_ligand_topologies()
+     
+    with Toil(options) as toil:
+        if not toil.options.restart:
+            config.endstate_files.complex_parameter_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.complex_parameter_filename)))
+            config.endstate_files.complex_coordinate_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.complex_coordinate_filename)))
+            config.endstate_files.ligand_coordinate_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.ligand_coordinate_filename)))  
+            config.endstate_files.ligand_parameter_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.ligand_parameter_filename)))
+            config.inputs["min_mdin"] = str(toil.import_file("file://" + os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/input_files/min.mdin")))
+            
+            if not config.ignore_receptor:
+                config.endstate_files.receptor_parameter_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.receptor_parameter_filename)))
+                
+            output_data = toil.start(Job.wrapJobFn(ddm_workflow, config))
+            #postprocess analysis 
+            print(len(output_data))
+        else:
+            toil.restart()
     #cleanup 
+    yield 
     shutil.rmtree('mdgb/')
-      
-@pytest.fixture(scope="module")
-def config_workflow():
-    work_dir = os.getcwd()
-    with open('implicit_solvent_ddm/tests/mdgb.yaml') as argSet:
-        config = yaml.safe_load(argSet)
-    with open('implicit_solvent_ddm/tests/workflow.yaml') as run_args:
-        intermidate_workflow = yaml.safe_load(run_args)
-    
-    intermidate_mdin = yaml.safe_load(open(config["parameters"]["mdin_intermidate_config"]))
-    
-    config["parameters"]["mdin_intermidate_config"] = intermidate_mdin
-    config["workDir"] = work_dir
-    
-    return [config, intermidate_workflow]
 
-@pytest.fixture(scope="module", params=["complex_ligand_exclusions","complex_turn_off_exclusions"])
-def run_complex_intermidate(setUp, request):
-    file_name = request.param
-    setUp[3]["jobs"][file_name]["args"]["topology"] = setUp[2]['complex_parameter_filename'][0]  
-    setUp[3]["jobs"][file_name]["args"]["conformational_restraint"] = random.choice(setUp[2]["parameters"]["freeze_restraints_forces"])
-    setUp[3]["jobs"][file_name]["args"]["orientational_restraints"] = random.choice(setUp[2]["parameters"]["orientational_restriant_forces"])
-    
-    complex_exclusions_no_charge_no_gb_job = Job.wrapJobFn(run_intermidate, 
-                                                    setUp[1], setUp[2], 
-                                                    setUp[3]["jobs"][file_name]["args"].copy())
-    
-    setUp[0].start(complex_exclusions_no_charge_no_gb_job)
-    
-    
-file_path ='implicit_solvent_ddm/tests/'
-#load in topology file with exclusions and without charge
-@pytest.fixture 
-def load_exclusions_no_charge():
-    return pmd.load_file(file_path + 'solutes/exclusions_no_charge_cb7-M01.parm7', xyz= file_path + 'solutes/cb7-mol01.ncrst')
-
-# load topology without exclusions and charge 
-@pytest.fixture
-def load_no_charge_topology():
-    return pmd.load_file(file_path +'solutes/no_charge_cb7-M01.parm7',xyz= file_path +'solutes/cb7-mol01.ncrst') 
+#     yield mdout_files
 
 # load topology without any changes 
+parm_file_path = os.path.join(working_directory, 'implicit_solvent_ddm/tests/structs/')
 @pytest.fixture
 def load_topology():
-    return pmd.load_file(file_path +'solutes/cb7-mol01.parm7', xyz= file_path +'solutes/cb7-mol01.ncrst')
+    return pmd.load_file(os.path.join(parm_file_path, "cb7-mol01.parm7"))
 
+#load in complex topology file with vdw/lj-potentials and no ligand charges 
+@pytest.fixture 
+def load_exclusions_no_charge():
+    return pmd.load_file(os.path.join(parm_file_path, "exclusions_no_charge_cb7-M01.parm7"))
 
-def test_complex_exclusions_no_charge_no_gb(run_complex_intermidate, load_exclusions_no_charge):
-   
-    output_solute_traj = get_output_file('mdgb/cb7-mol01/7/')          
+# load complex topology with Lj-pontential btw Host & Ligand but the ligand charges are set to 0
+@pytest.fixture
+def load_no_charge_topology():
+    return pmd.load_file(os.path.join(parm_file_path, "no_charge_cb7-M01.parm7"))
+
+#walk through all directories and collect mdout files from workflow 
+@pytest.fixture(scope="module",  params=["mdgb/M01_000/", "mdgb/cb7-mol01/","CB7_000/"])
+def get_mdouts(request, run_workflow):
+    mdout_files = []
+    for root, dirs, files in os.walk(request.param, topdown=False):    
+        for name in files:
+            if 'mdout' == name:
+                mdout_files.append(os.path.join(root, name)) 
+    yield mdout_files
+
+# read in all mdout files and check if run was completed 
+def test_completed_workflow(get_mdouts):
+    '''
+    Executes the entire workflow and does a check if all output files were completed. 
+    '''
+    for mdout in get_mdouts:
+        complete = False 
+        with open(mdout) as output:
+            data = output.readlines()
+            for line in data:
+                if "Total time" in line:
+                    complete = True 
+                    
+            assert complete 
+# check complex parameter potential that host and guest have no interactions and ligand charge = 0 
+def test_complex_exclusions_no_charge(load_exclusions_no_charge):
+    
+    output_solute_traj = get_output_file('mdgb/cb7-mol01/7/')
     assert_exclusions_charges(output_solute_traj, load_exclusions_no_charge)
-
 
 def test_complex_no_charge_no_gb(load_no_charge_topology):
     
     output_solute_traj = get_output_file('mdgb/cb7-mol01/7a/') 
     assert_exclusions_charges(output_solute_traj, load_no_charge_topology)
 
-#@pytest.mark.parametrize("test_input,expected", [("3+5", 8), ("2+4", 6), ("6*9", 42)])
-def test_no_solvent_complex():
-    
-    for root, dirs, files in os.walk('mdgb/cb7-mol01/'):
-        for file in files:
-            if bool(re.match(r"mdout", file)):
-                with open(os.path.join(root,file)) as output:
+@pytest.mark.parametrize('no_igb_path', ["mdgb/M01_000/4/", "mdgb/M01_000/5/", "mdgb/CB7_000/4/", "mdgb/cb7-mol01/7", "mdgb/cb7-mol01/7a", "mdgb/cb7-mol01/7b"])
+def test_no_solvent_complex(no_igb_path):
+    for root, dirs, files in os.walk(no_igb_path):
+        no_igb = False 
+        for name in files:
+            if 'mdout' == name:
+                with open(os.path.join(root,name)) as output:
                     data = output.readlines()
-                    for line in data:
-                        if 'igb = 6' in line:
-                            assert True
-                             
+                for line in data:
+                    if 'igb = 6' in line:
+                        no_igb = True 
+                assert no_igb
 def assert_exclusions_charges(output, correct_output):
 
     assert output.parm_data['NUMBER_EXCLUDED_ATOMS'] == correct_output.parm_data['NUMBER_EXCLUDED_ATOMS']
@@ -119,6 +140,4 @@ def get_output_file(output_path):
             if bool(re.match(r".*\.rst7", file)):
                 coordinate = os.path.join(root, file)
                  
-    output_solute_traj = pmd.load_file(solute, xyz=coordinate)
-    
-    return output_solute_traj
+    return pmd.load_file(solute, xyz=coordinate)
