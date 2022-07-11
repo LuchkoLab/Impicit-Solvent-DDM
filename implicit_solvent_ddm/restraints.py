@@ -335,12 +335,21 @@ def distance_calculator(point_a, point_b):
     return np.linalg.norm(difference)
     
 def distance_filter(distance)->bool:
+    '''
+        Returns a boolean whether the atoms pairs are within 6 angstroms 
+        
+        Returns
+        -------
+            Returns True: if the distance does not equal 0 and is less than or equal to 6
+            Returns False: if the distance equals to 0 or is greater than 6 
+    '''
     #atom_neighbor_distance = distance_calculator(current_atom_coordinate, atom_neighbor_coordinate)
     #ignore if the atom is itself 
-    if distance == 0 or distance > 6:
-        return False 
-    else:
-        return True
+    return distance != 0 and distance <= 6 
+    # if distance == 0 or distance > 6:
+    #     return False 
+    # else:
+    #     return True
 
 
 
