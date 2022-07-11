@@ -2,16 +2,15 @@ import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Type
 
+import numpy as np
 import pytraj as pt
-from pydantic import NoneIsAllowedError
-from toil.common import Toil
-from toil.job import Job
 
 
 @dataclass 
 class Workflow:
     setup_workflow: bool = True
     run_endstate_method: bool = True
+    end_state_postprocess: bool = False 
     add_ligand_conformational_restraints: bool = True
     remove_GB_solvent_ligand: bool = True
     remove_ligand_charges: bool = True
@@ -31,11 +30,12 @@ class Workflow:
         
     
     @classmethod
-    def update_worflow(cls: Type["Workflow"], system:str):
+    def update_worflow(cls: Type["Workflow"], system: str, run_endstate: bool):
         
         if system == 'ligand':
             return cls(
                 setup_workflow = False, 
+                end_state_postprocess = run_endstate,
                 run_endstate_method = False, 
                 add_receptor_lambda_windows= False, 
                 ignore_receptor = True,
@@ -48,6 +48,7 @@ class Workflow:
         elif system =='receptor':
             return cls(
                 setup_workflow = False,
+                end_state_postprocess = run_endstate,
                 run_endstate_method = False,
                 add_ligand_conformational_restraints = False, 
                 remove_GB_solvent_ligand = False, 
@@ -60,6 +61,7 @@ class Workflow:
         elif system == 'complex':
             return cls(
                 setup_workflow = False,
+                end_state_postprocess = run_endstate,
                 run_endstate_method = False,
                 add_ligand_conformational_restraints = False,
                 remove_GB_solvent_ligand = False,
@@ -147,9 +149,9 @@ class REMD:
 @dataclass
 class EndStateMethod: 
     endstate_method_type: str 
-    flat_bottom_restraints: List[float]
     remd_args: REMD
-     
+    flat_bottom_restraints: Optional[List[float]] = None 
+    
     def __post_init__(self):
         endstate_method_options = ["remd", "md", 0]
         if self.endstate_method_type not in endstate_method_options:
@@ -157,7 +159,12 @@ class EndStateMethod:
     
     @classmethod
     def from_config(cls:type["EndStateMethod"], obj:dict):
-        if obj["endstate_method"].lower() == 'remd':
+        if obj["endstate_method"] == 0:
+            return cls(
+                endstate_method_type=obj["endstate_method"],
+                remd_args = REMD()
+            )
+        elif obj["endstate_method"].lower() == 'remd':
             return cls(
                 endstate_method_type=str(obj["endstate_method"]).lower(),
                 remd_args=REMD.from_config(obj=obj),
@@ -166,21 +173,25 @@ class EndStateMethod:
         else:
             return cls(
                 endstate_method_type=obj["endstate_method"],
-                flat_bottom_restraints=obj["endstate_arguments"]["flat_bottom_restraints"],
                 remd_args = REMD()
             )
 @dataclass
 class IntermidateStatesArgs: 
-    conformational_restraints_forces: List[float]
-    orientational_restriant_forces: List[float]
+    exponent_conformational_forces: List[float]
+    exponent_orientational_forces: List[float]
     restraint_type: int 
     igb_solvent: int 
+    conformational_restraints_forces: np.ndarray = field(init=False)
+    orientational_restriant_forces: np.ndarray = field(init=False)
     max_conformational_restraint: float = field(init=False)
     max_orientational_restraint: float = field(init=False)
     mdin_intermidate_config: str 
     
     def __post_init__(self):
-
+        
+        self.conformational_restraints_forces = np.exp2(self.exponent_conformational_forces)
+        self.orientational_restriant_forces = np.exp2(self.exponent_orientational_forces)
+        
         self.max_conformational_restraint = max(self.conformational_restraints_forces)
         self.max_orientational_restraint = max(self.orientational_restriant_forces)
         self.mdin_intermidate_config = os.path.abspath(self.mdin_intermidate_config)
@@ -287,9 +298,8 @@ if __name__ == "__main__":
         config = yaml.safe_load(fH)
     config_object = Config.from_config(config)
     
-    update_workflow = config_object.workflow.update_worflow(system='ligand')
-    print(f"update_workflow {update_workflow}\n")
-    print(f"config.workflow {config_object.workflow}")
+    print(config_object.intermidate_args.conformational_restraints_forces)
+    print(config_object.intermidate_args.exponent_conformational_forces)
     # import yaml
     # options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     # options.logLevel = "INFO"
