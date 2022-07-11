@@ -106,9 +106,9 @@ dependencies:
   - pytables=3.7.0
   - pytest=6.2.5
   - pytest-cov=3.0.0
-  - python=3.9.9
+  - python
   - python-dateutil=2.8.2
-  - python_abi=3.9
+  - python_abi
   - pytz=2021.3
   - readline=8.1
   - requests=2.26.0
