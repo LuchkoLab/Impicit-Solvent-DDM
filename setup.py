@@ -50,12 +50,7 @@ setup(
 
     # Additional entries you may want simply uncomment the lines you want and fill in the data
     # url='http://www.my_package.com',  # Website
-    install_requires=['toil[cwl]',
-                      'pandas>=1.01',
-                      'numpy>=1.18.1',
-                      'pyyaml>=5.4.1',
-                      'pytraj>=2.0.5',
-                      'ParmEd>=3.4.3'],              # Required packages, pulls from pip if needed; do not use for Conda deployment
+    install_requires=['toil[cwl]'],              # Required packages, pulls from pip if needed; do not use for Conda deployment
     # platforms=['Linux',
     #            'Mac OS-X',
     #            'Unix',
