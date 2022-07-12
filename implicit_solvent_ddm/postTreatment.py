@@ -4,6 +4,7 @@
 class that will parse in pandas dataframe for mbar analysis 
 '''
 import os
+from typing import List
 
 import pandas as pd
 
@@ -25,7 +26,7 @@ class PostTreatment:
     JOULES_PER_KCAL= 4184
     kt_conversion = 1/(((BOLTZMAN*(AVAGADRO))/JOULES_PER_KCAL)*TEMP)
     
-    def __init__(self, data_list: list[pd.DataFrame], solute) -> None:
+    def __init__(self, data_list: List[pd.DataFrame], solute) -> None:
         
         self.solute = solute
         self.data_list = data_list
