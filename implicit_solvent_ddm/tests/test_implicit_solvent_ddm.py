@@ -21,7 +21,7 @@ def run_workflow():
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "INFO"
     options.clean = "always"
-    yaml_file = os.path.join(working_directory, "implicit_solvent_ddm/tests/input_files/config.yaml")
+    yaml_file = os.path.join("implicit_solvent_ddm/tests/input_files/config.yaml")
     with open(yaml_file) as yml:
         config_file = yaml.safe_load(yml)
     
@@ -39,18 +39,19 @@ def run_workflow():
     if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor")):
         os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor"))
     
-    config.get_receptor_ligand_topologies()
+    #config.get_receptor_ligand_topologies()
      
     with Toil(options) as toil:
         if not toil.options.restart:
             config.endstate_files.complex_parameter_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.complex_parameter_filename)))
             config.endstate_files.complex_coordinate_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.complex_coordinate_filename)))
-            config.endstate_files.ligand_coordinate_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.ligand_coordinate_filename)))  
-            config.endstate_files.ligand_parameter_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.ligand_parameter_filename)))
+            config.endstate_files.ligand_coordinate_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/M01.ncrst.1")))  
+            config.endstate_files.ligand_parameter_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/M01.parm7")))
             config.inputs["min_mdin"] = str(toil.import_file("file://" + os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/input_files/min.mdin")))
             
             if not config.ignore_receptor:
-                config.endstate_files.receptor_parameter_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.receptor_parameter_filename)))
+                config.endstate_files.receptor_parameter_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/CB7.parm7")))
+                config.endstate_files.receptor_coordinate_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/CB7.ncrst.1")))
                 
             output_data = toil.start(Job.wrapJobFn(ddm_workflow, config))
             #postprocess analysis 
@@ -64,7 +65,7 @@ def run_workflow():
 #     yield mdout_files
 
 # load topology without any changes 
-parm_file_path = os.path.join(working_directory, 'implicit_solvent_ddm/tests/structs/')
+parm_file_path = os.path.join('implicit_solvent_ddm/tests/structs/')
 @pytest.fixture
 def load_topology():
     return pmd.load_file(os.path.join(parm_file_path, "cb7-mol01.parm7"))
