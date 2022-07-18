@@ -1,5 +1,5 @@
 """
-Implicit_Solvent_DDM
+0;276;0c0;276;0cImplicit_Solvent_DDM
 Development of python command-line interface to simplify an absolute binding free energy cycle 
 """
 import sys
@@ -50,18 +50,12 @@ setup(
 
     # Additional entries you may want simply uncomment the lines you want and fill in the data
     # url='http://www.my_package.com',  # Website
-    install_requires=['toil[cwl]',
-                      'pandas>=1.01',
-                      'numpy>=1.18.1',
-                      'pyyaml>=5.4.1',
-                      'pytraj>=2.0.5',
-                      'ParmEd>=3.4.3'],              # Required packages, pulls from pip if needed; do not use for Conda deployment
+    install_requires=['toil[cwl]'],              # Required packages, pulls from pip if needed; do not use for Conda deployment
     # platforms=['Linux',
     #            'Mac OS-X',
     #            'Unix',
     #            'Windows'],            # Valid platforms your code works on, adjust to your flavor
     # python_requires=">=3.5",          # Python version restrictions
-
     # Manual control if final package is compressible or not, set False to prevent the .egg from being made
     # zip_safe=False,
 

@@ -1,25 +1,197 @@
 
+
 {
-    "dirstruct" : [ 
+	"dirstruct": [
+	{
+		"static": "mdgb",
+		"format" : "s"
+	},
+	{
+		"variable" : "runtype",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
+	    "variable" : "topology",
+	    "format" : "s",
+	    "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+	    "replace" : "\\1"
+	}
+	],
+	"dirstruct_apo" : [ 
 	{
 	    "static" : "mdgb",
 	    "format" : "s"
 	},
 	{
-	    "variable" : "solute",
+	    "variable" : "topology",
 	    "format" : "s",
 	    "search" : ".*/([^/.]*)(\\.[^.]*)?$",
 	    "replace" : "\\1"
 	},
 	{
 	    "variable" : "state_label",
-            "format"   : "s",
+        "format"   : "s",
 	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
-            "replace"  : "\\1"
-        }
+        "replace"  : "\\1"
+    },
+	{
+		"variable" : "conformational_restraint",
+		"format"   : "s",
+		"search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+		"replace"  : "\\1"
+	}
+    ],
+
+    "dirstruct_halo" : [ 
+	{
+	    "static" : "mdgb",
+	    "format" : "s"
+	},
+	{
+	    "variable" : "topology",
+	    "format" : "s",
+	    "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+	    "replace" : "\\1"
+	},
+	{
+	    "variable" : "state_label",
+        "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+    },
+	{
+		"variable" : "conformational_restraint",
+		"format"   : "s",
+		"search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+		"replace"  : "\\1"
+	},
+	{
+		"variable" : "orientational_restraints",
+		"format"   : "s",
+		"search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+		"replace"  : "\\1"
+	}
+    ],
 	
-	
-    ]
+	"post_process_apo" : [ 
+	{
+	    "static" : "mdgb",
+	    "format" : "s"
+	},
+	{
+		"static" : "post_processing",
+		"format" : "s"
+	},
+	{
+	    "variable" : "topology",
+	    "format" : "s",
+	    "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+	    "replace" : "\\1"
+	},
+	{
+		"variable" : "traj_state_label",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
+		"variable" : "trajectory_restraint",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
+		"variable" : "traj_igb",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+
+	},
+	{
+	    "variable" : "state_label",
+        "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+    },
+	{
+		"variable" : "conformational_restraint",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
+		"variable" : "igb",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	}
+    ],
+	"post_process_halo" : [
+	{
+	    "static" : "mdgb",
+	    "format" : "s"
+	},
+	{
+		"static" : "post_processing",
+		"format" : "s"
+	},
+	{
+	    "variable" : "topology",
+	    "format" : "s",
+	    "search" : ".*/([^/.]*)(\\.[^.]*)?$",
+	    "replace" : "\\1"
+	},
+	{
+	    "variable" : "traj_state_label",
+        "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+    },
+	{
+		"variable" : "trajectory_restraint_conrest",
+        "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
+		"variable" : "trajectory_restraint_orenrest",
+        "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
+		"variable" : "traj_igb",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"	
+	},
+	{
+		"variable" : "state_label",
+        "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
+		"variable" : "conformational_restraint",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
+		"variable" : "orientational_restraints",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
+		"variable" : "igb",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	}
+	]
 
 }
 

@@ -2,33 +2,64 @@
 
 
 
-from ast import arg
-import os, os.path
-from readline import set_completion_display_matches_hook
-import yaml
-import re 
-from pathlib import Path
+import copy
+import os
+import os.path
+import re
+import shutil
+import string
+import sys
 from argparse import ArgumentParser
-from toil.common import Toil
-from toil.job import Job
-from copy import deepcopy
-#local imports 
-import implicit_solvent_ddm.restraints as restraints
-import implicit_solvent_ddm.dirstruct_core as dc 
-from implicit_solvent_ddm.toil_parser import input_parser
-from implicit_solvent_ddm.toil_parser import get_output_dir
-from implicit_solvent_ddm.simulations import run_md
-from implicit_solvent_ddm.simulations import initilized_jobs
-from implicit_solvent_ddm.alchemical import split_complex
-from implicit_solvent_ddm.toil_parser import get_receptor_ligand_topologies 
-from implicit_solvent_ddm.remd import remd_workflow
-from implicit_solvent_ddm.toil_parser import get_mdins
-from implicit_solvent_ddm.simulations import run_intermidate
-from implicit_solvent_ddm.remd import run_minimization
-from implicit_solvent_ddm.toil_parser import create_workflow_config
-#from implicit_solvent_ddm.remd import run_remd
+from mimetypes import init
+from pathlib import Path
+from posixpath import split
+from tokenize import Name
+from typing import List, Optional, Type
 
-def ddm_workflow(df_config_inputs, argSet, workflow_args):
+import numpy as np
+import yaml
+from toil.common import Toil
+from toil.job import Job, JobFunctionWrappingJob
+
+#from config import Config
+#from alchemical import get_intermidate_parameter_files, split_complex_system
+from implicit_solvent_ddm.alchemical import (get_intermidate_parameter_files,
+                                             split_complex_system)
+from implicit_solvent_ddm.config import Config
+#from implicit_solvent_ddm.mdin import get_mdins
+# from implicit_solvent_ddm.remd import remd_workflow, run_minimization
+#from mdin import get_mdins
+from implicit_solvent_ddm.mdin import get_mdins
+#from postTreatment import PostTreatment, create_mdout_dataframe
+from implicit_solvent_ddm.postTreatment import (PostTreatment,
+                                                create_mdout_dataframe)
+from implicit_solvent_ddm.restraints import (get_conformational_restraints,
+                                             get_flat_bottom_restraints,
+                                             get_orientational_restraints,
+                                             write_empty_restraint,
+                                             write_restraint_forces)
+# from restraints import (get_conformational_restraints,
+#                         get_flat_bottom_restraints,
+#                         get_orientational_restraints, write_empty_restraint,
+#                         write_restraint_forces)
+#from implicit_solvent_ddm.simulations import REMDSimulation, Simulation
+from implicit_solvent_ddm.simulations import (ExtractTrajectories,
+                                              REMDSimulation, Simulation)
+
+#from simulations import ExtractTrajectories, REMDSimulation, Simulation
+
+# from implicit_solvent_ddm.alchemical import (get_intermidate_parameter_files,
+#                                              split_complex)
+
+
+#local imports 
+
+
+
+#from implicit_solvent_ddm.remd import run_remd
+ 
+ 
+def ddm_workflow(job:JobFunctionWrappingJob, config:Config, inptraj_ID = None, solute = "system", dirstuct_traj_args={}, post_process=False):
     '''
     Double decoupling workflow 
 
@@ -51,171 +82,658 @@ def ddm_workflow(df_config_inputs, argSet, workflow_args):
     end_state_job: toil.job.JobFunctionWrappingJob
         contains the entire workflow in indiviudual jobs. 
     '''
-    #run a simple log command 
-    work_dir = argSet["workDir"]
-    end_state_job = Job.wrapJobFn(initilized_jobs, work_dir)
-
-    # list of conformational restraint forces 
-    con_rest = argSet["parameters"]["freeze_restraints_forces"]
-    # list of orientational restraint forces 
-    orien_rest = argSet["parameters"]["orientational_restriant_forces"]
-    # merge both list into list of tuples
-    restraint_tuples = list(map(lambda conformational, orientational:(conformational, orientational), con_rest, orien_rest))
-
-    #loop through all complexes within the data frame 
-    for n in range(len(df_config_inputs)):
-        #run simulation for ligand only 
-        if argSet["replica_exchange_parameters"]["replica_exchange"]:
-            complex_job = end_state_job.addChildJobFn(remd_workflow, df_config_inputs, argSet, work_dir)
-        #long MD simulations 
+    # temp_dir = job.fileStore.getLocalTempDir()
+    
+   
+    calc_list = []
+    ligand_df = []
+    receptor_df = []
+    complex_df = []
+    #post process setup workflow 
+    if post_process:
+        inptraj_ID = inptraj_ID
+        workflow = config.workflow.update_worflow(solute, config.workflow.run_endstate_method)
+        ligand_receptor_dirstruct = "post_process_apo"
+        complex_dirstruct = "post_process_halo"
+        mdin_no_solv = config.inputs["post_nosolv_mdin"]
+        default_mdin = config.inputs["post_mdin"]
+        md_jobs = job.addChildJobFn(initilized_jobs)
+ 
+    else:
+        workflow = config.workflow
+        ligand_receptor_dirstruct = "dirstruct_apo"
+        complex_dirstruct = "dirstruct_halo"
+        
+        setup_inputs = job.wrapJobFn(get_intermidate_parameter_files, 
+                                                        config.endstate_files.complex_parameter_filename, config.endstate_files.complex_coordinate_filename,
+                                                        config.amber_masks.ligand_mask, config.amber_masks.receptor_mask)
+        # Add inputs as first child to root job
+        job.addChild(setup_inputs)
+        
+        #config.inputs["ligand_no_vdw_ID"] = setup_inputs.rv(0)
+        #config.inputs["receptor_no_vdw_ID"] = setup_inputs.rv(2)
+        config.inputs["ligand_no_charge_parm_ID"] = setup_inputs.rv(0)
+        config.inputs["complex_ligand_no_charge_ID"] = setup_inputs.rv(1)
+        config.inputs["complex_no_ligand_interaction_ID"] = setup_inputs.rv(2)
+        
+        #fill in intermidate mdin     
+        mdins = setup_inputs.addChildJobFn(get_mdins, config.intermidate_args.mdin_intermidate_config)
+        
+        #set intermidate mdin files 
+        config.inputs["default_mdin"] = mdins.rv(0)
+        config.inputs["no_solvent_mdin"] = mdins.rv(1)
+        config.inputs["post_mdin"] = mdins.rv(2)
+        config.inputs["post_nosolv_mdin"] = mdins.rv(3)
+        default_mdin = mdins.rv(0)
+        mdin_no_solv = mdins.rv(1)
+        #write empty restraint.RST 
+        empty_restraint = setup_inputs.addChildJobFn(write_empty_restraint)
+        config.inputs["empty_restraint"] = empty_restraint.rv()
+        
+        
+        
+        #Begin running END State Simulations
+        #config.workflow.run_endstate_method and post_process==False: 
+        
+        if workflow.run_endstate_method:
+            #flat bottom restraints potential restraints 
+            flat_bottom_template = setup_inputs.addChildJobFn(get_flat_bottom_restraints, 
+                                                    config.endstate_files.complex_parameter_filename, config.endstate_files.complex_coordinate_filename,
+                                                    config.endstate_method.flat_bottom_restraints)
+        
+            config.inputs["flat_bottom_restraint"] = flat_bottom_template.rv()
+            
+            endstate_method = setup_inputs.addFollowOnJobFn(initilized_jobs)
+    
+            if config.endstate_method.endstate_method_type == 'remd':
+               
+                #run endstate method for complex system
+                minimization_complex = endstate_method.addChild(Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                            config.num_cores_per_system.complex_ncores, 
+                                                            config.endstate_files.complex_parameter_filename, config.endstate_files.complex_coordinate_filename,
+                                                            config.inputs["min_mdin"], config.inputs["flat_bottom_restraint"], 
+                                                            {"runtype": 'minimization', "filename": "min", "topology": config.endstate_files.complex_parameter_filename}))
+                
+                equilibrate_complex = minimization_complex.addFollowOn(REMDSimulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                                                config.endstate_method.remd_args.nthreads, 
+                                                                                config.endstate_files.complex_parameter_filename, minimization_complex.rv(0),
+                                                                                config.endstate_method.remd_args.equilibration_replica_mdins,
+                                                                                config.inputs["flat_bottom_restraint"], "equil", 
+                                                                                config.endstate_method.remd_args.ngroups, 
+                                                                                {"runtype": 'equilibration', "topology": config.endstate_files.complex_parameter_filename}))
+                
+                remd_complex = equilibrate_complex.addFollowOn(REMDSimulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                                            config.endstate_method.remd_args.nthreads, config.endstate_files.complex_parameter_filename,
+                                                                            equilibrate_complex.rv(0), config.endstate_method.remd_args.remd_mdins,
+                                                                            config.inputs["flat_bottom_restraint"], 'remd', config.endstate_method.remd_args.ngroups,
+                                                                            {"runtype": 'remd', "topology": config.endstate_files.complex_parameter_filename}))
+                
+                #extact target temparture trajetory and last frame 
+                extract_complex = remd_complex.addFollowOn(ExtractTrajectories(config.endstate_files.complex_parameter_filename, remd_complex.rv(1),
+                                                                                config.endstate_method.remd_args.target_temperature))
+                
+                config.inputs["endstate_complex_traj"] = extract_complex.rv(0)
+                config.inputs["endstate_complex_lastframe"] = extract_complex.rv(1)
+                #run minimization at the end states for ligand system only 
+                minimization_ligand = endstate_method.addChild(Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                            config.num_cores_per_system.ligand_ncores, 
+                                                            config.endstate_files.ligand_parameter_filename, config.endstate_files.ligand_coordinate_filename,
+                                                            config.inputs["min_mdin"], config.inputs["empty_restraint"], 
+                                                            {"runtype": 'minimization', "filename": "min", "topology": config.endstate_files.ligand_parameter_filename}))
+                
+                equilibrate_ligand = minimization_ligand.addFollowOn(REMDSimulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                                                config.endstate_method.remd_args.nthreads, 
+                                                                                config.endstate_files.ligand_parameter_filename, minimization_ligand.rv(0),
+                                                                                config.endstate_method.remd_args.equilibration_replica_mdins,
+                                                                                config.inputs["empty_restraint"], "equil", 
+                                                                                config.endstate_method.remd_args.ngroups, 
+                                                                                {"runtype": 'equilibration', "topology": config.endstate_files.ligand_parameter_filename}))
+                
+                remd_ligand = equilibrate_ligand.addFollowOn(REMDSimulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                                            config.endstate_method.remd_args.nthreads, config.endstate_files.ligand_parameter_filename,
+                                                                            equilibrate_ligand.rv(0), config.endstate_method.remd_args.remd_mdins,
+                                                                            config.inputs["empty_restraint"], 'remd', config.endstate_method.remd_args.ngroups,
+                                                                            {"runtype": 'remd', "topology": config.endstate_files.ligand_parameter_filename}))
+                #extact target temparture trajetory and last frame 
+                extract_ligand = remd_ligand.addFollowOn(ExtractTrajectories(config.endstate_files.ligand_parameter_filename, remd_ligand.rv(1),
+                                                                                config.endstate_method.remd_args.target_temperature))
+                config.inputs["endstate_ligand_traj"] = extract_ligand.rv(0)
+                config.inputs["endstate_ligand_lastframe"] = extract_ligand.rv(1)
+            
+            #once endstate is complete wrap the endstate trajectories for post process runs    
+            complex_endstate_post_workflow = job.wrapJobFn(ddm_workflow, 
+                                    config, 
+                                    inptraj_ID = [config.inputs["endstate_complex_traj"]], 
+                                    solute = 'complex',
+                                    dirstuct_traj_args= {
+                                    "traj_state_label": 8,
+                                    "traj_igb": config.intermidate_args.igb_solvent,
+                                    "trajectory_restraint_conrest": 0.0,
+                                    "trajectory_restraint_orenrest": 0.0,
+                                    "filename": "state_8_endstate_postprocess",
+                                    "runtype": f"Running post process with trajectory: {config.inputs['endstate_complex_traj']}"}.copy(), post_process = True)
+            
+            ligand_endstate_post_workflow = job.wrapJobFn(ddm_workflow, 
+                                    config, 
+                                    inptraj_ID = [config.inputs["endstate_ligand_traj"]], 
+                                    solute = 'ligand',
+                                    dirstuct_traj_args= {"traj_state_label": 2,
+                                    "traj_igb": config.intermidate_args.igb_solvent,
+                                    "filename": "state_2_endstate_postprocess",
+                                    "trajectory_restraint": 0.0,
+                                    "runtype": f"Running post process with trajectory: {config.inputs['endstate_ligand_traj']}"}.copy(), post_process = True)    
+               
+                # minimization_receptor = endstate_method.addChild(Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                #                                             config.num_cores_per_system.receptor_ncores, 
+                #                                             config.endstate_files.receptor_parameter_filename, config.endstate_files.receptor_coordinate_filename,
+                #                                             config.inputs["min_mdin"], config.inputs["empty_restraint"], 
+                #                                             {"runtype": 'minimization', "filename": "min", "topology": config.endstate_files.receptor_parameter_filename}))
+            
+        # user provided there own there own endstate calculation just split the coordinate 
+        else:
+            endstate_method = setup_inputs.addFollowOn(ExtractTrajectories(config.endstate_files.complex_parameter_filename, 
+                                                                           config.endstate_files.complex_coordinate_filename))
+            config.inputs["endstate_complex_traj"] = endstate_method.rv(0)
+            config.inputs["endstate_complex_lastframe"] = endstate_method.rv(1)
+            ligand_extract = endstate_method.addChild(ExtractTrajectories(config.endstate_files.ligand_parameter_filename, 
+                                                                           config.endstate_files.ligand_coordinate_filename))
+            config.inputs["endstate_ligand_traj"] = ligand_extract.rv(0)
+            
+            
+               
+        
+        
+        #split the complex into host and substrate using the endstate lastframe  
+        split_job = endstate_method.addFollowOnJobFn(split_complex_system, 
+                                                            config.endstate_files.complex_parameter_filename, config.inputs["endstate_complex_lastframe"], 
+                                                            config.amber_masks.ligand_mask, config.amber_masks.receptor_mask)
+            
+        config.inputs["ligand_endstate_frame"] = split_job.rv(1)
+        config.inputs["receptor_endstate_frame"] = split_job.rv(0)
+        
+        # create orientational and conformational restraints using the lastframe of the complex endstate simulation 
+        conformational_restraints = split_job.addChildJobFn(get_conformational_restraints, 
+                                                    config.endstate_files.complex_parameter_filename, config.inputs["endstate_complex_lastframe"],
+                                                    config.amber_masks.receptor_mask, config.amber_masks.ligand_mask)
+        orientational_restraints = conformational_restraints.addFollowOnJobFn(get_orientational_restraints, 
+                                                    config.endstate_files.complex_parameter_filename, config.inputs["endstate_complex_lastframe"],
+                                                    config.amber_masks.receptor_mask, config.amber_masks.ligand_mask,
+                                                    config.intermidate_args.restraint_type)
+        
+        #fill in orientational and conformational forces within templates 
+        for (conformational_force, orientational_force) in zip(config.intermidate_args.conformational_restraints_forces, config.intermidate_args.orientational_restriant_forces):
+            
+            config.inputs[f"ligand_{conformational_force}_rst"] = orientational_restraints.addChildJobFn(write_restraint_forces, conformational_restraints.rv(1), conformational_force=conformational_force).rv()
+            
+            
+            config.inputs[f"ligand_{conformational_force}_rst"] = orientational_restraints.addChildJobFn(write_restraint_forces,
+                                                                                                            conformational_restraints.rv(1), conformational_force=conformational_force).rv()
+            config.inputs[f"receptor_{conformational_force}_rst"] = orientational_restraints.addChildJobFn(write_restraint_forces,
+                                                                                                            conformational_restraints.rv(2), conformational_force=conformational_force).rv()
+            config.inputs[f"complex_{conformational_force}_{orientational_force}_rst"] = orientational_restraints.addChildJobFn(write_restraint_forces, 
+                                                                                                                    conformational_restraints.rv(0),
+                                                                                                                    orientational_restraints.rv(),
+                                                                                                                    conformational_force=conformational_force,
+                                                                                                                    orientational_force=orientational_force).rv()
+        md_jobs = orientational_restraints.addFollowOnJobFn(initilized_jobs)
+        # split the complex coordinates into ligand and receptor systems once endstate simulation is completed. 
+        # post process endstates once the restraint files are created 
+        try:
+            md_jobs.addChild(ligand_endstate_post_workflow)
+            md_jobs.addChild(complex_endstate_post_workflow)
+            # ligand_endstate_post_completed = ligand_endstate_post_workflow.addFollowOnJobFn(run_post_process, ligand_endstate_post_workflow.rv())
+            # ligand_df.append(ligand_endstate_post_completed.rv())
+        except NameError:
+            pass 
+      
+    if workflow.end_state_postprocess: 
+        state_label = 2
+        restraint_file = config.inputs["empty_restraint"]
+        dirstruct = "post_process_apo"
+        if solute == 'ligand':
+            topology = config.endstate_files.ligand_parameter_filename
+            coordinate = config.endstate_files.ligand_coordinate_filename
+            num_cores = config.num_cores_per_system.ligand_ncores
+        elif solute == 'receptor':
+            topology = config.endstate_files.receptor_parameter_filename
+            coordinate = config.endstate_files.receptor_coordinate_filename
+            num_cores = config.num_cores_per_system.receptor_ncores
+        else:
+            topology = config.endstate_files.complex_parameter_filename
+            coordinate = config.endstate_files.complex_coordinate_filename 
+            num_cores = config.num_cores_per_system.complex_ncores
+            dirstruct = "post_process_halo"
+            state_label = 8
+            restraint_file = config.inputs["flat_bottom_restraint"]
+        end_state_args = {
+            "topology": topology,
+            "state_label": state_label,
+            "igb": config.intermidate_args.igb_solvent,
+            "conformational_restraint": 0.0,
+            "orientational_restraints": 0.0, 
+        }
+        end_state_args.update(dirstuct_traj_args)
+        end_state_prod = Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                        num_cores, topology, coordinate,
+                                                        config.inputs["post_mdin"],  
+                                                        restraint_file, 
+                                                        directory_args=end_state_args.copy(),
+                                                        dirstruct = dirstruct, inptraj= inptraj_ID)
+        calc_list.append(end_state_prod)
+    
+    #define max conformational and restraint forces
+    max_con_force = max(config.intermidate_args.conformational_restraints_forces)
+    max_orien_force = max(config.intermidate_args.orientational_restriant_forces)
+    
+    max_con_exponent = float(max(config.intermidate_args.exponent_conformational_forces))
+    max_orien_exponent = float(max(config.intermidate_args.exponent_orientational_forces))
+    
+    #turning off the solvent for ligand simulation, set max force of conformational restraints    
+    if workflow.remove_GB_solvent_ligand:
+        no_solv_args = {
+            "topology": config.endstate_files.ligand_parameter_filename, 
+            "state_label": '4', 
+            "conformational_restraint": max_con_exponent, 
+            "igb": "igb_6",
+            "filename": "state_4_prod",
+            "runtype": "Running production Simulation in state 4"
+        }
+        no_solv_args.update(dirstuct_traj_args)
+        no_solv_ligand = Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                        config.num_cores_per_system.ligand_ncores, config.endstate_files.ligand_parameter_filename,
+                                                        config.inputs["ligand_endstate_frame"], mdin_no_solv,  
+                                                        config.inputs[f"ligand_{max_con_force}_rst"], 
+                                                        directory_args=no_solv_args.copy(),
+                                                        dirstruct = ligand_receptor_dirstruct, inptraj= inptraj_ID)
+        #md_jobs.addChild(no_solv_ligand)
+        if not post_process:
+            md_jobs.addChild(no_solv_ligand)
+            post_process_ligand = no_solv_ligand.addFollowOnJobFn(ddm_workflow, 
+                                                                  config, 
+                                                                  inptraj_ID = no_solv_ligand.rv(1), 
+                                                                  solute = 'ligand',
+                                                                  dirstuct_traj_args= {"traj_state_label": 4,
+                                                                                       "trajectory_restraint": max_con_exponent,
+                                                                                       "traj_igb": "igb_6",
+                                                                                       "filename": "state_4_postprocess",
+                                                                                       "runtype": f"Running post process with trajectory: {no_solv_ligand.rv(1)}"}.copy(), post_process = True)
+            
+            #ligand_df.append(post_process_ligand.addFollowOnJobFn(run_post_process, post_process_ligand.rv()).rv())
+            
+        
+        else: 
+            calc_list.append(no_solv_ligand)
+            
+        
+    # set ligand overall charge to 0 
+    # if config.workflow.remove_ligand_charges:
+    if workflow.remove_ligand_charges:
+        ligand_no_charge_args = {
+            "topology": config.endstate_files.ligand_parameter_filename, 
+            "state_label": '5', 
+            "conformational_restraint": max_con_exponent,
+            "igb": "igb_6",
+            "filename": "state_5_prod",
+            "runtype": "Production Simulation in State 5"
+        }
+        ligand_no_charge_args.update(dirstuct_traj_args)
+        
+        ligand_no_charge = Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                         config.num_cores_per_system.ligand_ncores, config.inputs["ligand_no_charge_parm_ID"], 
+                                                         config.inputs["ligand_endstate_frame"], mdin_no_solv, 
+                                                         config.inputs[f"ligand_{max_con_force}_rst"], 
+                                                         directory_args=ligand_no_charge_args, 
+                                                         dirstruct = ligand_receptor_dirstruct, inptraj= inptraj_ID)
+        # ligand_jobs.addChild(ligand_no_charge)
+        
+        if not post_process:
+            md_jobs.addChild(ligand_no_charge)
+            post_no_charge = ligand_no_charge.addFollowOnJobFn(ddm_workflow, config, 
+                                              inptraj_ID = ligand_no_charge.rv(1), 
+                                              solute = 'ligand',
+                                              dirstuct_traj_args= {"traj_state_label": '5',
+                                                                   "trajectory_restraint": max_con_exponent,
+                                                                   "traj_igb": "igb_6",
+                                                                   "filename": "state_5_postprocess",
+                                                                   "runtype": f"Running post process with trajectory: {ligand_no_charge.rv(1)}"}.copy(), post_process = True)
+            
+            #ligand_df.append(post_no_charge.addFollowOnJobFn(run_post_process, post_no_charge.rv()).rv())
         
         else:
-            ligand_name = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",df_config_inputs['ligand_parameter_filename'][n])
+            calc_list.append(ligand_no_charge)
             
-            minimization_ligand = end_state_job.addChildJobFn(run_minimization,
-                                    df_config_inputs['ligand_parameter_filename'][n],df_config_inputs['ligand_coordinate_filename'][n], 
-                                    argSet, output_path= f"{work_dir}/mdgb/minization/{ligand_name}", COM=False)
             
-            ligand_job = minimization_ligand.addFollowOnJobFn(run_md, 
-                                        df_config_inputs['ligand_parameter_filename'][n], df_config_inputs['ligand_parameter_basename'][n],
-                                        minimization_ligand.rv(0),df_config_inputs['ligand_coordinate_basename'][n], 
-                                        get_output_dir(df_config_inputs['ligand_parameter_filename'][n],2, work_dir), 
-                                        argSet, "end_state", input_mdin=argSet["parameters"]["end_state_mdin"][0], work_dir=work_dir)
-            
-            # If the ignore_receptor flag is not called, then run long MD on receptor 
-            if not argSet["parameters"]["ignore_receptor"]:
-                #run simulation for receptor only 
-                receptor_name =  re.sub(r".*/([^/.]*)\.[^.]*",r"\1",df_config_inputs['receptor_parameter_filename'][n])
-                
-                minimization_receptor = end_state_job.addChildJobFn(run_minimization,
-                                        df_config_inputs['receptor_parameter_filename'][n],df_config_inputs['receptor_coordinate_filename'][n], 
-                                        argSet, output_path = f"{work_dir}/mdgb/minization/{receptor_name}", COM=False)
-                
-                receptor_job = minimization_receptor.addFollowOnJobFn(run_md, 
-                                            df_config_inputs['receptor_parameter_filename'][n], df_config_inputs['receptor_parameter_basename'][n],
-                                            minimization_receptor.rv(0),df_config_inputs['receptor_coordinate_basename'][n],  
-                                            get_output_dir(df_config_inputs['receptor_parameter_filename'][n],2, work_dir), 
-                                            argSet, "end_state", input_mdin=argSet["parameters"]["end_state_mdin"][0], work_dir=work_dir)
-            #run simulation for complex 
-            complex_name = re.sub(r".*/([^/.]*)\.[^.]*",r"\1",df_config_inputs['complex_parameter_filename'][n])
-            
-            minimization_complex = end_state_job.addChildJobFn(run_minimization,
-                                    df_config_inputs['complex_parameter_filename'][n],df_config_inputs['complex_coordinate_filename'][n], 
-                                    argSet, output_path = f"{work_dir}/mdgb/minization/{complex_name}", COM=True)
-            
-            complex_job = minimization_complex.addFollowOnJobFn(run_md, 
-                                                    df_config_inputs['complex_parameter_filename'][n], df_config_inputs['complex_parameter_basename'][n],
-                                                    minimization_complex.rv(0), df_config_inputs['complex_coordinate_basename'][n], 
-                                                    get_output_dir(df_config_inputs['complex_parameter_filename'][n],9, work_dir), 
-                                                    argSet, "end_state", COM=True, input_mdin = argSet["parameters"]["end_state_mdin"][0],
-                                                    work_dir=work_dir)
-            
-        #Intermidate CYCLE
-        #create orentational and conformational restraint templates  
-        restraint_job = complex_job.addFollowOnJobFn(restraints.make_restraint_files, complex_job.rv(0), argSet, df_config_inputs)
-
-        #split the complex coordinates once complex_job is completed 
-        split_job = restraint_job.addFollowOnJobFn(split_complex, 
-                                                 df_config_inputs['complex_parameter_filename'][n], df_config_inputs['complex_parameter_basename'][n], 
-                                                 complex_job.rv(0),  
-                                                 df_config_inputs['ligand_parameter_basename'][n], os.path.basename(argSet["parameters"]["receptor_parameter_filename"][n]),  
-                                                 argSet["parameters"]["ligand_mask"][n],  argSet["parameters"]["receptor_mask"], 
-                                                 work_dir)
-        #loop through conformational restraint forces 
-        for conformational_rest in argSet["parameters"]["freeze_restraints_forces"]:
-            workflow_args["jobs"]["add_ligand_conformational_restraints"]["args"]["conformational_restraint"] = conformational_rest
-            ligand_workflow = workflow_args["jobs"]["add_ligand_conformational_restraints"]["args"].copy()
-            ligand_intermidate = split_job.addChildJobFn(run_intermidate, 
-                                                    [split_job.rv(0)], argSet, 
-                                                    ligand_workflow)
-       
-            if not argSet["parameters"]["ignore_receptor"]: 
-                #begin running intermidate states for receptor 
-                workflow_args["jobs"]["add_receptor_conformational_restraints"]["args"]["conformational_restraint"] = conformational_rest
-                receptor_intermidate = split_job.addChildJobFn(run_intermidate, 
-                                                               [split_job.rv(1)], argSet, 
-                                                                workflow_args["jobs"]["add_receptor_conformational_restraints"]["args"].copy())
+    #Desolvation of receptor 
+    #if config.workflow.remove_GB_solvent_receptor: 
+    if not workflow.ignore_receptor:
+        no_solv_args_receptor = {
+            "topology": config.endstate_files.receptor_parameter_filename, 
+            "state_label": 4, 
+            "conformational_restraint": max_con_exponent,
+            "igb": "igb_6",
+            "filename": "state_4_prod",
+            "runtype": "Running production simulation in state 4: Receptor only"
+        }
         
-        #turning off the solvent for ligand simulation with force of conformational restraints
-        workflow_args["jobs"]["no_solvent_ligand"]["args"]["conformational_restraint"] = argSet["parameters"]["freeze_restraints_forces"][-1]
-        turn_off_solvent_ligand_job = split_job.addChildJobFn(run_intermidate,
-                                                              [split_job.rv(0)], argSet,
-                                                              workflow_args["jobs"]["no_solvent_ligand"]["args"].copy())
+        no_solv_args_receptor.update(dirstuct_traj_args)
+        
+        no_solv_receptor = Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                        config.num_cores_per_system.receptor_ncores, config.endstate_files.receptor_parameter_filename,
+                                                        config.inputs["receptor_endstate_frame"], mdin_no_solv,  
+                                                        config.inputs[f"receptor_{max_con_force}_rst"], 
+                                                        directory_args= no_solv_args_receptor,
+                                                        dirstruct = ligand_receptor_dirstruct, inptraj= inptraj_ID)
+        #receptor_jobs.addChild(no_solv_receptor)
+        if not post_process:
+            md_jobs.addChild(no_solv_receptor)
+            post_no_solv_receptor = no_solv_receptor.addFollowOnJobFn(ddm_workflow, config, 
+                                              inptraj_ID = no_solv_receptor.rv(1),
+                                              solute = 'receptor',
+                                              dirstuct_traj_args = {"traj_state_label": 4,
+                                                                    "trajectory_restraint": max_con_exponent,
+                                                                    "traj_igb": "igb_6",
+                                                                    "filename": "state_4_postprocess",
+                                                                    "runtype": f"Running post process with trajectory: {no_solv_receptor.rv(1)}"}.copy(), post_process = True)
+            
+            #post_no_solv_receptor.addFollowOnJobFn(run_post_process, post_no_solv_receptor.rv())   
+        else:
+            calc_list.append(no_solv_receptor)
+            
     
-        #turn off the solvent for receptor simulation with force of conformational restraints
-        if not argSet["parameters"]["ignore_receptor"]:
-            workflow_args["jobs"]["no_solvent_receptor"]["args"]["conformational_restraint"] = argSet["parameters"]["freeze_restraints_forces"][-1]
-            turn_off_solvent_receptor_job = split_job.addChildJobFn(run_intermidate, 
-                                                                    [split_job.rv(1)], argSet,
-                                                                    workflow_args["jobs"]["no_solvent_receptor"]["args"].copy())
-        #set ligand net charge to 0 with full force of conformational restraints
-        workflow_args["jobs"]["no_ligand_charges"]["args"]["conformational_restraint"] = argSet["parameters"]["freeze_restraints_forces"][-1]
-        turn_off_ligand_charges_job = split_job.addChildJobFn(run_intermidate,
-                                                              [split_job.rv(0)], argSet,
-                                                              workflow_args["jobs"]["no_ligand_charges"]["args"].copy())
+    #Complex simulations 
+    # Exclusions turned on, no electrostatics, in gas phase 
+    # if config.workflow.complex_ligand_exclusions:
+    if workflow.complex_ligand_exclusions:
+        complex_ligand_exclusions_args = {"topology": config.endstate_files.complex_parameter_filename, 
+                                          "state_label": '7', 
+                                          "igb":  "igb_6",
+                                          "conformational_restraint": max_con_exponent,
+                                          "orientational_restraints": max_orien_exponent,
+                                          "filename": "state_7_prod",
+                                          "runtype": "Running production simulation in state 7: Complex"}
         
-        # turn on all restraints conformational/orientational with exclusions 
-        workflow_args["jobs"]["complex_ligand_exclusions"]["args"]["conformational_restraint"] = argSet["parameters"]["freeze_restraints_forces"][-1]
-        workflow_args["jobs"]["complex_ligand_exclusions"]["args"]["orientational_restraints"] = argSet["parameters"]["orientational_restriant_forces"][-1]
-        add_orientational_restraints = restraint_job.addChildJobFn(run_intermidate,
-                                                                  complex_job.rv(0), argSet,
-                                                                  workflow_args["jobs"]["complex_ligand_exclusions"]["args"].copy())
-  
-        # turn on interactions with receptor and ligand 
-        workflow_args["jobs"]["complex_turn_off_exclusions"]["args"]["conformational_restraint"] = argSet["parameters"]["freeze_restraints_forces"][-1]
-        workflow_args["jobs"]["complex_turn_off_exclusions"]["args"]["orientational_restraints"] = argSet["parameters"]["orientational_restriant_forces"][-1]
-        add_back_ligand_receptor_interactions = restraint_job.addChildJobFn(run_intermidate,
-                                                                            complex_job.rv(0), argSet,
-                                                                            workflow_args["jobs"]["complex_turn_off_exclusions"]["args"].copy())                                                                            
-        # turn charges back on of the ligand 
-        workflow_args["jobs"]["complex_turn_on_charges"]["args"]["conformational_restraint"] = argSet["parameters"]["freeze_restraints_forces"][-1]
-        workflow_args["jobs"]["complex_turn_on_charges"]["args"]["orientational_restraints"] = argSet["parameters"]["orientational_restriant_forces"][-1]
-        add_back_charges_complex = restraint_job.addChildJobFn(run_intermidate,
-                                                               complex_job.rv(0), argSet,
-                                                               workflow_args["jobs"]["complex_turn_on_charges"]["args"].copy())
+        complex_ligand_exclusions_args.update(dirstuct_traj_args)
         
-        # slowly turn off the restraints 
-        for restraints_forces in restraint_tuples:
-            workflow_args["jobs"]["complex_slowly_turn_off_restraints"]["args"]["conformational_restraint"] = restraints_forces[0]
-            workflow_args["jobs"]["complex_slowly_turn_off_restraints"]["args"]["orientational_restraints"] = restraints_forces[1]
-            complex_intermidate = restraint_job.addChildJobFn(run_intermidate,
-                                                             complex_job.rv(0), argSet,
-                                                             workflow_args["jobs"]["complex_slowly_turn_off_restraints"]["args"].copy())
-           
+        complex_no_interactions = Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                        config.num_cores_per_system.complex_ncores, config.inputs["complex_no_ligand_interaction_ID"],
+                                                        config.inputs["endstate_complex_lastframe"], mdin_no_solv,  
+                                                        config.inputs[f"complex_{max_con_force}_{max_orien_force}_rst"], 
+                                                        directory_args=complex_ligand_exclusions_args,
+                                                        dirstruct=complex_dirstruct, inptraj= inptraj_ID)
+        if not post_process:
+            md_jobs.addChild(complex_no_interactions)
+            
+            complex_no_interactions_post = complex_no_interactions.addFollowOnJobFn(ddm_workflow, config, 
+                                              inptraj_ID = complex_no_interactions.rv(1),
+                                              solute = 'complex',
+                                              dirstuct_traj_args = {"traj_state_label": "7",
+                                                                    "trajectory_restraint_conrest": max_con_exponent,
+                                                                    "trajectory_restraint_orenrest": max_orien_exponent,
+                                                                    "traj_igb": "igb_6",
+                                                                    "filename": "state_7_postprocess",
+                                                                    "runtype": f"Running post process with trajectory: {complex_no_interactions.rv(1)}"}.copy(), 
+                                              post_process = True)
+            
+            #complex_no_interactions_post.addFollowOnJobFn(run_post_process, complex_no_interactions_post.rv())
+        else:
+            job.log(f"update complex args {complex_ligand_exclusions_args}")
+            calc_list.append(complex_no_interactions)
+            
+    # No electrostatics and in the gas phase
+    if workflow.complex_turn_off_exclusions:
+        complex_turn_off_exclusions_args = {
+            "topology": config.endstate_files.complex_parameter_filename, 
+            "state_label": '7a', 
+            "igb":  "igb_6",
+            "conformational_restraint": max_con_exponent,
+            "orientational_restraints": max_orien_exponent,
+            "filename": "state_7a_prod",
+            "runtype": "Running production simulation in state 7a: Complex"
+        }
+        complex_turn_off_exclusions_args.update(dirstuct_traj_args)
         
-    return end_state_job
+        complex_no_electrostatics = Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                        config.num_cores_per_system.complex_ncores, config.inputs["complex_ligand_no_charge_ID"],
+                                                        config.inputs["endstate_complex_lastframe"], mdin_no_solv,  
+                                                        config.inputs[f"complex_{max_con_force}_{max_orien_force}_rst"], 
+                                                        directory_args = complex_turn_off_exclusions_args,
+                                                        dirstruct = complex_dirstruct, inptraj= inptraj_ID)
+        if not post_process:
+            md_jobs.addChild(complex_no_electrostatics)
+        
+            complex_no_electrostatics_post = complex_no_electrostatics.addFollowOnJobFn(ddm_workflow, config, 
+                                                inptraj_ID = complex_no_electrostatics.rv(1),
+                                                solute = 'complex',
+                                                dirstuct_traj_args = {"traj_state_label": '7a',
+                                                                    "trajectory_restraint_conrest": max_con_exponent,
+                                                                    "trajectory_restraint_orenrest": max_orien_exponent,
+                                                                    "traj_igb": "igb_6",
+                                                                    "filename": "state_7a_postprocess",
+                                                                    "runtype": f"Running post process with trajectory: {complex_no_electrostatics.rv(1)}"}.copy(), 
+                                                post_process = True)
+            
+            #complex_no_electrostatics_post.addFollowOnJobFn(run_post_process, complex_no_electrostatics_post.rv())
+        else:
+            job.log(f"update complex_turn_off_exclusions_args {complex_turn_off_exclusions_args}")
+            calc_list.append(complex_no_electrostatics)
+        
+    # Turn ligand charges and in the gas phase  
+
+    if workflow.complex_turn_on_ligand_charges:
+        complex_turn_on_ligand_charges_args = {
+            "topology": config.endstate_files.complex_parameter_filename, 
+            "state_label": '7b', 
+            "igb":  "igb_6",
+            "conformational_restraint": max_con_exponent,
+            "orientational_restraints": max_orien_exponent,
+            "filename": "state_7b_prod",
+            "runtype": "Running production simulation in state 7b: Complex"
+        }
+        complex_turn_on_ligand_charges_args.update(dirstuct_traj_args)
+        
+        complex_turn_on_ligand_charges = Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                        config.num_cores_per_system.complex_ncores, config.endstate_files.complex_parameter_filename,
+                                                        config.inputs["endstate_complex_lastframe"], mdin_no_solv,  
+                                                        config.inputs[f"complex_{max_con_force}_{max_orien_force}_rst"], 
+                                                        directory_args=complex_turn_on_ligand_charges_args,
+                                                        dirstruct=complex_dirstruct, inptraj= inptraj_ID)
+        if not post_process:
+            md_jobs.addChild(complex_turn_on_ligand_charges)
+            complex_turn_on_ligand_charges_post = complex_turn_on_ligand_charges.addFollowOnJobFn(ddm_workflow, 
+                                                                                                  config, 
+                                                                                                  inptraj_ID = complex_turn_on_ligand_charges.rv(1),
+                                                                                                  solute = 'complex',
+                                                                                                  dirstuct_traj_args = {"traj_state_label": '7b',
+                                                                                                                        "trajectory_restraint_conrest": max_con_exponent,
+                                                                                                                        "trajectory_restraint_orenrest": max_orien_exponent,
+                                                                                                                        "traj_igb": "igb_6",
+                                                                                                                        "filename": "state_7b_postprocess",
+                                                                                                                        "runtype": f"Running post process with trajectory: {complex_turn_on_ligand_charges.rv(1)}"}.copy(), 
+                                                                                                  post_process = True)
+            
+            #complex_turn_on_ligand_charges_post.addFollowOnJobFn(run_post_process, complex_turn_on_ligand_charges_post.rv())
+        
+        else:
+            calc_list.append(complex_turn_on_ligand_charges)
+    
+    #Lambda window interate through conformational and orientational restraint forces     
+    for (con_force, orien_force) in zip(config.intermidate_args.conformational_restraints_forces, config.intermidate_args.orientational_restriant_forces):
+        #add conformational restraints 
+        #if config.workflow.add_ligand_conformational_restraints:
+        exponent_conformational = np.log2(con_force) 
+        exponent_orientational = np.log2(orien_force)
+        if workflow.add_ligand_conformational_restraints:
+            ligand_window_args = {
+                "topology": config.endstate_files.ligand_parameter_filename, 
+                "state_label": "2",
+                "conformational_restraint": exponent_conformational, 
+                "igb": f"igb_{config.intermidate_args.igb_solvent}",
+                "filename": f"state_2_{con_force}_prod",
+                "runtype": f"Running restraint window, Conformational restraint: {con_force}"
+            }
+            ligand_window_args.update(dirstuct_traj_args)
+            
+            ligand_windows = Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                        config.num_cores_per_system.ligand_ncores, config.endstate_files.ligand_parameter_filename,
+                                                        config.inputs["ligand_endstate_frame"], default_mdin,  
+                                                        config.inputs[f"ligand_{con_force}_rst"], 
+                                                        directory_args=ligand_window_args,
+                                                        dirstruct= ligand_receptor_dirstruct,
+                                                        inptraj= inptraj_ID)
+            if not post_process:
+                md_jobs.addChild(ligand_windows)
+                ligand_windows_post = ligand_windows.addFollowOnJobFn(ddm_workflow, 
+                                                                      config, 
+                                                                      inptraj_ID = ligand_windows.rv(1),
+                                                                      solute = 'ligand',
+                                                                      dirstuct_traj_args = {
+                                                                        "traj_state_label": "2",
+                                                                        "trajectory_restraint": exponent_conformational,
+                                                                        "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
+                                                                        "filename": "state_2_postprocess",
+                                                                        "runtype": f"Running post process with trajectory: {ligand_windows.rv(1)}"}.copy(), post_process = True)
+                
+                #ligand_df.append(ligand_windows_post.addFollowOnJobFn(run_post_process, ligand_windows_post.rv()).rv())
+            else:
+                calc_list.append(ligand_windows)
+                
+        
+        if not workflow.ignore_receptor:
+            
+            receptor_window_args = {
+                "topology": config.endstate_files.receptor_parameter_filename, 
+                "state_label": 2,
+                "conformational_restraint": exponent_conformational, 
+                "igb": config.intermidate_args.igb_solvent,
+                "filename": f"state_2_{con_force}_prod",
+                "runtype": f"Running restraint window, conformational restraint: {con_force}"}
+            
+            receptor_window_args.update(dirstuct_traj_args)
+            
+            receptor_windows = Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                        config.num_cores_per_system.receptor_ncores, config.endstate_files.receptor_parameter_filename,
+                                                        config.inputs["receptor_endstate_frame"], default_mdin,  
+                                                        config.inputs[f"receptor_{con_force}_rst"], 
+                                                        directory_args=receptor_window_args,
+                                                        dirstruct=ligand_receptor_dirstruct,
+                                                        inptraj= inptraj_ID)
+            if not post_process:
+                md_jobs.addChild(receptor_windows)
+                receptor_windows_post = receptor_windows.addFollowOnJobFn(ddm_workflow, 
+                                                                      config, 
+                                                                      inptraj_ID = receptor_windows.rv(1),
+                                                                      solute = 'receptor',
+                                                                      dirstuct_traj_args = {
+                                                                        "traj_state_label": 2,
+                                                                        "trajectory_restraint": exponent_conformational,
+                                                                        "traj_igb": config.intermidate_args.igb_solvent,
+                                                                        "filename": "state_2_postprocess",
+                                                                        "runtype": f"Running post process with trajectory: {receptor_windows.rv(1)}"}.copy(), post_process = True)
+                
+                #receptor_windows_post.addFollowOnJobFn(run_post_process, receptor_windows_post.rv())
+            
+            else:
+                calc_list.append(receptor_windows)
+              
+        
+        # slowly remove conformational and orientational restraints  
+        # if config.workflow.complex_remove_restraint:
+        if workflow.complex_remove_restraint:
+            remove_restraints_args = {
+                "topology": config.endstate_files.complex_parameter_filename, 
+                "state_label": 8, 
+                "igb": config.intermidate_args.igb_solvent,
+                "conformational_restraint": exponent_conformational,
+                "orientational_restraints": exponent_orientational,
+                "filename": f"state_8_{con_force}_{orien_force}_prod",
+                "runtype": f"Running restraint window. Conformational restraint: {con_force} and orientational restraint: {exponent_orientational}"}
+            
+            remove_restraints_args.update(dirstuct_traj_args)
+            
+            remove_restraints = Simulation(config.system_settings.executable, config.system_settings.mpi_command,
+                                                        config.num_cores_per_system.complex_ncores, config.endstate_files.complex_parameter_filename,
+                                                        config.inputs["endstate_complex_lastframe"], default_mdin,  
+                                                        config.inputs[f"complex_{con_force}_{orien_force}_rst"], 
+                                                         directory_args=remove_restraints_args,
+                                                        dirstruct= complex_dirstruct, inptraj= inptraj_ID)
+            if not post_process:
+                md_jobs.addChild(remove_restraints)
+                remove_restraints_windows_post = remove_restraints.addFollowOnJobFn(ddm_workflow, 
+                                                                      config, 
+                                                                      inptraj_ID = remove_restraints.rv(1),
+                                                                      solute = 'complex',
+                                                                      dirstuct_traj_args = {
+                                                                        "traj_state_label": 8,
+                                                                        "trajectory_restraint_conrest": exponent_conformational,
+                                                                        "trajectory_restraint_orenrest": exponent_orientational,
+                                                                        "traj_igb": config.intermidate_args.igb_solvent,
+                                                                        "filename": "state_8_postprocess",
+                                                                        "runtype": f"Running post process with trajectory: {remove_restraints.rv(1)}"}.copy(), 
+                                                                      post_process = True)
+                
+                #remove_restraints_windows_post.addFollowOnJobFn(run_post_process, remove_restraints_windows_post.rv())
+            
+            else:
+                calc_list.append(remove_restraints)
+        
+    if post_process:
+        return calc_list
+    
+    
+    return ligand_df
+    
+def run_post_process(job, sims):
+    
+    output_data = []
+    for sim in sims:
+        output_sims = job.addChild(sim)
+        data_frame = output_sims.addFollowOnJobFn(create_mdout_dataframe, sim)
+        output_data.append(data_frame.rv())
+    return output_data
+
+
+    
+        
+def initilized_jobs(job):
+    "Place holder to schedule jobs for MD and post-processing"
+    return 
+
 def main():
     
-    parser = Job.Runner.getDefaultArgumentParser()
-    parser.add_argument('--config_file', nargs='*', type=str, required=True, help="configuartion file with input parameters")
-    parser.add_argument("--ignore_receptor", action= "store_true", help=" Receptor MD caluculations with not be performed.")
-    options = parser.parse_args()
+    # parser = Job.Runner.getDefaultArgumentParser()
+    # parser.add_argument('--config_file', nargs='*', type=str, required=True, help="configuartion file with input parameters")
+    # parser.add_argument("--ignore_receptor", action= "store_true", help=" Receptor MD caluculations with not be performed.")
+    # options = parser.parse_args()
+    # options.logLevel = "INFO"
+    # options.clean = "always"
+    # config_file = options.config_file[0]
+    options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "INFO"
-    options.clean = "onSuccess"
-    config = options.config_file[0]
-    
+    options.clean = "always"
+    yaml_file = '/home/ayoub/nas0/Impicit-Solvent-DDM/new_workflow.yaml'
     try:
-        with open(config) as f:
-            argSet = yaml.safe_load(f)
+        with open(yaml_file) as f:
+            config_file = yaml.safe_load(f)
     except yaml.YAMLError as e:
         print(e)
-
+        
+    config = Config.from_config(config_file)
+    
     if options.workDir:
-        argSet["workDir"] = os.path.abspath(options.workDir)
+        config.system_settings.working_directory = os.path.abspath(options.workDir)
     else:
-        argSet["workDir"] = os.getcwd()
+        config.system_settings.working_directory = os.getcwd()
+
+    config.ignore_receptor = False 
     
-    argSet["parameters"]["ignore_receptor"] = options.ignore_receptor
-    argSet["parameters"]["flat_bottom_restraints"] = [os.path.abspath(argSet["parameters"]["flat_bottom_restraints"][0])]
-    #copy user config 
-    argSet = argSet.copy()
-    intermidate_mdin = yaml.safe_load(open(argSet["parameters"]["mdin_intermidate_config"]))
-    argSet["parameters"]["mdin_intermidate_config"] = intermidate_mdin
     
-    argSet["parameters"].update(get_receptor_ligand_topologies(argSet))
-    #create initial directory structure 
-    create_dirstruct(argSet)
-    
+    if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/ligand")):
+        os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/ligand"))
+    if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor")):
+        os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor"))
+
+    config.get_receptor_ligand_topologies()
+
     #create a log file
     job_number = 1
     while os.path.exists(f"mdgb/log_job_{job_number:03}.txt"):
@@ -223,80 +741,27 @@ def main():
     Path(f"mdgb/log_job_{job_number:03}.txt").touch()
     
     options.logFile = f"mdgb/log_job_{job_number:03}.txt"
-   
     with Toil(options) as toil:
-        #dataFrame containing absolute paths of topology and coordinate files. Also contains basenames of both file types 
         if not toil.options.restart:
-            dataframe_parameter_inputs = input_parser(argSet,toil)
-            workflow_args = create_workflow_config(argSet, dataframe_parameter_inputs)
-            print(workflow_args)
-
-            if argSet["replica_exchange_parameters"]["replica_exchange"]:
-                remd_mdins = get_mdins(argSet, toil)
-                argSet["replica_exchange_parameters"].update(remd_mdins)
+            config.endstate_files.complex_parameter_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.complex_parameter_filename)))
+            config.endstate_files.complex_coordinate_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.complex_coordinate_filename)))
+            config.endstate_files.ligand_coordinate_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.ligand_coordinate_filename)))  
+            config.endstate_files.ligand_parameter_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.ligand_parameter_filename)))
+            config.inputs["min_mdin"] = str(toil.import_file("file://" + os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/templates/min.mdin")))
             
-            ddm_workflow_job = ddm_workflow(dataframe_parameter_inputs, argSet, workflow_args)
-                
+            if not config.ignore_receptor:
+                config.endstate_files.receptor_parameter_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.receptor_parameter_filename)))
+                config.endstate_files.receptor_coordinate_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.receptor_coordinate_filename)))
             
-            toil.start(ddm_workflow_job)
-
+            if config.endstate_method.endstate_method_type == 'remd':
+                for index, (equil_mdin, remd_mdin) in enumerate(zip(config.endstate_method.remd_args.equilibration_replica_mdins, config.endstate_method.remd_args.remd_mdins)):
+                    config.endstate_method.remd_args.equilibration_replica_mdins[index] = str(toil.import_file("file://" + os.path.abspath(equil_mdin)))
+                    config.endstate_method.remd_args.remd_mdins[index] = str(toil.import_file("file://" + os.path.abspath(remd_mdin)))
+            output_data = toil.start(Job.wrapJobFn(ddm_workflow, config))
+            #postprocess analysis 
+            print(len(output_data))
         else:
             toil.restart()
-    
-def create_dirstruct(argSet, dirstruct = "dirstruct"):
-    """
-    Creates unique directory structure for all output files when created.
 
-    Parameters
-    ----------
-    argSet: dict
-        A dictionary of parameters from a .yaml configuation file
-    dirstruct: str
-        dirstruct is a preference File used to create new directory structures when simrun.getRun() is called.
-
-    Returns
-    -------
-    None
-    """
-    sim = dc.Dirstruct("mdgb", description='''Perform molecular dynamics with GB or in vacuo''')
-#    #iterate through solutes
-#     dirs = sim.getDirectoryStructure("mdgb", argSet, dirstruct=dirstruct)
-    
-    #print(f'directory fromArgs {dirs}')
-    for key in argSet['parameters'].keys():
-        if key == 'complex_parameter_filename':
-            complex_state = 7
-            intermidate_state = 7
-            while complex_state <= 8:
-                for complex in argSet['parameters'][key]:
-                    argSet['solute'] = complex
-                    solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
-                    pathroot = re.sub(r"\.[^.]*","",argSet['solute'])
-                    #print('pathroot',pathroot)
-                    root = os.path.basename(pathroot)
-                    #print('root',root)
-                    argSet['state_label'] = complex_state
-                    run = sim.getRun(argSet)
-                    for inter_state in ['a','b']:
-                        argSet['state_label'] = str(intermidate_state) + inter_state
-                        run = sim.getRun(argSet)
-                complex_state = complex_state + 1
-        if key == 'ligand_parameter_filename':
-            ligand_state = 2
-            while ligand_state <= 5:
-                for ligand in argSet['parameters'][key]:
-                    argSet['solute'] = ligand
-                    solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
-                    argSet['state_label'] = ligand_state
-                    run = sim.getRun(argSet)
-                ligand_state = ligand_state + 1
-
-        if key == 'receptor_parameter_filename':
-            receptor_state = 2
-            while receptor_state <= 5:
-                for receptor in argSet['parameters'][key]:
-                    argSet['solute'] = receptor
-                    solute = re.sub(r".*/([^/.]*)\.[^.]*",r"\1", argSet['solute'])
-                    argSet['state_label'] = receptor_state
-                    run = sim.getRun(argSet)
-                receptor_state = receptor_state + 1
+if __name__ == "__main__":
+    main()

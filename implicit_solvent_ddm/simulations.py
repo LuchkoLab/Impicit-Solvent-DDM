@@ -1,347 +1,430 @@
-
-
-from ast import arguments
-from genericpath import exists
-from platform import architecture
-import subprocess
-import string
-import os, os.path 
+import os
 import re
+import shutil
+import subprocess as sp
 import sys
-import yaml
-import parmed as pmd 
-from string import Template 
-#local imports 
-from implicit_solvent_ddm.restraints import write_empty_restraint_file
-from implicit_solvent_ddm.restraints import write_restraint_forces
-from implicit_solvent_ddm.toil_parser import get_output_dir
-from implicit_solvent_ddm.alchemical import alter_topology_file
-from implicit_solvent_ddm.remd import copy 
-from implicit_solvent_ddm.remd import write_empty_restraint
-from implicit_solvent_ddm.IO import export_outputs
+from asyncore import file_dispatcher
+from importlib.metadata import files
+from logging import setLogRecordFactory
+from string import Template
+from tempfile import tempdir
 
-def run_intermidate(job, solute_cordinate, config_args, intermidate_args):
+import pytraj as pt
+from pydantic import NumberNotGeError
+from toil.common import Toil
+from toil.job import FunctionWrappingJob, Job
+
+from implicit_solvent_ddm.config import Config
+from implicit_solvent_ddm.get_dirstruct import Dirstruct
+
+working_directory = os.getcwd()
+import logging
+
+
+class Calculation(Job):
     
-    # job.log("this is the current job running {}".format(message))
-    # job.log(f"input mdin {input_mdin}")
-    tempDir = job.fileStore.getLocalTempDir()
-    
-    #make a global copy of topology and coordinate file 
-    solute_file = intermidate_args["topology"]
-    solute_filename = os.path.basename(solute_file)
-    solute = job.fileStore.readGlobalFile(solute_file,  userPath=os.path.join(tempDir, os.path.basename(solute_file)))
-    rst = job.fileStore.readGlobalFile(solute_cordinate[0], userPath=os.path.join(tempDir, os.path.basename(solute_cordinate[0])))
-    #read in intermidate mdin 
-    mdin_filename = job.fileStore.importFile("file://" + make_mdin_file(config_args, 
-                                                                        intermidate_args["conformational_restraint"], intermidate_args["solvent_turned_off"]))
-    mdin = job.fileStore.readGlobalFile(mdin_filename, userPath=os.path.join(tempDir, os.path.basename(mdin_filename)))
-    
-    if intermidate_args["charge_off"]:      
-        altered_solute_filename = job.fileStore.importFile("file://" + alter_topology_file(solute, rst, config_args, intermidate_args))
-        #solute = job.fileStore.readGlobalFile(charge_off_solute_filename,  userPath=os.path.join(tempDir, os.path.basename(charge_off_solute_filename)))
-        solute = job.fileStore.readGlobalFile(altered_solute_filename, userPath=os.path.join(tempDir, os.path.basename(altered_solute_filename)))
-    
-    if intermidate_args["conformational_restraint"]:
-        conformational_restraint = str(intermidate_args["conformational_restraint"]) 
-        job.log("CONFORMATIONAL TURN ON")
-        restraint_file = job.fileStore.importFile("file://" + write_restraint_forces(solute_filename, config_args["workDir"], intermidate_args["conformational_restraint"], intermidate_args["orientational_restraints"])) 
-        restraint_basename = os.path.basename(restraint_file)
-        job.log('restraint_freeze_file : ' + str(restraint_file))
-        restraint = job.fileStore.readGlobalFile(restraint_file, userPath=os.path.join(tempDir, restraint_basename))
-        #get output directory 
-        output_dir = get_output_dir(intermidate_args["topology"],intermidate_args["state_label"], config_args["workDir"])
-        job.log(f"output directory {output_dir}")
-        if intermidate_args["orientational_restraints"] != None:
-            conformational_restraint = intermidate_args["conformational_restraint"]
-            orientational_restraint = intermidate_args["orientational_restraints"]            
-            if not os.path.exists(output_dir + '/' + str(conformational_restraint) + '_' + str(orientational_restraint)):
-                output_dir = os.path.join(output_dir + '/'+ str(conformational_restraint) + '_' + str(orientational_restraint))
-                os.makedirs(output_dir)
-        else:
-        #make directory for specific conformational restraint force 
-            if not os.path.exists(f"{output_dir}/{conformational_restraint}"):
-                output_dir = os.path.join(f"{output_dir}/{conformational_restraint}")
-                os.makedirs(output_dir)
-                job.log(f"no orientaional restraints make output dir {output_dir}")
+    def __init__(self, executable, mpi_command, num_cores, prmtop, incrd, input_file, 
+                 restraint_file, directory_args, dirstruct="dirstruct", inptraj=None):
+        self.executable = executable
+        self.mpi_command = mpi_command
+        self.num_cores = num_cores
+        self.prmtop = prmtop
+        self.incrd = incrd
+        self.input_file = input_file
+        self.restraint_file = restraint_file
+        self.inptraj = inptraj
+        self.dirstruct = dirstruct 
+        self.directory_args = directory_args.copy()
+        self.calc_setup = False  # This means that the setup has run successfully
+        self.exec_list = [self.mpi_command]
+        #self.exec_list = []
+        self.read_files = {}
+        self._output_directory()
         
-        
-    files_in_current_directory = os.listdir(tempDir)  
-    job.log(f"files before simulations {files_in_current_directory}")
-    
-    #name restart and trajectory files 
-    solu = re.sub(r"\..*","",solute_filename)
-    message = intermidate_args["message"]
-    restart_filename = f"{message}_{solu}.rst7"
-    trajectory_filename = f"{solu}.nc"
-    
-    run_args = {'solute': solute,
-                'coordinate': rst,
-                "restart_filename": restart_filename,
-                "trajectory_filename": trajectory_filename,
-                "mdin": mdin
-                }
-    submit_job(job, config_args, run_args)
- 
-    #export files 
-    restrt_file,mdcrd_file = export_outputs(job, output_dir, files_in_current_directory)
-    job.fileStore.exportFile(solute, "file://" + os.path.abspath(os.path.join(output_dir, str(os.path.basename(solute)))))
-    job.fileStore.exportFile(restraint, "file://" + os.path.abspath(os.path.join(output_dir,"restraint.RST")))
-
-    return (restrt_file,mdcrd_file)
-    
-def run_md(job, solute_file, solute_filename, solute_rst, solute_rst_filename, output_dir, argSet, message, COM=False, input_mdin=None, work_dir= None, ligand_mask = None, receptor_mask = None, conformational_restraint = None, orientational_restraint = None, solvent_turned_off=False, charge_off = False, exculsions=False):
-    """
-    Locally run AMBER library engines for molecular dynamics
-
-    Parameters
-    ----------
-    job: toil.job.FunctionWrappingJob
-        A context manager that represents a Toil workflow
-    solute_file: toil.fileStore.FileID
-        The jobStoreFileID of the imported file is an parameter file (ex: File://tmp/path/solute.parm7)
-    solute_filename: str
-        Name of solute file (ex: solute.parm7)
-    solute_rst: toil.fileStore.FileID
-        The jobStoreFileID of the imported file being a coordinate file (ex: File://tmp/path/solute.ncrst)
-    solute_rst_filename: str
-        Name of coordinate file (ex: solute.ncrst)
-    mdin_file: toil.fileStore.FileID
-        jobStoreFileID of an imported MD input file
-    mdin_filename: str
-        Name of MD file
-    output_dir: str
-        Absolute directory path where output files would be exported into
-    state_label: int
-        A flag to denote which state/step is currently being ran
-    argSet: dict
-        Dictionary of key:values obtained from a .yaml configuration file
-    message: str
-        A unique string that will denote the type of solute. Ex receptor, ligand or complex
-
-    Returns
-    -------
-    restrt_file: toil.fileStore.FileID
-        A jobStoreFileID of a restart file created after the completion of a MD run
-
-    """
-    job.log("this is the current job running {}".format(message))
-    job.log(f"input mdin {input_mdin}")
-    tempDir = job.fileStore.getLocalTempDir()
-    if type(solute_rst_filename) == list:
-        job.log(f'the list solute complex is {solute_rst_filename}')
-        solute_rst_filename = os.path.basename(solute_rst_filename[0])
-
-    if charge_off: 
-        temp_solute_filename = job.fileStore.readGlobalFile(solute_file,  userPath=os.path.join(tempDir, solute_filename))
-        rst = job.fileStore.readGlobalFile(solute_rst[0], userPath=os.path.join(tempDir, solute_rst_filename))
-        # import ligand parmtop into temporary directory 
-        #charge_off_solute_filename = job.fileStore.importFile("file://" + turn_off_charges(temp_solute_filename, rst, ligand_mask))        
-        altered_solute_filename = job.fileStore.importFile("file://" + alter_topology_file(temp_solute_filename, rst, ligand_mask, receptor_mask, charge_off, exculsions))
-        #solute = job.fileStore.readGlobalFile(charge_off_solute_filename,  userPath=os.path.join(tempDir, os.path.basename(charge_off_solute_filename)))
-        solute = job.fileStore.readGlobalFile(altered_solute_filename, userPath=os.path.join(tempDir, os.path.basename(altered_solute_filename)))
-    else:
-        solute = job.fileStore.readGlobalFile(solute_file,  userPath=os.path.join(tempDir, solute_filename))
-        rst = job.fileStore.readGlobalFile(solute_rst[0], userPath=os.path.join(tempDir, solute_rst_filename))
-
-    if input_mdin:
-        mdin_filename  = job.fileStore.importFile(os.path.join("file://" + work_dir, input_mdin))
-        mdin = job.fileStore.readGlobalFile(mdin_filename, userPath=os.path.join(tempDir, os.path.basename(input_mdin)))
-        
-    else:
-        mdin_filename = job.fileStore.importFile("file://" + make_mdin_file(argSet, conformational_restraint, solvent_turned_off))
-        mdin = job.fileStore.readGlobalFile(mdin_filename, userPath=os.path.join(tempDir, os.path.basename(mdin_filename)))
-    
-    flat_bottom = argSet["parameters"]["flat_bottom_restraints"][0]
-    
-    if COM:
-        import_restraint = job.fileStore.importFile("file://" + copy(flat_bottom))
-        
-    elif conformational_restraint == None:
-        import_restraint =  job.fileStore.importFile("file://" + write_empty_restraint(flat_bottom))
-            
-        # restraint_file = job.fileStore.importFile("file://" + write_empty_restraint_file())
-
-        # restraint_basename = os.path.basename(restraint_file)
-        # restraint = job.fileStore.readGlobalFile( restraint_file, userPath=os.path.join(tempDir, restraint_basename))
-             
-        if not os.path.exists(output_dir + '/0'):
-            output_dir = os.path.join(output_dir + '/0')
+   
+    def _output_directory(self):
+         
+        dirs = Dirstruct("mdgb", self.directory_args, dirstruct=self.dirstruct)
+       
+        output_dir= os.path.join(working_directory,  dirs.dirStruct.fromArgs(**dirs.parameters))
+        if not os.path.exists(output_dir):
             os.makedirs(output_dir)
-
+            
+        self.output_dir = output_dir
+        #self._path2dict(dirs)
+        
     
-    elif conformational_restraint != None:
+    def _setLogging(self):
         
-        job.log("CONFORMATIONAL TURN ON")
-        restraint_file = job.fileStore.importFile("file://" + write_restraint_forces(solute_filename, work_dir, conformational_restraint, orientational_restraint)) 
-        restraint_basename = os.path.basename(restraint_file)
-        job.log('restraint_freeze_file : ' + str(restraint_file))
-        restraint = job.fileStore.readGlobalFile(restraint_file, userPath=os.path.join(tempDir, restraint_basename))
+        file_handler = logging.FileHandler(os.path.join(self.output_dir, "simulations.log"), mode="w")
+        formatter = logging.Formatter('%(asctime)s~%(levelname)s~%(message)s~module:%(module)s')
+        file_handler.setFormatter(formatter)
+        self.logger = logging.getLogger(__name__)
+        self.logger.addHandler(file_handler)
+        self.logger.setLevel(logging.DEBUG)
         
-        if orientational_restraint != None:
-            if not os.path.exists(output_dir + '/' + str(conformational_restraint) + '_' + str(orientational_restraint)):
-                output_dir = os.path.join(output_dir + '/'+ str(conformational_restraint) + '_' + str(orientational_restraint))
-                os.makedirs(output_dir)
+        return self.logger 
+
+        
+    def _mdin_restraint(self, fileStore, mdin):
+        
+        #scratch_mdin = fileStore.getLocalTempFile()
+        #scratch_restraint = fileStore.getLocalTempFile()
+        
+        restraint_file = shutil.copyfile(self.read_files["restraint_file"], 'restraint.RST')
+        
+        with open(mdin) as temp:
+            template = Template(temp.read())
+        final_template = template.substitute(
+        restraint = restraint_file)
+        
+        with open('mdin', "w") as temp_mdin:
+            temp_mdin.write(final_template)
+
+        mdin_ID = fileStore.writeGlobalFile('mdin', cleanup=True)
+        os.remove('mdin')
+        return fileStore.readGlobalFile(mdin_ID)
+    
+    
+    
+    @staticmethod
+    def export_files(fileStore, output_directory, parameter_files):
+        restart_files = []
+        traj_files = [] 
+        for root, dirs, files in os.walk(".", topdown=False):
+            for name in files:
+                if name in parameter_files:
+                    continue
+                # output_file = fileStore.writeGlobalFile(name)
+                # fileStore.export_file(output_file,"file://" + os.path.abspath(os.path.join(output_directory, os.path.basename(name))))
+                if re.match(r".*.rst7.*", name):
+                    output_file = fileStore.writeGlobalFile(name)
+                    restart_files.append(str(output_file))
+                elif re.match(r".*.nc.*", name):
+                    output_file = fileStore.writeGlobalFile(name)
+                    traj_files.append(str(output_file))
+                else:
+                    output_file = fileStore.writeGlobalFile(name, cleanup=True)
+                fileStore.export_file(output_file,"file://" + os.path.abspath(os.path.join(output_directory, os.path.basename(name))))
+        
+        fileStore.logToMaster(f"the current trajectory files {traj_files}")
+        fileStore.logToMaster(f"the restart files: {restart_files}")
+        
+        return (restart_files, traj_files)
+   
+    
+    def run(self, fileStore):
+        """ Runs the program. All command-line arguments must be set before
+            calling this method. Command-line arguments should be set in setup()
+        """
+        fileStore.logToMaster(f"the self.directory_args {self.directory_args}")
+        #self._output_directory()
+        self._setLogging()
+        self.logger.info(f"{self.directory_args['runtype']}")
+        
+        fileStore.logToMaster(f"directory args {self.directory_args}")
+        # If this has not been set up yet
+        # then raise a stink
+        if not self.calc_setup:
+            raise RuntimeError('Cannot run a calculation without calling its' +
+                            ' its setup() function!')
+        stdout=sys.stdout
+        stderr=sys.stderr
+        own_handleo = own_handlee = False
+        try:
+            process_stdout = open(stdout, 'w')
+            own_handleo = True
+        except TypeError:
+            process_stdout = stdout
+        try:
+            process_stderr = open(stderr, 'w')
+            own_handlee = True
+        except TypeError:
+            process_stderr = stderr
+        
+        
+        files_in_current_directory = os.listdir(f"{os.path.dirname(self.read_files['prmtop'])}")
+        
+        fileStore.logToMaster(f"file in current directory {files_in_current_directory}")
+        fileStore.logToMaster(f"exec_list : {self.exec_list}")
+        self.logger.info(f"The files in the current working directory: {files_in_current_directory}")
+        self.logger.info(f"executable command {self.exec_list}")
+        
+        amber_output = sp.Popen(self.exec_list, stdout=sp.PIPE, stderr=sp.PIPE)   
+    
+       
+        amber_stdout = amber_output.stdout.read().splitlines()
+        amber_stderr = amber_output.stderr.read().splitlines()
+        
+        self.logger.error(f"AMBER stdout: {amber_stdout}")
+        self.logger.error(f"AMBER stderr: {amber_stderr}")
+        
+        fileStore.logToMaster(f"amber_stdout: {amber_stdout}")
+        fileStore.logToMaster(f"amber_stderr: {amber_stderr}")
+        
+        
+        
+        #export parameter files 
+        fileStore.export_file(self.read_files["prmtop"],"file://" + os.path.abspath(os.path.join(self.output_dir, os.path.basename(self.read_files["prmtop"]))))
+        fileStore.export_file(self.read_files["restraint_file"], "file://" + os.path.abspath(os.path.join(self.output_dir, os.path.basename(self.read_files["restraint_file"]))))
+      
+        restart_ID, trajectory_ID = self.export_files(fileStore, self.output_dir, files_in_current_directory)
+        
+        return (restart_ID, trajectory_ID)
+    
+
+class Simulation(Calculation):
+    def __init__(self, executable, mpi_command, num_cores, prmtop, incrd, input_file, restraint_file, directory_args, dirstruct = 'dirstruct', inptraj=None):
+        Job.__init__(self, memory="2G", cores=num_cores, disk="3G")
+        Calculation.__init__(self, executable, mpi_command, num_cores, prmtop, incrd, input_file, restraint_file, directory_args, dirstruct=dirstruct, inptraj=inptraj)
+       
+    def setup(self):
+        """
+        Sets up the command-line arguments. Sander requires a unique restrt file
+        for the MPI version (since one is *always* written and you don't want 2
+        threads fighting to write the same dumb file)
+        """
+        if self.mpi_command == None:
+            self.exec_list.pop(0)
+        if self.num_cores == 1:
+            self.exec_list.append(re.sub(r"\..*","",self.executable))
         else:
-        #make directory for specific conformational restraint force 
-            if not os.path.exists(output_dir + '/' + str(conformational_restraint)):
-                output_dir = os.path.join(output_dir + '/'+ str(conformational_restraint))
-                os.makedirs(output_dir)
-                job.log(f"no orientaional restraints make output dir {output_dir}")
-        
-        job.fileStore.exportFile(restraint, "file://" + os.path.abspath(os.path.join(output_dir,"restraint.RST")))
-    
-    files_in_current_directory = os.listdir(tempDir)  
-    job.log(f"files before simulations {files_in_current_directory}")
-    
-    #name restart and trajectory files 
-    solu = re.sub(r"\..*","",solute_filename)
-    restart_filename = f"{message}_{solu}.rst7"
-    trajectory_filename = f"{solu}.nc"
-    
-    run_args = {'solute': solute,
-                'coordinate': rst,
-                "restart_filename": restart_filename,
-                "trajectory_filename": trajectory_filename,
-                "mdin": mdin
-                }
-    submit_job(job, argSet, run_args)
-    
-    # if argSet["parameters"]["mpi"]:
-    #     exe = argSet["parameters"]["executable"].split()
-    #     exe.append()
-    #     np = str(argSet["parameters"]["mpi"])
-    #     output = subprocess.run(["srun", "-n", np, exe, "-O", "-i", mdin, 
-    #                              "-p", solute, "-c", rst, 
-    #                              "-r",restart_filename , "-", trajectory_filename], 
-    #                             capture_output=True)
-    # else: 
-    #     exe = argSet["parameters"]["executable"]
-    #     output = subprocess.run([exe, "-O", "-i", mdin, 
-    #                              "-p", solute, "-c", rst,
-    #                              "-r",restart_filename , "-x", trajectory_filename],
-    #                             capture_output=True)
-    restrt_file,mdcrd_file = export_outputs(job, output_dir, files_in_current_directory)
-
-    
-    # mdout_filename = "mdout"
-    # mdinfo_filename = "mdinfo"
-    # restrt_filename = "restrt"
-    # mdcrd_filename = "mdcrd"
-
-
-    # mdout_file = job.fileStore.writeGlobalFile(mdout_filename)
-    # mdinfo_file = job.fileStore.writeGlobalFile(mdinfo_filename)
-    # restrt_file = job.fileStore.writeGlobalFile(restrt_filename)
-    # mdcrd_file = job.fileStore.writeGlobalFile(mdcrd_filename)
-    
-    # if conformational_restraint != None:
-    #     job.log("running current conformational restraint value : " +str(conformational_restraint))
-    #     job.log("conformational restraint mdout file: " + str(mdout_file))
-    
-    job.fileStore.exportFile(solute, "file://" + os.path.abspath(os.path.join(output_dir, str(os.path.basename(solute)))))
-    return (restrt_file,mdcrd_file)
-    # #export all files 
-    # job.fileStore.exportFile(mdin,"file://" + os.path.abspath(os.path.join(output_dir, "mdin")))
-    # job.fileStore.exportFile(mdout_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdout")))
-    # job.fileStore.exportFile(mdinfo_file, "file://" + os.path.abspath(os.path.join(output_dir, "mdinfo")))
-    # job.fileStore.exportFile(restrt_file, "file://" + os.path.abspath(os.path.join(output_dir,"restrt")))
-    # job.fileStore.exportFile(mdcrd_file, "file://" + os.path.abspath(os.path.join(output_dir,"mdcrd")))
-    
-
-
-def initilized_jobs(job, work_dir):
-    #job.log("Hello world, I have a message: {}".format(message))
-    job.log(f'initialized job, the current working directory is {work_dir}')
-
-
-def submit_job(job, arguments, run_arguments):
-    
-    system = pmd.load_file(run_arguments["solute"], run_arguments["coordinate"])
+            self.exec_list.extend(("-n", str(self.num_cores)))
+            self.exec_list.append(self.executable)
      
-    argument_list = [
-        "-O",
-        "-i", run_arguments["mdin"],
-        "-p", run_arguments["solute"], 
-        "-c", run_arguments["coordinate"], 
-        "-r",run_arguments["restart_filename"] , 
-        "-x", run_arguments["trajectory_filename"]
-    ]
-    exe = arguments["parameters"]["executable"].split()
+        solu = re.sub(r"\..*","",os.path.basename(str(self.prmtop)))
+        restart_filename = f"{solu}_{self.directory_args['filename']}_restrt"
+        trajector_filename = f"{solu}_{self.directory_args['filename']}_traj"
+        self.exec_list.append('-O')  # overwrite flag
+        self.exec_list.extend(('-i', self.read_files["mdin"]))  # input file flag
+        self.exec_list.extend(('-p', self.read_files["prmtop"]))  # prmtop flag
+        self.exec_list.extend(('-c', self.read_files["incrd"]))  # input coordinate flag
+        self.exec_list.extend(("-r", f"{restart_filename}.rst7"))
+        self.exec_list.extend(("-x", f"{trajector_filename}.nc"))
+        self.exec_list.extend(('-o', 'mdout'))  # output file flag
+        if self.inptraj is not None:
+            self.exec_list.extend(('-y', self.read_files["inptraj"]))  # input trajectory flag
+        self.calc_setup = True
     
-    if len(system.residues) > 1:
-        #exe.append("-O")
-        exe += argument_list
-        #np = str(arguments["parameters"]["mpi"])
-        output = subprocess.run(exe,capture_output=True)
-    else:
-        if bool(re.search(r"\.", arguments["parameters"]["executable"])): 
-            serial_exe = [re.sub(r"\..*","",exe[-1])]
-        else:
-            serial_exe = exe
-        #exe.append("-O")
-        serial_exe += argument_list
-        output = subprocess.run(serial_exe,capture_output=True)
-    job.log(f"the output error {output}")
-    
-def make_mdin_file(arguments, turn_on_conformational_rest, turn_off_solvent):
-    """ Creates an molecular dynamics input file
-
-    Function will fill a template and write an MD input file
-
-    Parameters
-    ----------
-    state_label: str
-        This is a placeholder to denote which state of the MD cycle
-
-    Returns
-    -------
-    mdin: str
-        Absolute path where the MD input file was created.
-    """
-    user_inputs = arguments["parameters"]["mdin_intermidate_config"]
-    mdin_path = os.path.abspath(os.path.dirname(
-                os.path.realpath(__file__)) + "/templates/mdgb.mdin")
-    
-    with open(mdin_path) as t:
-        template = Template(t.read())
-    
-    if turn_off_solvent: 
-        final_template = template.substitute(
-            nstlim=user_inputs["nstlim"],
-            ntx=1,
-            irest=0,
-            dt=user_inputs["dt"],
-            igb = 6,
-            saltcon = 0.0,
-            rgbmax=user_inputs["rgbmax"],
-            gbsa=user_inputs["gbsa"],
-            temp0=user_inputs["temp0"],
-            ntpr=user_inputs["ntpr"],
-            ntwx=user_inputs["ntwx"],
-            cut=user_inputs["cut"],
-            ntc= user_inputs["ntc"],
-            nmropt=1
-            )
+    def run(self, fileStore):
         
-    else:
+        tempDir = fileStore.getLocalTempDir()
+        """
+        Import all command line arguments into the temporary working directory 
+        """
+        
+        self.read_files["prmtop"] = fileStore.readGlobalFile(self.prmtop, userPath=os.path.join(tempDir, os.path.basename(self.prmtop)))
+        self.read_files["incrd"] = fileStore.readGlobalFile(self.incrd, userPath=os.path.join(tempDir, os.path.basename(self.incrd)))
+        self.read_files["restraint_file"] =  fileStore.readGlobalFile(self.restraint_file, userPath=os.path.join(tempDir, os.path.basename(self.restraint_file)))
+        self.read_files["input_file"] = fileStore.readGlobalFile(self.input_file, userPath=os.path.join(tempDir, os.path.basename(self.input_file)))
+        if self.inptraj is not None:
+            self.read_files["inptraj"] = fileStore.readGlobalFile(self.inptraj[0], userPath= os.path.join(tempDir, os.path.basename(self.inptraj[0])))
+        self.read_files["mdin"] = Calculation._mdin_restraint(self, fileStore, self.read_files["input_file"])
+        
+        self.setup()
+        
+        output = Calculation.run(self, fileStore)
+        
+        return output 
+
+class REMDSimulation(Calculation):
+
+
+    def __init__(self, executable, mpi_command, num_cores, prmtop, incrd, input_file, restraint_file, 
+                  runtype, ngroups, directory_args, dirstruct='dirstruct',  inptraj=None):
+        Job.__init__(self, memory="2G", cores=num_cores, disk="3G")
+        Calculation.__init__(self, executable, mpi_command, num_cores, prmtop, incrd, input_file, restraint_file, 
+                             directory_args, dirstruct=dirstruct, inptraj=None)
+        self.runtype = runtype
+        self.ng = ngroups
+        self.nthreads = num_cores
+        
+
+        
+    def _setup(self):
+        """ 
+        Sets up the REMD calculation. All it has to do is fill in the
+        necessary command-line arguments
+        """
+        
+        self.exec_list.extend(('-n', str(self.num_cores)))
+        self.exec_list.append(self.executable)
+        self.exec_list.extend(('-ng', str(self.ng)))
+        self.exec_list.extend(('-groupfile', self.read_files["groupfile"]))
+        
+        self.calc_setup = True
+       
+    def _groupfile(self,fileStore):
+        
+        scratch_file = fileStore.getLocalTempFile()
+        fileStore.logToMaster(f"self.input_file {self.input_file}")
+        #create groupfile mdin 
+        with open(scratch_file, 'w') as group:
+            for count, mdin in enumerate(self.input_file):
+                fileStore.logToMaster(f"mdin for remd {mdin}")
+                read_mdin = fileStore.readGlobalFile(mdin, userPath=os.path.join(self.tempDir, os.path.basename(mdin)))
+                local_mdin = Calculation._mdin_restraint(self, fileStore, read_mdin)
+                fileStore.logToMaster(f"local mdin {local_mdin}")
+                solu = re.sub(r"\..*", "", os.path.basename(self.prmtop))
+                
+                if self.runtype == 'equil':
+                    group.write(f'''-O -rem 0 -i {local_mdin} 
+                    -p {self.read_files["prmtop"]} -c {self.read_files["incrd"]} 
+                    -o equilibrate.mdout.{count:03} -inf equilibrate.mdinfo.{count:03}
+                    -r {solu}_equilibrate.rst7.{count:03} -x {solu}_equilibrate.nc.{count:03}'''.replace('\n', '') +"\n")
+                
+                elif self.runtype == 'remd':
+                    single_coordinate = [coordinate for coordinate in self.incrd if re.search(rf".*.rst7.{count:03}", coordinate)]
+                    read_coordinate = fileStore.readGlobalFile(single_coordinate[0], userPath=os.path.join(self.tempDir, os.path.basename(single_coordinate[0])))
+                    group.write(f'''-O -rem 1 -remlog rem.log
+                        -i {local_mdin} -p {self.read_files["prmtop"]} 
+                        -c {read_coordinate} -o remd.mdout.rep.{count:03} 
+                        -r remd.rst7.{count:03} -x remd.nc.{count:03} 
+                        -inf remd.mdinfo.{count:03}'''.replace('\n', '') +"\n")
+                
+            groupfile_ID = fileStore.writeGlobalFile(scratch_file)
+            
+        self.read_files["groupfile"] = fileStore.readGlobalFile(groupfile_ID)
+    
+    def run(self, fileStore):
+        
+        tempDir = self.tempDir
+        fileStore.logToMaster(f"self.incrd is {self.incrd}")
+        #read in parameter files 
+        self.read_files["prmtop"] = fileStore.readGlobalFile(self.prmtop, userPath=os.path.join(tempDir, os.path.basename(self.prmtop)))
+        self.read_files["restraint_file"] =  fileStore.readGlobalFile(self.restraint_file,userPath=os.path.join(tempDir, os.path.basename(self.restraint_file)))
+        # The case in running REMD possible many equilibration restart files 
+        if len(self.incrd) == 1: 
+            self.read_files["incrd"] = fileStore.readGlobalFile(self.incrd[0], userPath=os.path.join(tempDir, os.path.basename(self.incrd[0])))
+        if self.inptraj is not None:
+            self.read_files["inptraj"] = fileStore.readGlobalFile(self.inptraj, userPath= os.path.join(tempDir, os.path.basename(self.inptraj )))
+        
+        self._groupfile(fileStore)
+        
+        self._setup()
+        return Calculation.run(self, fileStore)
+
+class ExtractTrajectories(Job):
+    def __init__(self, solute_topology, trajectory_files, target_temp=0.0):
+        Job.__init__(self, memory="2G", cores=1, disk="3G")
+        self.solute_topology = solute_topology
+        self.trajectory_files = trajectory_files
+        self.target_temp = target_temp
+        self.read_trajs = []
+        
+    def run(self, fileStore):
+        temp_dir = fileStore.getLocalTempDir()
+        self.read_solute = fileStore.readGlobalFile(self.solute_topology,  userPath=os.path.join(temp_dir, os.path.basename(self.solute_topology)))
+        
+        #extract target temperture in REMD trajectories 
+        if self.target_temp != 0.0:
+
+            for traj_file in self.trajectory_files:
+                self.read_trajs.append(fileStore.readGlobalFile(traj_file, userPath=os.path.join(temp_dir, os.path.basename(traj_file))))
+            
+            write_bash_script = fileStore.writeGlobalFile(self.bash_script)
+            read_bash_script = fileStore.readGlobalFile(write_bash_script, userPath=os.path.join(temp_dir, os.path.basename(write_bash_script)))
+            fileStore.logToMaster(f"read bash {read_bash_script}")
+            #extract trajectories at target temperature 
+            #extract_target_temp_traj = self.run_bash(read_bash_script, fileStore)
+            solute_traj = self.run_bash(read_bash_script, fileStore)
+            read_target_traj = fileStore.readGlobalFile(solute_traj, userPath=os.path.join(temp_dir, os.path.basename(solute_traj)))
+        #user provided there one endstate trajectory
+        else:
+            read_target_traj = fileStore.readGlobalFile(self.trajectory_files, userPath=os.path.join(temp_dir, os.path.basename(self.trajectory_files)))
+            solute_traj = self.trajectory_files
+            
+        solu = re.sub(r"\..*", "", os.path.basename(self.read_solute))
+        lastframe = f"{solu}_{self.target_temp}K_lastframe.ncrst"
+        lastframe_rst7 = f"{solu}_{self.target_temp}K_lastframe.rst7"
+
+        #get the last frame at the target temperature 
+        sp.run(['cpptraj', '-p', self.read_solute , '-y', read_target_traj, '-ya', 'lastframe','-x', lastframe])
+        sp.run(['cpptraj', '-p', self.read_solute , '-y', lastframe, '-x', lastframe_rst7], 
+                            capture_output=True)
+        sp.run(['cpptraj', '-p', self.read_solute, '-y', lastframe_rst7, '-x', lastframe],
+                            capture_output=True)
+                
+        final_ncrst_frame = fileStore.writeGlobalFile(lastframe)
+        final_rst7_frame = fileStore.writeGlobalFile(lastframe_rst7)
+       
+
+        return (solute_traj, final_ncrst_frame, final_rst7_frame)
+        
+    def run_bash(self, bash_script, fileStore):
+        current_files = os.listdir()
+        output = sp.run(["bash", bash_script], capture_output=True)
+        for file in os.listdir():
+            if file not in current_files:
+                output_file = fileStore.writeGlobalFile(file)
+    
+        return output_file
+    @property
+    def bash_script(self):
+        #initial starting frame trajectory_name.nc.000    
+        initial_coordinate = list(filter(lambda coordinate: re.match(r".*\.nc.000", coordinate), self.read_trajs))
+        
+        bash_script = os.path.abspath(os.path.dirname(
+            os.path.realpath(__file__)) + "/templates/cpptraj_remd.sh")
+        with open(bash_script) as t:
+            template = Template(t.read())
+        
+        solu = re.sub(r"\..*", "", os.path.basename(self.solute_topology))
+        output_trajectory_filename = f"{solu}_{self.target_temp}K"
+        
         final_template = template.substitute(
-            nstlim=user_inputs["nstlim"],
-            ntx=1,
-            irest=0,
-            dt=user_inputs["dt"],
-            igb =user_inputs["igb"],
-            saltcon =user_inputs["saltcon"],
-            rgbmax=user_inputs["rgbmax"],
-            gbsa=user_inputs["gbsa"],
-            temp0=user_inputs["temp0"],
-            ntpr=user_inputs["ntpr"],
-            ntwx=user_inputs["ntwx"],
-            cut=user_inputs["cut"],
-            ntc= user_inputs["ntc"],
-            nmropt=1
-            )
+            solute = self.read_solute,
+            trajectory = initial_coordinate[0],
+            target_temperature = self.target_temp,
+            temperature_traj = output_trajectory_filename,
+        )
+        with open(f"{solu}_cpptraj_extract_{self.target_temp}K.x", "w") as output:
+            output.write(final_template)
+       
 
+        return os.path.abspath(f"{solu}_cpptraj_extract_{self.target_temp}K.x")
 
-    with open('mdin', "w") as output:
-        output.write(final_template)
-    return os.path.abspath('mdin')
+def write_mdin(job, mdin_type):
+    
+    tempdir = job.fileStore.getLocalTempDir()
+    
+    mdin_path = "/home/ayoub/nas0/Impicit-Solvent-DDM/implicit_solvent_ddm/templates/min.mdin"
+    
+    mdin_import = job.fileStore.import_file("file://" + mdin_path)
+    
+    return mdin_import
+
+def write_empty_restraint(job)->str:
+    
+    scratch_file = job.fileStore.getLocalTempFile()
+
+    with open(scratch_file, 'w') as rest:
+        rest.write("")
+   
+    return job.fileStore.writeGlobalFile(scratch_file)
+ 
+def workflow(job:FunctionWrappingJob, parm_file, coord_files):
+    
+    # mdin = job.addChildJobFn(write_mdin, 'min')
+    # restriant_file = job.addFollowOnJobFn(write_empty_restraint)
+    #return mdin.rv()
+    # output = restriant_file.addFollowOn(Simulation(executable='sander', mpi_command='srun', prmtop=parm_file, incrd=coord_file, 
+    #                                                input_file=mdin.rv(), num_cores=1, restraint_file=restriant_file.rv(),
+    #                                                directory_args={"solute": parm_file, "state_label": 5,}))
+    output = job.addChild(ExtractTrajectories(parm_file, coord_files, 300.0))
+if __name__ == "__main__":
+    
+    options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
+    options.logLevel = "INFO"
+    options.clean = "always"
+    ligand_trajs = []
+    #cb7 =os.path.abspath("structs/complex/cb7-mol01.parm7")
+    #traj = pt.load("inputs/M01_000_minimization.rst7", "inputs/M01_000.parm7")
+    with Toil(options) as toil:
+        ligand_prmtop = toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/output_directory/inputs/M01_000.parm7"))
+        ligand_trajs.append(toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/mdgb/remd/M01_000/remd.nc.000")))
+        ligand_trajs.append(toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/mdgb/remd/M01_000/remd.nc.001")))
+        ligand_trajs.append(toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/mdgb/remd/M01_000/remd.nc.002")))
+        ligand_trajs.append(toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/mdgb/remd/M01_000/remd.nc.003")))
+        print(toil.start(Job.wrapJobFn(workflow, ligand_prmtop, ligand_trajs)))   
+    
