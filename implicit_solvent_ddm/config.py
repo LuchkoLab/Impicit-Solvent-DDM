@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import List, Optional, Type
 
@@ -14,8 +15,6 @@ class Workflow:
     add_ligand_conformational_restraints: bool = True
     remove_GB_solvent_ligand: bool = True
     remove_ligand_charges: bool = True
-    add_receptor_lambda_windows: bool = True
-    remove_GB_solvent_receptor: bool = True
     complex_ligand_exclusions: bool = True
     complex_turn_off_exclusions: bool = True
     complex_turn_on_ligand_charges: bool = True
@@ -30,16 +29,14 @@ class Workflow:
         
     
     @classmethod
-    def update_worflow(cls: Type["Workflow"], system: str, run_endstate: bool):
+    def update_workflow(cls: Type["Workflow"], system: str, run_endstate: bool):
         
         if system == 'ligand':
             return cls(
                 setup_workflow = False, 
                 end_state_postprocess = run_endstate,
                 run_endstate_method = False, 
-                add_receptor_lambda_windows= False, 
                 ignore_receptor = True,
-                remove_GB_solvent_receptor = False, 
                 complex_ligand_exclusions = False, 
                 complex_turn_off_exclusions = False, 
                 complex_turn_on_ligand_charges = False, 
@@ -66,8 +63,6 @@ class Workflow:
                 add_ligand_conformational_restraints = False,
                 remove_GB_solvent_ligand = False,
                 remove_ligand_charges  = False,
-                add_receptor_lambda_windows  = False,
-                remove_GB_solvent_receptor  = False,
                 ignore_receptor = True,
                 )
         else:
@@ -224,7 +219,13 @@ class Config:
     
     def __post_init__(self):
         self._config_sanitity_check()
-
+        
+        #if endstate_method_type =0 don't run any endstate calculations 
+        if self.endstate_method.endstate_method_type == 0:
+            self.workflow.run_endstate_method = False 
+            
+        
+           
     def _config_sanitity_check(self):
         pass
     
@@ -298,8 +299,12 @@ if __name__ == "__main__":
         config = yaml.safe_load(fH)
     config_object = Config.from_config(config)
     
-    print(config_object.intermidate_args.conformational_restraints_forces)
-    print(config_object.intermidate_args.exponent_conformational_forces)
+   
+    for con_force in config_object.intermidate_args.conformational_restraints_forces:
+        
+        print(con_force)
+    # print(new_workflow)
+    # print(config_object.workflow)
     # import yaml
     # options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     # options.logLevel = "INFO"
