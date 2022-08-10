@@ -24,8 +24,7 @@ from implicit_solvent_ddm.mdin import get_mdins
 # from mdin import get_mdins
 # from implicit_solvent_ddm.mdin import get_mdins
 # from postTreatment import PostTreatment, create_mdout_dataframe
-from implicit_solvent_ddm.postTreatment import (PostTreatment,
-                                                create_mdout_dataframe)
+from implicit_solvent_ddm.postTreatment import create_mdout_dataframe
 from implicit_solvent_ddm.restraints import (get_conformational_restraints,
                                              get_flat_bottom_restraints,
                                              get_orientational_restraints,
