@@ -25,7 +25,7 @@ class PostTreatment:
     JOULES_PER_KCAL= 4184
     kt_conversion = 1/(((BOLTZMAN*(AVAGADRO))/JOULES_PER_KCAL)*TEMP)
     
-    def __init__(self, data_list: list[list[pd.DataFrame]], restraint_filename: str) -> None:
+    def __init__(self, data_list: List[List[pd.DataFrame]], restraint_filename: str) -> None:
         
         self.restraint_filename = restraint_filename
         self.data_list = data_list
