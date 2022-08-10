@@ -1056,8 +1056,8 @@ def ddm_workflow(
     return ligand_df, receptor_df, complex_df, orientational_restraints.rv(1)
 
 
-def run_post_process(job, sims) -> list[pd.DataFrame]:
-
+def run_post_process(job, sims):
+    #->list[pd.DataFrame]
     output_data = []
     for sim in sims:
         output_sims = job.addChild(sim)
