@@ -97,7 +97,7 @@
         "replace"  : "\\1"
 	},
 	{
-		"variable" : "trajectory_restraint",
+		"variable" : "trajectory_restraint_conrest",
 		"format"   : "s",
 	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
         "replace"  : "\\1"

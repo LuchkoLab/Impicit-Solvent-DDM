@@ -107,15 +107,15 @@ def test_completed_workflow(get_mdouts):
 # check complex parameter potential that host and guest have no interactions and ligand charge = 0 
 def test_complex_exclusions_no_charge(load_exclusions_no_charge):
     
-    output_solute_traj = get_output_file('mdgb/cb7-mol01/7/')
+    output_solute_traj = get_output_file('mdgb/cb7-mol01/no_interactions/')
     assert_exclusions_charges(output_solute_traj, load_exclusions_no_charge)
 
 def test_complex_no_charge_no_gb(load_no_charge_topology):
     
-    output_solute_traj = get_output_file('mdgb/cb7-mol01/7a/') 
+    output_solute_traj = get_output_file('mdgb/cb7-mol01/interactions/') 
     assert_exclusions_charges(output_solute_traj, load_no_charge_topology)
 
-@pytest.mark.parametrize('no_igb_path', ["mdgb/M01_000/4/", "mdgb/M01_000/5/", "mdgb/CB7_000/4/", "mdgb/cb7-mol01/7", "mdgb/cb7-mol01/7a", "mdgb/cb7-mol01/7b"])
+@pytest.mark.parametrize('no_igb_path', ["mdgb/M01_000/no_charges/", "mdgb/M01_000/no_gb/", "mdgb/CB7_000/no_gb/", "mdgb/cb7-mol01/no_interactions/", "mdgb/cb7-mol01/interactions/", "mdgb/electrostatics/"])
 def test_no_solvent_complex(no_igb_path):
     for root, dirs, files in os.walk(no_igb_path):
         no_igb = False 
