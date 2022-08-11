@@ -164,12 +164,12 @@ def ddm_workflow(
                         },
                     )
                 )
-
+                #config.endstate_method.remd_args.nthreads
                 equilibrate_complex = minimization_complex.addFollowOn(
                     REMDSimulation(
                         config.system_settings.executable,
                         config.system_settings.mpi_command,
-                        config.endstate_method.remd_args.nthreads,
+                        config.endstate_method.remd_args.nthreads_complex,
                         config.endstate_files.complex_parameter_filename,
                         minimization_complex.rv(0),
                         config.endstate_method.remd_args.equilibration_replica_mdins,
@@ -187,7 +187,7 @@ def ddm_workflow(
                     REMDSimulation(
                         config.system_settings.executable,
                         config.system_settings.mpi_command,
-                        config.endstate_method.remd_args.nthreads,
+                        config.endstate_method.remd_args.nthreads_complex,
                         config.endstate_files.complex_parameter_filename,
                         equilibrate_complex.rv(0),
                         config.endstate_method.remd_args.remd_mdins,
@@ -234,7 +234,7 @@ def ddm_workflow(
                     REMDSimulation(
                         config.system_settings.executable,
                         config.system_settings.mpi_command,
-                        config.endstate_method.remd_args.nthreads,
+                        config.endstate_method.remd_args.nthreads_ligand,
                         config.endstate_files.ligand_parameter_filename,
                         minimization_ligand.rv(0),
                         config.endstate_method.remd_args.equilibration_replica_mdins,
@@ -252,7 +252,7 @@ def ddm_workflow(
                     REMDSimulation(
                         config.system_settings.executable,
                         config.system_settings.mpi_command,
-                        config.endstate_method.remd_args.nthreads,
+                        config.endstate_method.remd_args.nthreads_ligand,
                         config.endstate_files.ligand_parameter_filename,
                         equilibrate_ligand.rv(0),
                         config.endstate_method.remd_args.remd_mdins,
@@ -298,7 +298,7 @@ def ddm_workflow(
                         REMDSimulation(
                             config.system_settings.executable,
                             config.system_settings.mpi_command,
-                            config.endstate_method.remd_args.nthreads,
+                            config.endstate_method.remd_args.nthreads_receptor,
                             config.endstate_files.receptor_parameter_filename,
                             minimization_receptor.rv(0),
                             config.endstate_method.remd_args.equilibration_replica_mdins,
@@ -316,7 +316,7 @@ def ddm_workflow(
                         REMDSimulation(
                             config.system_settings.executable,
                             config.system_settings.mpi_command,
-                            config.endstate_method.remd_args.nthreads,
+                            config.endstate_method.remd_args.nthreads_receptor,
                             config.endstate_files.receptor_parameter_filename,
                             equilibrate_receptor.rv(0),
                             config.endstate_method.remd_args.remd_mdins,

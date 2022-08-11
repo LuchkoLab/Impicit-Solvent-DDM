@@ -125,20 +125,29 @@ class AmberMasks:
 @dataclass
 class REMD:
     ngroups: int = 0
-    nthreads: int = 0
     target_temperature: float = 0.0 
     equilibration_replica_mdins: List[str] = field(default_factory=list)
     remd_mdins: List[str]  = field(default_factory=list)
+    nthreads_complex: int = 0
+    nthreads_receptor: int = 0
+    nthreads_ligand: int = 0
+    # nthreads: int = 0
     
-    
+    def  __post_init__(self):
+        
+        if len(self.equilibration_replica_mdins) != len(self.remd_mdins):
+            raise RuntimeError(f"The size of {self.equilibration_replica_mdins} and {self.remd_mdins} do not match: {len(self.equilibration_replica_mdins)} | {len(self.remd_mdins)}")
+        
     @classmethod
     def from_config(cls: Type["REMD"], obj:dict):
         return cls(
-            nthreads = obj["endstate_arguments"]["nthreads"],
             ngroups = obj["endstate_arguments"]["ngroups"],
             target_temperature = obj["endstate_arguments"]["target_temperature"],
             equilibration_replica_mdins = obj["endstate_arguments"]["equilibration_replica_mdins"],
-            remd_mdins = obj["endstate_arguments"]["remd_mdins"]
+            remd_mdins = obj["endstate_arguments"]["remd_mdins"],
+            nthreads_complex = obj["endstate_arguments"]["nthreads_complex"],
+            nthreads_receptor=obj["endstate_arguments"]["nthreads_receptor"],
+            nthreads_ligand=obj["endstate_arguments"]["nthreads_ligand"]
             )
 
 @dataclass
@@ -300,9 +309,7 @@ if __name__ == "__main__":
     config_object = Config.from_config(config)
     
    
-    for con_force in config_object.intermidate_args.conformational_restraints_forces:
-        
-        print(con_force)
+    print(config_object.endstate_method.remd_args)
     # print(new_workflow)
     # print(config_object.workflow)
     # import yaml
