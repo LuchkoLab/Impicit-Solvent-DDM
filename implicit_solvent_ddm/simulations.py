@@ -347,8 +347,15 @@ class ExtractTrajectories(Job):
                 
         final_ncrst_frame = fileStore.writeGlobalFile(lastframe)
         final_rst7_frame = fileStore.writeGlobalFile(lastframe_rst7)
+        
+        output_path = os.path.join(working_directory, "mdgb/temp_extract_trajectories")
+        if not os.path.exists(output_path):
+            os.mkdir(output_path)
        
-
+        fileStore.export_file(solute_traj,"file://" + os.path.abspath(os.path.join(output_path, os.path.basename(solute_traj))))
+        fileStore.export_file(final_ncrst_frame, "file://" + os.path.abspath(os.path.join(output_path, os.path.basename(final_ncrst_frame))))
+        fileStore.export_file(final_rst7_frame, "file://" + os.path.abspath(os.path.join(output_path, os.path.basename(final_rst7_frame))))
+        
         return (solute_traj, final_ncrst_frame, final_rst7_frame)
         
     def run_bash(self, bash_script, fileStore):
@@ -411,7 +418,7 @@ def workflow(job:FunctionWrappingJob, parm_file, coord_files):
     # output = restriant_file.addFollowOn(Simulation(executable='sander', mpi_command='srun', prmtop=parm_file, incrd=coord_file, 
     #                                                input_file=mdin.rv(), num_cores=1, restraint_file=restriant_file.rv(),
     #                                                directory_args={"solute": parm_file, "state_label": 5,}))
-    output = job.addChild(ExtractTrajectories(parm_file, coord_files, 300.0))
+    output = job.addChild(ExtractTrajectories(parm_file, coord_files[0]))
 if __name__ == "__main__":
     
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
@@ -422,9 +429,9 @@ if __name__ == "__main__":
     #traj = pt.load("inputs/M01_000_minimization.rst7", "inputs/M01_000.parm7")
     with Toil(options) as toil:
         ligand_prmtop = toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/output_directory/inputs/M01_000.parm7"))
-        ligand_trajs.append(toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/mdgb/remd/M01_000/remd.nc.000")))
-        ligand_trajs.append(toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/mdgb/remd/M01_000/remd.nc.001")))
-        ligand_trajs.append(toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/mdgb/remd/M01_000/remd.nc.002")))
-        ligand_trajs.append(toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/mdgb/remd/M01_000/remd.nc.003")))
+        ligand_trajs.append(toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/success_postprocess/mdgb/remd/M01_000/remd.nc.000")))
+        ligand_trajs.append(toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/success_postprocess/mdgb/remd/M01_000/remd.nc.001")))
+        ligand_trajs.append(toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/success_postprocess/mdgb/remd/M01_000/remd.nc.002")))
+        ligand_trajs.append(toil.import_file("file://" + os.path.abspath("/nas0/ayoub/Impicit-Solvent-DDM/success_postprocess/mdgb/remd/M01_000/remd.nc.003")))
         print(toil.start(Job.wrapJobFn(workflow, ligand_prmtop, ligand_trajs)))   
     

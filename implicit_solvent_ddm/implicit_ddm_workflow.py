@@ -1089,7 +1089,7 @@ def main():
     )
     options = parser.parse_args()
     options.logLevel = "INFO"
-    options.clean = "always"
+    options.clean = "never"
     config_file = options.config_file[0]
     ignore_receptor = options.ignore_receptor
     # options = Job.Runner.getDefaultOptions("./toilWorkflowRun")

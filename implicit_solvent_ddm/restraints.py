@@ -410,23 +410,23 @@ def get_orientational_restraints(
 
     if restraint_type == 1:
         # find atom closest to ligand's CoM and relevand information
-        ligand_suba1, lig_a1_coords, dist_liga1_com = distance_btw_center_of_mass(
+        ligand_suba1, lig_a1_coords, dist_liga1_com = screen_for_distance_restraints(ligand.n_atoms, 
             ligand_com, ligand
         )
         ligand_a1 = receptor.n_atoms + ligand_suba1
         dist_liga1_com = distance_calculator(lig_a1_coords, ligand_com)
-        receptor_a1, rec_a1_coords, dist_reca1_com = distance_btw_center_of_mass(
+        receptor_a1, rec_a1_coords, dist_reca1_com = screen_for_distance_restraints(receptor.n_atoms,
              receptor_com, receptor
         )
         dist_rest = distance_calculator(lig_a1_coords, rec_a1_coords)
 
     elif restraint_type == 2:
         # find atom closest to ligand's CoM and relevand information
-        ligand_suba1, lig_a1_coords, dist_liga1_com = distance_btw_center_of_mass(
+        ligand_suba1, lig_a1_coords, dist_liga1_com = screen_for_distance_restraints(ligand.n_atoms,
             ligand_com, ligand
         )
         ligand_a1 = receptor.n_atoms + ligand_suba1
-        receptor_a1, rec_a1_coords, dist_rest = distance_btw_center_of_mass(
+        receptor_a1, rec_a1_coords, dist_rest = screen_for_distance_restraints(receptor.n_atoms,
             lig_a1_coords, receptor
         )
 
@@ -504,27 +504,10 @@ def get_orientational_restraints(
     ) = refactor_screen_arrays_for_angle_restraints(
         rec_a1_coords, lig_a1_coords, receptor, parmed_traj
     )
-    # (
-    #     receptor_a2,
-    #     receptor_atom2_name,
-    #     rec_a2_coords,
-    #     dist_reca2_a3,
-    #     dist_reca1_a2,
-    #     rec_angle1,
-    #     rec_angle2,
-    #     rec_torsion,
-    #     receptor_a3,
-    #     receptor_atom3_name,
-    #     rec_a3_coords,
-    # ) = screen_arrays_for_angle_restraints(
-    #     rec_a1_coords, lig_a1_coords, receptor, parmed_traj, traj_complex
-    # )
-
-    # calculate torsion restraint inside receptor
+   
     central_torsion = wikicalculate_dihedral_angle(
-        rec_a2_coords, rec_a1_coords, lig_a1_coords, lig_a2_coords
-    )
-    # write an orientional string template for .RST file
+        rec_a2_coords, rec_a1_coords, lig_a1_coords, lig_a2_coords)
+    
     orientaional_conformational_template = orientational_restraints_template(
         receptor_a3,
         receptor_a2,
@@ -665,7 +648,8 @@ def distance_btw_center_of_mass(com, mol):
     atom_chosen = ignore_protons[np.argmin(distances)]
     selected_atom_parmindex = atom_chosen.index + 1
     selected_atom_position = all_atom_coords[atom_chosen.index]
-
+    selected_atom_position = np.array([selected_atom_position])
+    
     print("--- %s seconds ---" % (time.time() - start_time))
     return selected_atom_parmindex, selected_atom_position, shortest_distance
 
@@ -1346,87 +1330,43 @@ if __name__ == "__main__":
     ligand_com = pt.center_of_mass(ligand)
     receptor_com = pt.center_of_mass(receptor)
 
-    # ligand_selected_atom_parmindex,ligand_selected_atom_position, receptor_selected_atom_parmindex, receptor_selected_atom_position, shortest_distance=screen_for_shortest_distant_restraint(receptor, ligand)
-    # print("distance btw molecules")
-    # print("ligand_selected_atom_parmindex,ligand_selected_atom_position, receptor_selected_atom_parmindex, receptor_selected_atom_position, shortest_distance")
-    # print(ligand_selected_atom_parmindex,ligand_selected_atom_position, receptor_selected_atom_parmindex, receptor_selected_atom_position, shortest_distance)
-    # print("-"*80)
-    # ligand_selected_atom_parmindex,ligand_selected_atom_position, receptor_selected_atom_parmindex, receptor_selected_atom_position, shortest_distance=shortest_distance_between_molecules(receptor, ligand)
-    # print("refactor between molecules")
-    # print("ligand_selected_atom_parmindex,ligand_selected_atom_position, receptor_selected_atom_parmindex, receptor_selected_atom_position, shortest_distance")
-    # print(ligand_selected_atom_parmindex,ligand_selected_atom_position, receptor_selected_atom_parmindex, receptor_selected_atom_position, shortest_distance)
-    # print('Barton screen_arrays_for_angle_restraints\n')
-    # ligand_suba2, ligand_atom2_name,  lig_a2_coords, dist_liga2_a3, dist_liga1_a2, lig_angle1, lig_angle2, lig_torsion, ligand_suba3, ligand_atom3_name, lig_a3_coords = screen_arrays_for_angle_restraints(lig_a1_coords, rec_a1_coords, ligand, parmed_traj, traj)
-    (
-            ligand_suba1,
-            lig_a1_coords,
-            receptor_a1,
-            rec_a1_coords,
-            dist_rest,
-        ) = shortest_distance_between_molecules(receptor, ligand)
     
-    print("*"*80)
-    # (
-    #     ligand_suba2,
-    #     ligand_atom2_name,
-    #     lig_a2_coords,
-    #     dist_liga2_a3,
-    #     dist_liga1_a2,
-    #     lig_angle1,
-    #     lig_angle2,
-    #     lig_torsion,
-    #     ligand_suba3,
-    # ) = refactor_screen_arrays_for_angle_restraints(lig_a1_coords, rec_a1_coords, ligand, parmed_traj)
-
-
-    # print('refactor screen_arrays_for_angle_restraints ')
-    # print("ligand_suba2, ligand_atom2_name, lig_a2_coords, dist_liga2_a3,dist_liga1_a2,lig_angle1,lig_angle2,lig_torsion,ligand_suba3,")
-    # print(ligand_suba2, ligand_atom2_name, lig_a2_coords, dist_liga2_a3,dist_liga1_a2,lig_angle1,lig_angle2,lig_torsion,ligand_suba3,)
-    # print("-"*80)
+    # find atom closest to ligand's CoM and relevand information
+    # ligand_suba1, lig_a1_coords, dist_liga1_com = distance_btw_center_of_mass(
+    #     ligand_com, ligand
+    # )
+    # ligand_a1 = receptor.n_atoms + ligand_suba1
+    # receptor_a1, rec_a1_coords, dist_rest = distance_btw_center_of_mass(
+    #     lig_a1_coords, receptor
+    # )
     
-    # (
-    #     receptor_a2,
-    #     receptor_atom2_name,
-    #     rec_a2_coords,
-    #     dist_reca2_a3,
-    #     dist_reca1_a2,
-    #     rec_angle1,
-    #     rec_angle2,
-    #     rec_torsion,
-    #     receptor_a3,
-    #     receptor_atom3_name,
-    #     rec_a3_coords,
-    # ) = screen_arrays_for_angle_restraints(
-    #     lig_a1_coords, rec_a1_coords, ligand, parmed_traj, traj)
-    # print('refactor screen_arrays_for_angle_restraints ')
-    # print("receptor_a2,receptor_atom2_name,rec_a2_coords, dist_reca2_a3, dist_reca1_a2,rec_angle1,rec_angle2,rec_torsion,receptor_a3, receptor_atom3_name,rec_a3_coords,")
-    # print(receptor_a2,receptor_atom2_name,rec_a2_coords, dist_reca2_a3, dist_reca1_a2,rec_angle1,rec_angle2,rec_torsion,receptor_a3, receptor_atom3_name,rec_a3_coords,)
+    # print("*"*80)
+    # print("ligand_suba1, lig_a1_coords, dist_liga1_com")
+    # print(ligand_suba1, lig_a1_coords, dist_liga1_com)
+    # print("receptor_a1, rec_a1_coords, dist_rest")
+    # print(receptor_a1, rec_a1_coords, dist_rest)
     
-    
-    (
-        receptor_a2,
-        receptor_atom2_name,
-        rec_a2_coords,
-        dist_reca2_a3,
-        dist_reca1_a2,
-        rec_angle1,
-        rec_angle2,
-        rec_torsion,
-        receptor_a3,
-        receptor_atom3_name,
-        rec_a3_coords,
-    ) = screen_arrays_for_angle_restraints(
-        rec_a1_coords, lig_a1_coords, receptor, parmed_traj, traj
+    ligand_suba1, lig_a1_coords, dist_liga1_com = screen_for_distance_restraints(ligand.n_atoms,
+        ligand_com, ligand
     )
-    print('no refactor')
-    print("receptor_a2,receptor_atom2_name,rec_a2_coords, dist_reca2_a3, dist_reca1_a2,rec_angle1,rec_angle2,rec_torsion,receptor_a3, receptor_atom3_name,rec_a3_coords,")
-    print(receptor_a2,receptor_atom2_name,rec_a2_coords, dist_reca2_a3, dist_reca1_a2,rec_angle1,rec_angle2,rec_torsion,receptor_a3, receptor_atom3_name,rec_a3_coords)
-    print("-"*80)
+    receptor_a1, rec_a1_coords, dist_rest = screen_for_distance_restraints(receptor.n_atoms,
+        lig_a1_coords, receptor
+    )
+    # print("-"*80)
+    # print("ligand_suba1, lig_a1_coords, dist_liga1_com")
+    # print(ligand_suba1, lig_a1_coords, dist_liga1_com)
+    # print("receptor_a1, rec_a1_coords, dist_rest")
     
-    
+    # (
+    #         ligand_suba1,
+    #         lig_a1_coords,
+    #         receptor_a1,
+    #         rec_a1_coords,
+    #         dist_rest,
+    #     ) = shortest_distance_between_molecules(receptor, ligand)
+
     (
         ligand_suba2,
-        ligand_atom2_name,
         lig_a2_coords,
         dist_liga2_a3,
         dist_liga1_a2,
@@ -1434,7 +1374,9 @@ if __name__ == "__main__":
         lig_angle2,
         lig_torsion,
         ligand_suba3,
-    ) = refactor_screen_arrays_for_angle_restraints(rec_a1_coords, lig_a1_coords, receptor, parmed_traj)
-    print('refactor screen_arrays_for_angle_restraints ')
-    print("ligand_suba2, ligand_atom2_name, lig_a2_coords, dist_liga2_a3,dist_liga1_a2,lig_angle1,lig_angle2,lig_torsion,ligand_suba3,")
-    print(ligand_suba2, ligand_atom2_name, lig_a2_coords, dist_liga2_a3,dist_liga1_a2,lig_angle1,lig_angle2,lig_torsion,ligand_suba3,)
+        lig_a3_coords,
+    ) = refactor_screen_arrays_for_angle_restraints(
+        lig_a1_coords, rec_a1_coords, ligand, parmed_traj)
+
+
+    
