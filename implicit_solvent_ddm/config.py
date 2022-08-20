@@ -1,10 +1,11 @@
 import os
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import List, Optional, Type
+from typing import List, Optional, Type, Union
 
 import numpy as np
 import pytraj as pt
+import yaml
 
 
 @dataclass 
@@ -74,7 +75,8 @@ class SystemSettings:
     mpi_command: str
     working_directory: str = 'no set' 
     CUDA: bool = field(default=False)
-    
+    memory: Optional[Union[int, str]] = field(default="10G")
+    disk: Optional[Union[int, str]] = field(default="10G")
     @classmethod
     def from_config(cls: Type["SystemSettings"], obj:dict):
         return cls(**obj)
@@ -185,11 +187,12 @@ class IntermidateStatesArgs:
     exponent_orientational_forces: List[float]
     restraint_type: int 
     igb_solvent: int 
+    mdin_intermidate_config: str 
     conformational_restraints_forces: np.ndarray = field(init=False)
     orientational_restriant_forces: np.ndarray = field(init=False)
     max_conformational_restraint: float = field(init=False)
     max_orientational_restraint: float = field(init=False)
-    mdin_intermidate_config: str 
+   
     
     def __post_init__(self):
         
@@ -199,7 +202,10 @@ class IntermidateStatesArgs:
         self.max_conformational_restraint = max(self.conformational_restraints_forces)
         self.max_orientational_restraint = max(self.orientational_restriant_forces)
         self.mdin_intermidate_config = os.path.abspath(self.mdin_intermidate_config)
-    
+
+        with open(self.mdin_intermidate_config) as mdin_args:
+            self.mdin_intermidate_config = yaml.safe_load(mdin_args)
+        
     @classmethod
     def from_config(cls: Type["IntermidateStatesArgs"], obj:dict):
         return cls(**obj)   
@@ -233,7 +239,8 @@ class Config:
         if self.endstate_method.endstate_method_type == 0:
             self.workflow.run_endstate_method = False 
             
-        
+            if self.endstate_files.ligand_parameter_filename == 'ligand_parm':
+                raise ValueError(f"user specified no endstate simulation but did not provided ligand_parameter_filename/coordinate file")
            
     def _config_sanitity_check(self):
         pass
@@ -287,16 +294,17 @@ class Config:
         self.endstate_files.ligand_parameter_filename = os.path.abspath(f"{ligand_name}_{file_number:03}.parm7")
         self.endstate_files.ligand_coordinate_filename = os.path.abspath(f"{ligand_name}_{file_number:03}.ncrst.1")
         
-        
-        if os.path.exists(f"{receptor_name}_{0:03}.parm7"):
-            if not self.ignore_receptor:
-                self.ignore_receptor = True
-            self.endstate_files.receptor_parameter_filename = f"{receptor_name}_{0:03}.parm7"
+        file_number = 0
+        while os.path.exists(f"{receptor_name}_{file_number:03}.parm7"):
+            file_number +=1
+        # if os.path.exists(f"{receptor_name}_{0:03}.parm7"):
+        if  self.ignore_receptor:
+            self.endstate_files.receptor_parameter_filename = f"{receptor_name}_{file_number:03}.parm7"
         else:
-            pt.write_parm(f"{receptor_name}_{0:03}.parm7",receptor.top)
-            pt.write_traj(f"{receptor_name}_{0:03}.ncrst",receptor)
-            self.endstate_files.receptor_parameter_filename = os.path.abspath(f"{receptor_name}_{0:03}.parm7")
-            self.endstate_files.receptor_coordinate_filename = os.path.abspath(f"{receptor_name}_{0:03}.ncrst.1")
+            pt.write_parm(f"{receptor_name}_{file_number:03}.parm7",receptor.top)
+            pt.write_traj(f"{receptor_name}_{file_number:03}.ncrst",receptor)
+            self.endstate_files.receptor_parameter_filename = os.path.abspath(f"{receptor_name}_{file_number:03}.parm7")
+            self.endstate_files.receptor_coordinate_filename = os.path.abspath(f"{receptor_name}_{file_number:03}.ncrst.1")
 
 def workflow(job, config:Config):
     
@@ -304,12 +312,14 @@ def workflow(job, config:Config):
 
 if __name__ == "__main__":
     import yaml
-    with open("/home/ayoub/nas0/Impicit-Solvent-DDM/new_workflow.yaml") as fH:
+    with open("implicit_solvent_ddm/tests/input_files/config.yaml") as fH:
         config = yaml.safe_load(fH)
     config_object = Config.from_config(config)
-    
+    print(config_object.system_settings.memory)
+    print(config_object.system_settings.disk)
    
     print(config_object.endstate_method.remd_args)
+    print(config_object.intermidate_args.mdin_intermidate_config)
     # print(new_workflow)
     # print(config_object.workflow)
     # import yaml

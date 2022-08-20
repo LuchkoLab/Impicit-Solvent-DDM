@@ -5,11 +5,15 @@ system_parameters:
   executable: "sander" # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
   mpi_command:  # system dependent /
   CUDA:  # run on GPU
-
+  memory: "2G"
+  disk: "3G"
 endstate_parameter_files:
   complex_parameter_filename: implicit_solvent_ddm/tests/structs/cb7-mol01.parm7 # list of topology file of a complex
   complex_coordinate_filename: implicit_solvent_ddm/tests/structs/cb7-mol01.ncrst # list of coordinate file of a complex  
-
+  ligand_parameter_filename: implicit_solvent_ddm/tests/structs/M01.parm7
+  ligand_coordinate_filename: implicit_solvent_ddm/tests/structs/M01_000_300K.nc 
+  receptor_parameter_filename: implicit_solvent_ddm/tests/structs/CB7.parm7
+  receptor_coordinate_filename: implicit_solvent_ddm/tests/structs/CB7_000_300K.nc 
 number_of_cores_per_system:
   complex_ncores: 1 #total number of cores per job
   ligand_ncores: 1 #total number of cores per ligand simulation
