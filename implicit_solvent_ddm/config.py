@@ -1,7 +1,7 @@
 import os
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import List, Optional, Type
+from typing import List, Optional, Type, Union
 
 import numpy as np
 import pytraj as pt
@@ -75,7 +75,8 @@ class SystemSettings:
     mpi_command: str
     working_directory: str = 'no set' 
     CUDA: bool = field(default=False)
-    
+    memory: Optional[Union[int, str]] = field(default="10G")
+    disk: Optional[Union[int, str]] = field(default="10G")
     @classmethod
     def from_config(cls: Type["SystemSettings"], obj:dict):
         return cls(**obj)
@@ -311,10 +312,11 @@ def workflow(job, config:Config):
 
 if __name__ == "__main__":
     import yaml
-    with open("/home/ayoub/nas0/Impicit-Solvent-DDM/new_workflow.yaml") as fH:
+    with open("implicit_solvent_ddm/tests/input_files/config.yaml") as fH:
         config = yaml.safe_load(fH)
     config_object = Config.from_config(config)
-    
+    print(config_object.system_settings.memory)
+    print(config_object.system_settings.disk)
    
     print(config_object.endstate_method.remd_args)
     print(config_object.intermidate_args.mdin_intermidate_config)
