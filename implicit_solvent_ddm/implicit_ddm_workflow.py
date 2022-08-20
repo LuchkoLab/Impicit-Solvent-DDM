@@ -162,6 +162,8 @@ def ddm_workflow(
                             "filename": "min",
                             "topology": config.endstate_files.complex_parameter_filename,
                         },
+                        memory=config.system_settings.memory,
+                        disk=config.system_settings.disk 
                     )
                 )
                 #config.endstate_method.remd_args.nthreads
@@ -180,6 +182,8 @@ def ddm_workflow(
                             "runtype": "equilibration",
                             "topology": config.endstate_files.complex_parameter_filename,
                         },
+                        memory=config.system_settings.memory,
+                        disk=config.system_settings.disk 
                     )
                 )
 
@@ -198,6 +202,8 @@ def ddm_workflow(
                             "runtype": "remd",
                             "topology": config.endstate_files.complex_parameter_filename,
                         },
+                        memory=config.system_settings.memory,
+                        disk=config.system_settings.disk 
                     )
                 )
 
@@ -227,6 +233,8 @@ def ddm_workflow(
                             "filename": "min",
                             "topology": config.endstate_files.ligand_parameter_filename,
                         },
+                        memory=config.system_settings.memory,
+                        disk=config.system_settings.disk 
                     )
                 )
 
@@ -245,6 +253,8 @@ def ddm_workflow(
                             "runtype": "equilibration",
                             "topology": config.endstate_files.ligand_parameter_filename,
                         },
+                        memory=config.system_settings.memory,
+                        disk=config.system_settings.disk 
                     )
                 )
 
@@ -263,6 +273,8 @@ def ddm_workflow(
                             "runtype": "remd",
                             "topology": config.endstate_files.ligand_parameter_filename,
                         },
+                        memory=config.system_settings.memory,
+                        disk=config.system_settings.disk 
                     )
                 )
                 # extact target temparture trajetory and last frame
@@ -291,6 +303,8 @@ def ddm_workflow(
                                 "filename": "min",
                                 "topology": config.endstate_files.receptor_parameter_filename,
                             },
+                            memory=config.system_settings.memory,
+                            disk=config.system_settings.disk 
                         )
                     )
 
@@ -309,6 +323,8 @@ def ddm_workflow(
                                 "runtype": "equilibration",
                                 "topology": config.endstate_files.receptor_parameter_filename,
                             },
+                            memory=config.system_settings.memory,
+                            disk=config.system_settings.disk 
                         )
                     )
 
@@ -327,6 +343,8 @@ def ddm_workflow(
                                 "runtype": "remd",
                                 "topology": config.endstate_files.receptor_parameter_filename,
                             },
+                            memory=config.system_settings.memory,
+                            disk=config.system_settings.disk 
                         )
                     )
                     # extact target temparture trajetory and last frame
@@ -422,6 +440,7 @@ def ddm_workflow(
                 config.inputs["endstate_receptor_lastframe"] = receptor_extract.rv(1)
         
         # once endstate is complete wrap the endstate trajectories for post process runs
+        #if workflow.run_endstate or workflow.post_only
         complex_endstate_post_workflow = job.wrapJobFn(
             ddm_workflow,
             config,
@@ -611,6 +630,8 @@ def ddm_workflow(
             directory_args=end_state_args.copy(),
             dirstruct=dirstruct,
             inptraj=inptraj_id,
+            memory=config.system_settings.memory,
+            disk=config.system_settings.disk 
         )
         calc_list.append(end_state_prod)
 
@@ -648,6 +669,8 @@ def ddm_workflow(
             directory_args=no_solv_args.copy(),
             dirstruct=ligand_receptor_dirstruct,
             inptraj=inptraj_id,
+            memory=config.system_settings.memory,
+            disk=config.system_settings.disk
         )
         # md_jobs.addChild(no_solv_ligand)
         if not post_process:
@@ -700,6 +723,8 @@ def ddm_workflow(
             directory_args=ligand_no_charge_args,
             dirstruct=ligand_receptor_dirstruct,
             inptraj=inptraj_id,
+            memory=config.system_settings.memory,
+            disk=config.system_settings.disk 
         )
         # ligand_jobs.addChild(ligand_no_charge)
 
@@ -754,6 +779,8 @@ def ddm_workflow(
             directory_args=no_solv_args_receptor,
             dirstruct=ligand_receptor_dirstruct,
             inptraj=inptraj_id,
+            memory=config.system_settings.memory,
+            disk=config.system_settings.disk 
         )
         # receptor_jobs.addChild(no_solv_receptor)
         if not post_process:
@@ -808,6 +835,8 @@ def ddm_workflow(
             directory_args=complex_ligand_exclusions_args,
             dirstruct=complex_dirstruct,
             inptraj=inptraj_id,
+            memory=config.system_settings.memory,
+            disk=config.system_settings.disk 
         )
         if not post_process:
             md_jobs.addChild(complex_no_interactions)
@@ -861,6 +890,8 @@ def ddm_workflow(
             directory_args=complex_turn_off_exclusions_args,
             dirstruct=complex_dirstruct,
             inptraj=inptraj_id,
+            memory=config.system_settings.memory,
+            disk=config.system_settings.disk 
         )
         if not post_process:
             md_jobs.addChild(complex_no_electrostatics)
@@ -917,6 +948,8 @@ def ddm_workflow(
             directory_args=complex_turn_on_ligand_charges_args,
             dirstruct=complex_dirstruct,
             inptraj=inptraj_id,
+            memory=config.system_settings.memory,
+            disk=config.system_settings.disk 
         )
         if not post_process:
             md_jobs.addChild(complex_turn_on_ligand_charges)
@@ -976,6 +1009,8 @@ def ddm_workflow(
                 directory_args=ligand_window_args,
                 dirstruct=ligand_receptor_dirstruct,
                 inptraj=inptraj_id,
+                memory=config.system_settings.memory,
+                disk=config.system_settings.disk 
             )
             if not post_process:
                 md_jobs.addChild(ligand_windows)
@@ -1026,6 +1061,8 @@ def ddm_workflow(
                 directory_args=receptor_window_args,
                 dirstruct=ligand_receptor_dirstruct,
                 inptraj=inptraj_id,
+                memory=config.system_settings.memory,
+                disk=config.system_settings.disk 
             )
             if not post_process:
                 md_jobs.addChild(receptor_windows)
@@ -1081,6 +1118,8 @@ def ddm_workflow(
                 directory_args=remove_restraints_args,
                 dirstruct=complex_dirstruct,
                 inptraj=inptraj_id,
+                memory=config.system_settings.memory,
+                disk=config.system_settings.disk 
             )
             if not post_process:
                 md_jobs.addChild(remove_restraints)
