@@ -8,6 +8,7 @@ from importlib.metadata import files
 from logging import setLogRecordFactory
 from string import Template
 from tempfile import tempdir
+from typing import TypedDict
 
 import pytraj as pt
 from pydantic import NumberNotGeError
@@ -24,7 +25,7 @@ import logging
 class Calculation(Job):
     
     def __init__(self, executable, mpi_command, num_cores, prmtop, incrd, input_file, 
-                 restraint_file, directory_args, dirstruct="dirstruct", inptraj=None):
+                 restraint_file, directory_args:TypedDict, dirstruct="dirstruct", inptraj=None):
         self.executable = executable
         self.mpi_command = mpi_command
         self.num_cores = num_cores
@@ -98,10 +99,10 @@ class Calculation(Job):
                 # output_file = fileStore.writeGlobalFile(name)
                 # fileStore.export_file(output_file,"file://" + os.path.abspath(os.path.join(output_directory, os.path.basename(name))))
                 if re.match(r".*.rst7.*", name):
-                    output_file = fileStore.writeGlobalFile(name)
+                    output_file = fileStore.writeGlobalFile(name, cleanup=True)
                     restart_files.append(str(output_file))
                 elif re.match(r".*.nc.*", name):
-                    output_file = fileStore.writeGlobalFile(name)
+                    output_file = fileStore.writeGlobalFile(name, cleanup=True)
                     traj_files.append(str(output_file))
                 else:
                     output_file = fileStore.writeGlobalFile(name, cleanup=True)
@@ -150,11 +151,13 @@ class Calculation(Job):
         self.logger.info(f"The files in the current working directory: {files_in_current_directory}")
         self.logger.info(f"executable command {self.exec_list}")
         
-        amber_output = sp.Popen(self.exec_list, stdout=sp.PIPE, stderr=sp.PIPE)   
-    
+        #amber_output = sp.Popen(self.exec_list, stdout=sp.PIPE, stderr=sp.PIPE)   
+        amber_output = sp.run(self.exec_list, stdout=sp.PIPE, stderr=sp.PIPE)
        
-        amber_stdout = amber_output.stdout.read().splitlines()
-        amber_stderr = amber_output.stderr.read().splitlines()
+        amber_stdout = amber_output.stdout.decode("utf-8")
+        amber_stderr = amber_output.stderr.decode("utf-8")
+        # amber_stdout = amber_output.stdout.read().splitlines()
+        # amber_stderr = amber_output.stderr.read().splitlines()
         
         self.logger.error(f"AMBER stdout: {amber_stdout}")
         self.logger.error(f"AMBER stderr: {amber_stderr}")
@@ -175,7 +178,7 @@ class Calculation(Job):
 
 class Simulation(Calculation):
     def __init__(self, executable, mpi_command, num_cores, prmtop, incrd, input_file, restraint_file, directory_args, dirstruct = 'dirstruct', inptraj=None):
-        Job.__init__(self, memory="2G", cores=num_cores, disk="3G")
+        Job.__init__(self, memory="10G", cores=num_cores, disk="10G")
         Calculation.__init__(self, executable, mpi_command, num_cores, prmtop, incrd, input_file, restraint_file, directory_args, dirstruct=dirstruct, inptraj=inptraj)
        
     def setup(self):
@@ -184,14 +187,14 @@ class Simulation(Calculation):
         for the MPI version (since one is *always* written and you don't want 2
         threads fighting to write the same dumb file)
         """
-        if self.mpi_command == None:
+       
+        if self.num_cores == 1 or self.mpi_command == None:
             self.exec_list.pop(0)
-        if self.num_cores == 1:
             self.exec_list.append(re.sub(r"\..*","",self.executable))
         else:
             self.exec_list.extend(("-n", str(self.num_cores)))
             self.exec_list.append(self.executable)
-     
+    
         solu = re.sub(r"\..*","",os.path.basename(str(self.prmtop)))
         restart_filename = f"{solu}_{self.directory_args['filename']}_restrt"
         trajector_filename = f"{solu}_{self.directory_args['filename']}_traj"
@@ -204,6 +207,7 @@ class Simulation(Calculation):
         self.exec_list.extend(('-o', 'mdout'))  # output file flag
         if self.inptraj is not None:
             self.exec_list.extend(('-y', self.read_files["inptraj"]))  # input trajectory flag
+            
         self.calc_setup = True
     
     def run(self, fileStore):
