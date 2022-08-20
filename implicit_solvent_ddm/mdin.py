@@ -38,7 +38,7 @@ def make_mdin_file(yaml_args, mdin_name, turn_off_solvent=False, post_process=Fa
 
     Parameters
     ----------
-    yaml_args: yaml.File
+    yaml_args: dict
         A user specified yaml file which contains mdin args
     mdin_name: str
         A unique mdin filename 
@@ -51,8 +51,8 @@ def make_mdin_file(yaml_args, mdin_name, turn_off_solvent=False, post_process=Fa
     mdin: str
         Absolute path where the MD input file was created.
     """
-    with open(yaml_args) as fH:
-        mdin_args = yaml.safe_load(fH)
+    # with open(yaml_args) as fH:
+    #     mdin_args = yaml.safe_load(fH)
     
     mdin_path = os.path.abspath(os.path.dirname(
                 os.path.realpath(__file__)) + "/templates/mdgb.mdin")
@@ -68,20 +68,20 @@ def make_mdin_file(yaml_args, mdin_name, turn_off_solvent=False, post_process=Fa
     if turn_off_solvent: 
         final_template = template.substitute(
             imin=imin,
-            nstlim=mdin_args["nstlim"],
+            nstlim=yaml_args["nstlim"],
             ntx=1,
             irest=0,
             ioutfm=ioutfm,
-            dt=mdin_args["dt"],
+            dt=yaml_args["dt"],
             igb = 6,
             saltcon = 0.0,
-            rgbmax=mdin_args["rgbmax"],
-            gbsa=mdin_args["gbsa"],
-            temp0=mdin_args["temp0"],
-            ntpr=mdin_args["ntpr"],
-            ntwx=mdin_args["ntwx"],
-            cut=mdin_args["cut"],
-            ntc= mdin_args["ntc"],
+            rgbmax=yaml_args["rgbmax"],
+            gbsa=yaml_args["gbsa"],
+            temp0=yaml_args["temp0"],
+            ntpr=yaml_args["ntpr"],
+            ntwx=yaml_args["ntwx"],
+            cut=yaml_args["cut"],
+            ntc= yaml_args["ntc"],
             nmropt=1,
             restraint= "$restraint"
             )
@@ -89,20 +89,20 @@ def make_mdin_file(yaml_args, mdin_name, turn_off_solvent=False, post_process=Fa
     else:
         final_template = template.substitute(
             imin=imin,
-            nstlim=mdin_args["nstlim"],
+            nstlim=yaml_args["nstlim"],
             ntx=1,
             irest=0,
             ioutfm=ioutfm,
-            dt=mdin_args["dt"],
-            igb =mdin_args["igb"],
-            saltcon =mdin_args["saltcon"],
-            rgbmax=mdin_args["rgbmax"],
-            gbsa=mdin_args["gbsa"],
-            temp0=mdin_args["temp0"],
-            ntpr=mdin_args["ntpr"],
-            ntwx=mdin_args["ntwx"],
-            cut=mdin_args["cut"],
-            ntc= mdin_args["ntc"],
+            dt=yaml_args["dt"],
+            igb =yaml_args["igb"],
+            saltcon =yaml_args["saltcon"],
+            rgbmax=yaml_args["rgbmax"],
+            gbsa=yaml_args["gbsa"],
+            temp0=yaml_args["temp0"],
+            ntpr=yaml_args["ntpr"],
+            ntwx=yaml_args["ntwx"],
+            cut=yaml_args["cut"],
+            ntc= yaml_args["ntc"],
             nmropt=1,
             restraint= "$restraint"
             )
