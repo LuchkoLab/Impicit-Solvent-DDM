@@ -288,75 +288,75 @@ def ddm_workflow(
                 config.inputs["endstate_ligand_traj"] = extract_ligand.rv(0)
                 config.inputs["endstate_ligand_lastframe"] = extract_ligand.rv(1)
 
-                if not workflow.ignore_receptor:
-                    minimization_receptor = endstate_method.addChild(
-                        Simulation(
-                            config.system_settings.executable,
-                            config.system_settings.mpi_command,
-                            config.num_cores_per_system.receptor_ncores,
-                            config.endstate_files.receptor_parameter_filename,
-                            config.endstate_files.receptor_coordinate_filename,
-                            config.inputs["min_mdin"],
-                            config.inputs["empty_restraint"],
-                            {
-                                "runtype": "minimization",
-                                "filename": "min",
-                                "topology": config.endstate_files.receptor_parameter_filename,
-                            },
-                            memory=config.system_settings.memory,
-                            disk=config.system_settings.disk 
-                        )
+                
+                minimization_receptor = endstate_method.addChild(
+                    Simulation(
+                        config.system_settings.executable,
+                        config.system_settings.mpi_command,
+                        config.num_cores_per_system.receptor_ncores,
+                        config.endstate_files.receptor_parameter_filename,
+                        config.endstate_files.receptor_coordinate_filename,
+                        config.inputs["min_mdin"],
+                        config.inputs["empty_restraint"],
+                        {
+                            "runtype": "minimization",
+                            "filename": "min",
+                            "topology": config.endstate_files.receptor_parameter_filename,
+                        },
+                        memory=config.system_settings.memory,
+                        disk=config.system_settings.disk 
                     )
+                )
 
-                    equilibrate_receptor = minimization_receptor.addFollowOn(
-                        REMDSimulation(
-                            config.system_settings.executable,
-                            config.system_settings.mpi_command,
-                            config.endstate_method.remd_args.nthreads_receptor,
-                            config.endstate_files.receptor_parameter_filename,
-                            minimization_receptor.rv(0),
-                            config.endstate_method.remd_args.equilibration_replica_mdins,
-                            config.inputs["empty_restraint"],
-                            "equil",
-                            config.endstate_method.remd_args.ngroups,
-                            {
-                                "runtype": "equilibration",
-                                "topology": config.endstate_files.receptor_parameter_filename,
-                            },
-                            memory=config.system_settings.memory,
-                            disk=config.system_settings.disk 
-                        )
+                equilibrate_receptor = minimization_receptor.addFollowOn(
+                    REMDSimulation(
+                        config.system_settings.executable,
+                        config.system_settings.mpi_command,
+                        config.endstate_method.remd_args.nthreads_receptor,
+                        config.endstate_files.receptor_parameter_filename,
+                        minimization_receptor.rv(0),
+                        config.endstate_method.remd_args.equilibration_replica_mdins,
+                        config.inputs["empty_restraint"],
+                        "equil",
+                        config.endstate_method.remd_args.ngroups,
+                        {
+                            "runtype": "equilibration",
+                            "topology": config.endstate_files.receptor_parameter_filename,
+                        },
+                        memory=config.system_settings.memory,
+                        disk=config.system_settings.disk 
                     )
+                )
 
-                    remd_receptor = equilibrate_receptor.addFollowOn(
-                        REMDSimulation(
-                            config.system_settings.executable,
-                            config.system_settings.mpi_command,
-                            config.endstate_method.remd_args.nthreads_receptor,
-                            config.endstate_files.receptor_parameter_filename,
-                            equilibrate_receptor.rv(0),
-                            config.endstate_method.remd_args.remd_mdins,
-                            config.inputs["empty_restraint"],
-                            "remd",
-                            config.endstate_method.remd_args.ngroups,
-                            {
-                                "runtype": "remd",
-                                "topology": config.endstate_files.receptor_parameter_filename,
-                            },
-                            memory=config.system_settings.memory,
-                            disk=config.system_settings.disk 
-                        )
+                remd_receptor = equilibrate_receptor.addFollowOn(
+                    REMDSimulation(
+                        config.system_settings.executable,
+                        config.system_settings.mpi_command,
+                        config.endstate_method.remd_args.nthreads_receptor,
+                        config.endstate_files.receptor_parameter_filename,
+                        equilibrate_receptor.rv(0),
+                        config.endstate_method.remd_args.remd_mdins,
+                        config.inputs["empty_restraint"],
+                        "remd",
+                        config.endstate_method.remd_args.ngroups,
+                        {
+                            "runtype": "remd",
+                            "topology": config.endstate_files.receptor_parameter_filename,
+                        },
+                        memory=config.system_settings.memory,
+                        disk=config.system_settings.disk 
                     )
-                    # extact target temparture trajetory and last frame
-                    extract_receptor = remd_receptor.addFollowOn(
-                        ExtractTrajectories(
-                            config.endstate_files.receptor_parameter_filename ,
-                            remd_receptor.rv(1),
-                            config.endstate_method.remd_args.target_temperature,
-                        )
+                )
+                # extact target temparture trajetory and last frame
+                extract_receptor = remd_receptor.addFollowOn(
+                    ExtractTrajectories(
+                        config.endstate_files.receptor_parameter_filename ,
+                        remd_receptor.rv(1),
+                        config.endstate_method.remd_args.target_temperature,
                     )
-                    config.inputs["endstate_receptor_traj"] = extract_receptor.rv(0)
-                    config.inputs["endstate_receptor_lastframe"] = extract_receptor.rv(1)
+                )
+                config.inputs["endstate_receptor_traj"] = extract_receptor.rv(0)
+                config.inputs["endstate_receptor_lastframe"] = extract_receptor.rv(1)
                     
                     # #create a endstate job for postprocessing 
                     # receptor_endstate_post_workflow = job.wrapJobFn(
@@ -429,15 +429,15 @@ def ddm_workflow(
             config.inputs["endstate_ligand_traj"] = ligand_extract.rv(0)
             config.inputs["endstate_ligand_lastframe"] = ligand_extract.rv(1)
             
-            if not workflow.ignore_receptor:
-                receptor_extract =  endstate_method.addChild(
-                    ExtractTrajectories(
-                        config.endstate_files.receptor_parameter_filename,
-                        config.endstate_files.receptor_coordinate_filename,
-                    )
+            
+            receptor_extract =  endstate_method.addChild(
+                ExtractTrajectories(
+                    config.endstate_files.receptor_parameter_filename,
+                    config.endstate_files.receptor_coordinate_filename,
                 )
-                config.inputs["endstate_receptor_traj"] = receptor_extract.rv(0)
-                config.inputs["endstate_receptor_lastframe"] = receptor_extract.rv(1)
+            )
+            config.inputs["endstate_receptor_traj"] = receptor_extract.rv(0)
+            config.inputs["endstate_receptor_lastframe"] = receptor_extract.rv(1)
         
         # once endstate is complete wrap the endstate trajectories for post process runs
         #if workflow.run_endstate or workflow.post_only
@@ -473,23 +473,23 @@ def ddm_workflow(
             }.copy(),
             post_process=True,
         ) 
-        if not workflow.ignore_receptor:
-            #create a endstate job for postprocessing 
-            receptor_endstate_post_workflow = job.wrapJobFn(
-                ddm_workflow,
-                config,
-                inptraj_id=[config.inputs["endstate_receptor_traj"]],
-                solute="receptor",
-                dirstuct_traj_args={
-                "traj_state_label": "endstate",
-                "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
-                "state_level": 0.0,
-                "filename": "state_2_endstate_postprocess",
-                "trajectory_restraint_conrest": 0.0,
-                "runtype": f"Running post process with trajectory: {config.inputs['endstate_receptor_traj']}",
-            }.copy(),
-            post_process=True,
-            )
+       
+        #create a endstate job for postprocessing 
+        receptor_endstate_post_workflow = job.wrapJobFn(
+            ddm_workflow,
+            config,
+            inptraj_id=[config.inputs["endstate_receptor_traj"]],
+            solute="receptor",
+            dirstuct_traj_args={
+            "traj_state_label": "endstate",
+            "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
+            "state_level": 0.0,
+            "filename": "state_2_endstate_postprocess",
+            "trajectory_restraint_conrest": 0.0,
+            "runtype": f"Running post process with trajectory: {config.inputs['endstate_receptor_traj']}",
+        }.copy(),
+        post_process=True,
+        )
         # split the complex into host and substrate using the endstate lastframe
         split_job = endstate_method.addFollowOnJobFn(
             split_complex_system,
@@ -756,7 +756,7 @@ def ddm_workflow(
 
     # Desolvation of receptor
     # if config.workflow.remove_GB_solvent_receptor:
-    if not workflow.ignore_receptor:
+    if workflow.remove_GB_solvent_receptor:
         no_solv_args_receptor = {
             "topology": config.endstate_files.receptor_parameter_filename,
             "state_label": "no_gb",
@@ -1037,7 +1037,7 @@ def ddm_workflow(
             else:
                 calc_list.append(ligand_windows)
 
-        if not workflow.ignore_receptor:
+        if workflow.add_receptor_conformational_restraints:
 
             receptor_window_args = {
                 "topology": config.endstate_files.receptor_parameter_filename,
@@ -1243,12 +1243,12 @@ def main():
         )
     
 
-    config.workflow.ignore_receptor = ignore_receptor
-    logger.info(f'config.workflow.ignore_resceptor {config.workflow.ignore_receptor}')
+    config.workflow.ignore_receptor_endstate = ignore_receptor
+    logger.info(f'config.workflow.ignore_resceptor {config.workflow.ignore_receptor_endstate}')
     
     if config.workflow.run_endstate_method:
         config.get_receptor_ligand_topologies()
-    logger.info(f'config.workflow.ignore_resceptor {config.workflow.ignore_receptor}')
+    logger.info(f'config.workflow.ignore_resceptor {config.workflow.ignore_receptor_endstate}')
     #complex name 
     complex_name = re.sub(r"\..*", "", os.path.basename(config.endstate_files.complex_parameter_filename))
     
@@ -1295,23 +1295,23 @@ def main():
                 )
             )
 
-            if not config.workflow.ignore_receptor:
-                config.endstate_files.receptor_parameter_filename = str(
-                    toil.import_file(
-                        "file://"
-                        + os.path.abspath(
-                            config.endstate_files.receptor_parameter_filename
-                        )
+            
+            config.endstate_files.receptor_parameter_filename = str(
+                toil.import_file(
+                    "file://"
+                    + os.path.abspath(
+                        config.endstate_files.receptor_parameter_filename
                     )
                 )
-                config.endstate_files.receptor_coordinate_filename = str(
-                    toil.import_file(
-                        "file://"
-                        + os.path.abspath(
-                            config.endstate_files.receptor_coordinate_filename
-                        )
+            )
+            config.endstate_files.receptor_coordinate_filename = str(
+                toil.import_file(
+                    "file://"
+                    + os.path.abspath(
+                        config.endstate_files.receptor_coordinate_filename
                     )
                 )
+            )
 
             if config.endstate_method.endstate_method_type == "remd":
                 for index, (equil_mdin, remd_mdin) in enumerate(
