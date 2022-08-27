@@ -1,9 +1,12 @@
 import os
 from copy import deepcopy
 from dataclasses import dataclass, field
+from optparse import Option
+from tempfile import TemporaryFile
 from typing import List, Optional, Type, Union
 
 import numpy as np
+import parmed as pmd
 import pytraj as pt
 import yaml
 
@@ -16,11 +19,13 @@ class Workflow:
     add_ligand_conformational_restraints: bool = True
     remove_GB_solvent_ligand: bool = True
     remove_ligand_charges: bool = True
+    add_receptor_conformational_restraints: bool = True
+    remove_GB_solvent_receptor: bool = True
+    ignore_receptor_endstate: bool = False 
     complex_ligand_exclusions: bool = True
     complex_turn_off_exclusions: bool = True
     complex_turn_on_ligand_charges: bool = True
     complex_remove_restraint: bool = True
-    ignore_receptor: bool = False 
     @classmethod
     def from_config(cls: Type["Workflow"], obj:dict):
         if "workflow_jobs" in obj.keys():
@@ -37,7 +42,9 @@ class Workflow:
                 setup_workflow = False, 
                 end_state_postprocess = run_endstate,
                 run_endstate_method = False, 
-                ignore_receptor = True,
+                ignore_receptor_endstate = True,
+                add_receptor_conformational_restraints=False,
+                remove_GB_solvent_receptor=False, 
                 complex_ligand_exclusions = False, 
                 complex_turn_off_exclusions = False, 
                 complex_turn_on_ligand_charges = False, 
@@ -64,7 +71,9 @@ class Workflow:
                 add_ligand_conformational_restraints = False,
                 remove_GB_solvent_ligand = False,
                 remove_ligand_charges  = False,
-                ignore_receptor = True,
+                ignore_receptor_endstate = True,
+                add_receptor_conformational_restraints=False,
+                remove_GB_solvent_receptor=False, 
                 )
         else:
             raise Exception(f'system not valid: {system}')
@@ -85,15 +94,22 @@ class SystemSettings:
 class ParameterFiles:
     complex_parameter_filename: str
     complex_coordinate_filename: str
-    ligand_parameter_filename: str = 'ligand_parm'
-    ligand_coordinate_filename:  str = 'ligand_coordinate' 
-    receptor_parameter_filename: str = 'receptor_parm' 
-    receptor_coordinate_filename: str = 'receptor_coordinate' 
+    ligand_parameter_filename: Optional[str] = field(default=None)
+    ligand_coordinate_filename:  Optional[str]  = field(default=None)
+    receptor_parameter_filename: Optional[str] = field(default=None)
+    receptor_coordinate_filename: Optional[str] = field(default=None)
     
     
     def __post_init__(self):
         self.complex_parameter_filename = os.path.abspath(self.complex_parameter_filename)
         self.complex_coordinate_filename = os.path.abspath(self.complex_coordinate_filename)
+        
+        #check complex is a valid structure 
+        #ASK LUCHKO HOW TO CHECK FOR VALID STRUCTURES
+        complex_traj = pt.load(self.complex_coordinate_filename, self.complex_parameter_filename)
+        pt.check_structure(traj=complex_traj)
+        
+        
 
     @classmethod 
     def from_config(cls: Type["ParameterFiles"], obj:dict):
@@ -239,11 +255,23 @@ class Config:
         if self.endstate_method.endstate_method_type == 0:
             self.workflow.run_endstate_method = False 
             
-            if self.endstate_files.ligand_parameter_filename == 'ligand_parm':
+            if self.endstate_files.ligand_parameter_filename == None:
                 raise ValueError(f"user specified no endstate simulation but did not provided ligand_parameter_filename/coordinate file")
            
     def _config_sanitity_check(self):
-        pass
+        #check if the amber mask are valid 
+        
+        traj = pt.load(self.endstate_files.complex_coordinate_filename, self.endstate_files.complex_parameter_filename)
+        ligand_natoms = pt.strip(traj, self.amber_masks.receptor_mask).n_atoms 
+        receptor_natoms = pt.strip(traj, self.amber_masks.ligand_mask).n_atoms 
+        parm = pmd.amber.AmberFormat(self.endstate_files.complex_parameter_filename)
+        #check if sum of ligand & receptor atoms = complex total num of atoms 
+        if traj.n_atoms != ligand_natoms + receptor_natoms:
+            raise RuntimeError(f'''The sum of ligand/guest and receptor/host atoms != number of total complex atoms
+                                number of ligand atoms: {ligand_natoms} + number of receptor atoms {receptor_natoms} != complex total atoms: {traj.n_atoms}
+                                Please check if AMBER masks are correct ligand_mask: "{self.amber_masks.ligand_mask}" receptor_mask: "{self.amber_masks.receptor_mask}"
+                                {self.endstate_files.complex_parameter_filename} residue lables are: {parm.parm_data['RESIDUE_LABEL']}''')
+        
     
     @classmethod 
     def from_config(cls: Type["Config"], user_config:dict):
@@ -278,6 +306,7 @@ class Config:
         receptor_ligand_path.append(os.path.join(self.system_settings.working_directory, "mdgb/structs/ligand"))
         receptor_ligand_path.append(os.path.join(self.system_settings.working_directory,"mdgb/structs/receptor"))
         
+        #don't use strip!!! use masks ligand[mask] instead!!!
         complex_traj = pt.load(self.endstate_files.complex_coordinate_filename, self.endstate_files.complex_parameter_filename)
         receptor = pt.strip(complex_traj, self.amber_masks.ligand_mask)
         ligand = pt.strip(complex_traj, self.amber_masks.receptor_mask)
@@ -312,7 +341,7 @@ def workflow(job, config:Config):
 
 if __name__ == "__main__":
     import yaml
-    with open("implicit_solvent_ddm/tests/input_files/config.yaml") as fH:
+    with open("/nas0/ayoub/Impicit-Solvent-DDM/new_workflow.yaml") as fH:
         config = yaml.safe_load(fH)
     config_object = Config.from_config(config)
     print(config_object.system_settings.memory)
