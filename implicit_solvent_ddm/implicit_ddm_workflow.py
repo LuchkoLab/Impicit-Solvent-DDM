@@ -361,59 +361,7 @@ def ddm_workflow(
                     )
                     config.inputs["endstate_receptor_traj"] = extract_receptor.rv(0)
                     config.inputs["endstate_receptor_lastframe"] = extract_receptor.rv(1)
-                    
-                    #create a endstate job for postprocessing 
-                    receptor_endstate_post_workflow = job.wrapJobFn(
-                        ddm_workflow,
-                        config,
-                        inptraj_id=[config.inputs["endstate_receptor_traj"]],
-                        solute="receptor",
-                        dirstuct_traj_args={
-                        "traj_state_label": "endstate",
-                        "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
-                        "state_level": 0.0,
-                        "filename": "state_2_endstate_postprocess",
-                        "trajectory_restraint_conrest": 0.0,
-                        "runtype": f"Running post process with trajectory: {config.inputs['endstate_receptor_traj']}",
-                    }.copy(),
-                    post_process=True,
-                    )
-
-            # once endstate is complete wrap the endstate trajectories for post process runs
-            complex_endstate_post_workflow = job.wrapJobFn(
-                ddm_workflow,
-                config,
-                inptraj_id=[config.inputs["endstate_complex_traj"]],
-                solute="complex",
-                dirstuct_traj_args={
-                    "traj_state_label": "endstate",
-                    "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
-                    "state_level": 0.0,
-                    "trajectory_restraint_conrest": 0.0,
-                    "trajectory_restraint_orenrest": 0.0,
-                    "filename": "state_8_endstate_postprocess",
-                    "runtype": f"Running post process with trajectory: {config.inputs['endstate_complex_traj']}",
-                }.copy(),
-                post_process=True,
-            )
-
-            ligand_endstate_post_workflow = job.wrapJobFn(
-                ddm_workflow,
-                config,
-                inptraj_id=[config.inputs["endstate_ligand_traj"]],
-                solute="ligand",
-                dirstuct_traj_args={
-                    "traj_state_label": "endstate",
-                    "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
-                    "state_level": 0.0,
-                    "filename": "state_2_endstate_postprocess",
-                    "trajectory_restraint_conrest": 0.0,
-                    "runtype": f"Running post process with trajectory: {config.inputs['endstate_ligand_traj']}",
-                }.copy(),
-                post_process=True,
-            )
             
-
         # user provided there own there own endstate calculation just split the coordinate
         else:
             endstate_method = setup_inputs.addFollowOn(
@@ -443,7 +391,56 @@ def ddm_workflow(
             config.inputs["endstate_receptor_traj"] = receptor_extract.rv(0)
             config.inputs["endstate_receptor_lastframe"] = receptor_extract.rv(1)
         
-        
+            # once endstate is complete wrap the endstate trajectories for post process runs
+        #create a flag for running postprocess endstate method 
+        complex_endstate_post_workflow = job.wrapJobFn(
+            ddm_workflow,
+            config,
+            inptraj_id=[config.inputs["endstate_complex_traj"]],
+            solute="complex",
+            dirstuct_traj_args={
+                "traj_state_label": "endstate",
+                "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
+                "state_level": 0.0,
+                "trajectory_restraint_conrest": 0.0,
+                "trajectory_restraint_orenrest": 0.0,
+                "filename": "state_8_endstate_postprocess",
+                "runtype": f"Running post process with trajectory: {config.inputs['endstate_complex_traj']}",
+            }.copy(),
+            post_process=True,
+        )
+
+        ligand_endstate_post_workflow = job.wrapJobFn(
+            ddm_workflow,
+            config,
+            inptraj_id=[config.inputs["endstate_ligand_traj"]],
+            solute="ligand",
+            dirstuct_traj_args={
+                "traj_state_label": "endstate",
+                "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
+                "state_level": 0.0,
+                "filename": "state_2_endstate_postprocess",
+                "trajectory_restraint_conrest": 0.0,
+                "runtype": f"Running post process with trajectory: {config.inputs['endstate_ligand_traj']}",
+            }.copy(),
+            post_process=True,
+        )
+        #create a endstate job for postprocessing 
+        receptor_endstate_post_workflow = job.wrapJobFn(
+            ddm_workflow,
+            config,
+            inptraj_id=[config.inputs["endstate_receptor_traj"]],
+            solute="receptor",
+            dirstuct_traj_args={
+                "traj_state_label": "endstate",
+                "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
+                "state_level": 0.0,
+                "filename": "state_2_endstate_postprocess",
+                "trajectory_restraint_conrest": 0.0,
+                "runtype": f"Running post process with trajectory: {config.inputs['endstate_receptor_traj']}",
+            }.copy(),
+            post_process=True,
+        )
         # split the complex into host and substrate using the endstate lastframe
         split_job = endstate_method.addFollowOnJobFn(
             split_complex_system,
@@ -633,7 +630,7 @@ def ddm_workflow(
             memory=config.system_settings.memory,
             disk=config.system_settings.disk
         )
-        # md_jobs.addChild(no_solv_ligand)
+    
         if not post_process:
             md_jobs.addChild(no_solv_ligand)
             post_process_ligand = no_solv_ligand.addFollowOnJobFn(
