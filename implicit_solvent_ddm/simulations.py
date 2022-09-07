@@ -17,6 +17,7 @@ from toil.job import FunctionWrappingJob, Job
 
 from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.get_dirstruct import Dirstruct
+from implicit_solvent_ddm.restraints import RestraintMaker
 
 working_directory = os.getcwd()
 import logging
@@ -31,10 +32,10 @@ class Calculation(Job):
         prmtop,
         incrd,
         input_file,
-        restraint_file,
+        restraint_file: Union[RestraintMaker, str],
         directory_args: TypedDict,
         dirstruct="dirstruct",
-        inptraj=None,
+        inptraj=None
     ):
         self.executable = executable
         self.mpi_command = mpi_command
@@ -223,10 +224,13 @@ class Simulation(Calculation):
         prmtop,
         incrd,
         input_file,
-        restraint_file,
+        restraint_file: Union[RestraintMaker, str],
         directory_args,
+        conformational_force=None, 
+        orientational_force=None, 
         dirstruct="dirstruct",
         inptraj=None,
+        restraint_key=None,
         memory: Optional[Union[int, str]] = None,
         disk: Optional[Union[int, str]] = None,
         preemptable: Optional[Union[bool, int, str]] = None,
@@ -249,7 +253,8 @@ class Simulation(Calculation):
             dirstruct=dirstruct,
             inptraj=inptraj,
         )
-
+        self.restraint_key = restraint_key 
+    
     def setup(self):
         """
         Sets up the command-line arguments. Sander requires a unique restrt file
@@ -294,10 +299,6 @@ class Simulation(Calculation):
         self.read_files["incrd"] = fileStore.readGlobalFile(
             self.incrd, userPath=os.path.join(tempDir, os.path.basename(self.incrd))
         )
-        self.read_files["restraint_file"] = fileStore.readGlobalFile(
-            self.restraint_file,
-            userPath=os.path.join(tempDir, os.path.basename(self.restraint_file)),
-        )
         self.read_files["input_file"] = fileStore.readGlobalFile(
             self.input_file,
             userPath=os.path.join(tempDir, os.path.basename(self.input_file)),
@@ -306,6 +307,18 @@ class Simulation(Calculation):
             self.read_files["inptraj"] = fileStore.readGlobalFile(
                 self.inptraj[0],
                 userPath=os.path.join(tempDir, os.path.basename(self.inptraj[0])),
+            )
+        if isinstance(self.restraint_file, RestraintMaker):
+            fileStore.logToMaster(f"RESTRAINT {self.restraint_file}")
+            fileStore.logToMaster(f"RESTRAINT {self.restraint_file.restraints}")
+            self.read_files["restraint_file"] = fileStore.readGlobalFile(
+                self.restraint_file.restraints[self.restraint_key],
+                userPath=os.path.join(tempDir, os.path.basename(self.restraint_file.restraints[self.restraint_key])), 
+            )
+        else:
+            self.read_files["restraint_file"] = fileStore.readGlobalFile(
+                self.restraint_file,
+                userPath=os.path.join(tempDir, os.path.basename(self.restraint_file)),
             )
         self.read_files["mdin"] = Calculation._mdin_restraint(
             self, fileStore, self.read_files["input_file"]
