@@ -1,6 +1,7 @@
 import os
 from copy import deepcopy
 from dataclasses import dataclass, field
+from numbers import Complex
 from optparse import Option
 from tempfile import TemporaryFile
 from typing import List, Optional, Type, Union
@@ -9,6 +10,8 @@ import numpy as np
 import parmed as pmd
 import pytraj as pt
 import yaml
+from toil.common import FileID, Toil
+from toil.job import Job
 
 
 @dataclass 
@@ -92,28 +95,71 @@ class SystemSettings:
 
 @dataclass 
 class ParameterFiles:
-    complex_parameter_filename: str
-    complex_coordinate_filename: str
-    ligand_parameter_filename: Optional[str] = field(default=None)
-    ligand_coordinate_filename:  Optional[str]  = field(default=None)
-    receptor_parameter_filename: Optional[str] = field(default=None)
-    receptor_coordinate_filename: Optional[str] = field(default=None)
-    
+    complex_parameter_filename: Union[str, FileID]
+    complex_coordinate_filename: Union[str, FileID]
+    ligand_parameter_filename: Optional[Union[str, FileID]] = field(default=None)
+    ligand_coordinate_filename:  Optional[Union[str, FileID]]  = field(default=None)
+    receptor_parameter_filename: Optional[Union[str, FileID]] = field(default=None)
+    receptor_coordinate_filename: Optional[Union[str, FileID]] = field(default=None)
     
     def __post_init__(self):
-        self.complex_parameter_filename = os.path.abspath(self.complex_parameter_filename)
-        self.complex_coordinate_filename = os.path.abspath(self.complex_coordinate_filename)
-        
+       
         #check complex is a valid structure 
         #ASK LUCHKO HOW TO CHECK FOR VALID STRUCTURES
         complex_traj = pt.load(self.complex_coordinate_filename, self.complex_parameter_filename)
         pt.check_structure(traj=complex_traj)
         
-        
 
     @classmethod 
     def from_config(cls: Type["ParameterFiles"], obj:dict):
        return cls(**obj)
+   
+    def toil_import_parmeters(self, toil):
+        
+        self.complex_parameter_filename = str(
+            toil.import_file(
+                "file://"
+                + os.path.abspath(self.complex_parameter_filename)
+            )
+        )
+        self.complex_coordinate_filename = str(
+            toil.import_file(
+                "file://"
+                + os.path.abspath(self.complex_coordinate_filename)
+            )
+        )
+        self.ligand_coordinate_filename = str(
+            toil.import_file(
+                "file://"
+                + os.path.abspath(self.ligand_coordinate_filename)
+            )
+        )
+        self.ligand_parameter_filename = str(
+            toil.import_file(
+                "file://"
+                + os.path.abspath(self.ligand_parameter_filename)
+            )
+        )
+        
+      
+        self.receptor_parameter_filename = str(
+            toil.import_file(
+                "file://"
+                + os.path.abspath(
+                    self.receptor_parameter_filename
+                )
+            )
+        )
+        self.receptor_coordinate_filename = str(
+            toil.import_file(
+                "file://"
+                + os.path.abspath(
+                    self.receptor_coordinate_filename
+                )
+            )
+        )
+           
+        
     
 @dataclass
 class NumberOfCoresPerSystem:
@@ -144,7 +190,7 @@ class AmberMasks:
 class REMD:
     ngroups: int = 0
     target_temperature: float = 0.0 
-    equilibration_replica_mdins: List[str] = field(default_factory=list)
+    equilibration_replica_mdins: List[Union[FileID, str]] = field(default_factory=list)
     remd_mdins: List[str]  = field(default_factory=list)
     nthreads_complex: int = 0
     nthreads_receptor: int = 0
@@ -155,7 +201,8 @@ class REMD:
         
         if len(self.equilibration_replica_mdins) != len(self.remd_mdins):
             raise RuntimeError(f"The size of {self.equilibration_replica_mdins} and {self.remd_mdins} do not match: {len(self.equilibration_replica_mdins)} | {len(self.remd_mdins)}")
-        
+            
+                    
     @classmethod
     def from_config(cls: Type["REMD"], obj:dict):
         return cls(
@@ -167,6 +214,17 @@ class REMD:
             nthreads_receptor=obj["endstate_arguments"]["nthreads_receptor"],
             nthreads_ligand=obj["endstate_arguments"]["nthreads_ligand"]
             )
+
+    def toil_import_replica_mdins(self, toil:Toil):
+          for index, (equil_mdin, remd_mdin) in enumerate(
+            zip(
+                self.equilibration_replica_mdins,
+                self.remd_mdins,
+            )
+        ):
+            self.equilibration_replica_mdins[index] = toil.import_file("file://" + os.path.abspath(equil_mdin))  # type: ignore
+            
+            self.remd_mdins[index] = toil.import_file("file://" + os.path.abspath(remd_mdin))  # type: ignore
 
 @dataclass
 class EndStateMethod: 
@@ -204,6 +262,11 @@ class IntermidateStatesArgs:
     restraint_type: int 
     igb_solvent: int 
     mdin_intermidate_config: str 
+    
+    guest_restraint_files: Optional[list[Union[str, FileID]]] = field(default=None)  
+    receptor_restraint_files: Optional[list[Union[str, FileID]]] = field(default=None)  
+    complex_restraint_files: Optional[list[Union[str, FileID]]] = field(default=None)
+      
     conformational_restraints_forces: np.ndarray = field(init=False)
     orientational_restriant_forces: np.ndarray = field(init=False)
     max_conformational_restraint: float = field(init=False)
@@ -221,11 +284,33 @@ class IntermidateStatesArgs:
 
         with open(self.mdin_intermidate_config) as mdin_args:
             self.mdin_intermidate_config = yaml.safe_load(mdin_args)
-        
+
+        if self.guest_restraint_files != None or self.receptor_restraint_files != None or self.complex_restraint_files != None:
+            
+            if all(isinstance(i, list) for i in [self.guest_restraint_files, self.receptor_restraint_files, self.complex_restraint_files]):
+                num_guest = len(self.guest_restraint_files) # type: ignore
+                num_receptor = len(self.receptor_restraint_files) # type: ignore
+                num_complex = len(self.complex_restraint_files)  # type: ignore
+                if num_guest != num_receptor or num_guest != num_complex:   
+                    raise RuntimeError(f'''The number of restraint files do not equal each other
+                                    guest_restraint_files: {num_guest}
+                                    receptor_restraint_files: {num_receptor}
+                                    complex_restraint_files: {num_complex}''')
+            else:
+                raise TypeError("guest, receptor or complex did not specify restraint files")
+    
     @classmethod
     def from_config(cls: Type["IntermidateStatesArgs"], obj:dict):
         return cls(**obj)   
 
+    def toil_import_user_restriants(self, toil:Toil):
+        """
+        import restraint files into Toil job store 
+        """
+        for i, (guest_rest, receptor_rest, complex_rest) in enumerate(zip(self.guest_restraint_files, self.receptor_restraint_files, self.complex_restraint_files)):  # type: ignore
+                    self.guest_restraint_files[i] = toil.import_file("file://" + os.path.abspath(guest_rest))  # type: ignore
+                    self.receptor_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(receptor_rest)))  # type: ignore
+                    self.complex_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(complex_rest)))  # type: ignore
 
     
 @dataclass
@@ -245,19 +330,20 @@ class Config:
     endstate_method:  EndStateMethod
     intermidate_args: IntermidateStatesArgs
     inputs: dict 
-    output: dict 
+    restraints: dict 
     ignore_receptor: bool = False 
     
     def __post_init__(self):
         self._config_sanitity_check()
-        
+
         #if endstate_method_type =0 don't run any endstate calculations 
         if self.endstate_method.endstate_method_type == 0:
             self.workflow.run_endstate_method = False 
             
             if self.endstate_files.ligand_parameter_filename == None:
                 raise ValueError(f"user specified no endstate simulation but did not provided ligand_parameter_filename/coordinate file")
-           
+        
+       
     def _config_sanitity_check(self):
         #check if the amber mask are valid 
         
@@ -284,8 +370,13 @@ class Config:
             endstate_method=EndStateMethod.from_config(user_config["workflow"]),     
             intermidate_args = IntermidateStatesArgs.from_config(user_config["workflow"]["intermidate_states_arguments"]),
             inputs= {},
-            output={}
+            restraints={}
         )  
+    
+    
+            
+        
+        
     @property 
     def complex_pytraj_trajectory(self)->pt.Trajectory:
         traj = pt.load(self.endstate_files.complex_coordinate_filename, self.endstate_files.complex_parameter_filename)
@@ -337,37 +428,26 @@ class Config:
 
 def workflow(job, config:Config):
     
-    job.log(f"config.ligand_pytraj_trajectory : {config.ligand_pytraj_trajectory}")
+    job.log(f"config.ligand_pytraj_trajectory : {config}")
 
 if __name__ == "__main__":
+  
     import yaml
+  
+    options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
+    options.logLevel = "OFF"
+    options.clean = "always"
     with open("/nas0/ayoub/Impicit-Solvent-DDM/new_workflow.yaml") as fH:
-        config = yaml.safe_load(fH)
-    config_object = Config.from_config(config)
-    print(config_object.system_settings.memory)
-    print(config_object.system_settings.disk)
-   
-    print(config_object.endstate_method.remd_args)
-    print(config_object.intermidate_args.mdin_intermidate_config)
-    # print(new_workflow)
-    # print(config_object.workflow)
-    # import yaml
-    # options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
-    # options.logLevel = "INFO"
-    # options.clean = "always"
-    
-    # with open('new_workflow.yaml') as yaml_file:
-    #     config = yaml.safe_load(yaml_file)
-    # config_object = Config.from_config(config)
-    # config_object.ignore_receptor = True
-    # print(config_object.ligand_pytraj_trajectory)
-    # with Toil(options) as toil:
+        yaml_config = yaml.safe_load(fH)
 
-    #     print(toil.start(Job.wrapJobFn(workflow,  config_object)))   
-    # # print(config_object.endstate_files)
-    # # print("*" * 20)
-    # #config_object.get_receptor_ligand_topologies()
-    
-   
-    
+    with Toil(options) as toil:
+       
+        config = Config.from_config(yaml_config, toil=toil)    
+        example = toil.import_file("file://" + os.path.abspath("structs/complex/cb7-mol01.parm7"))
+        print(example)
+        print(config.endstate_method.remd_args)
+        
+        config.endstate_method.remd_args.remd_import(toil=toil)
+        print(config.endstate_method.remd_args)
+        toil.start(Job.wrapJobFn(workflow, config))
   
