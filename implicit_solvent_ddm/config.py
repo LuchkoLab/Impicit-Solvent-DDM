@@ -128,36 +128,39 @@ class ParameterFiles:
                 + os.path.abspath(self.complex_coordinate_filename)
             )
         )
-        self.ligand_coordinate_filename = str(
-            toil.import_file(
-                "file://"
-                + os.path.abspath(self.ligand_coordinate_filename)
+        if self.ligand_coordinate_filename is not None:
+            self.ligand_coordinate_filename = str(
+                toil.import_file(
+                    "file://"
+                    + os.path.abspath(self.ligand_coordinate_filename)
+                )
             )
-        )
-        self.ligand_parameter_filename = str(
-            toil.import_file(
-                "file://"
-                + os.path.abspath(self.ligand_parameter_filename)
+        if self.ligand_parameter_filename is not None:
+            self.ligand_parameter_filename = str(
+                toil.import_file(
+                    "file://"
+                    + os.path.abspath(self.ligand_parameter_filename)
+                )
             )
-        )
         
-      
-        self.receptor_parameter_filename = str(
-            toil.import_file(
-                "file://"
-                + os.path.abspath(
-                    self.receptor_parameter_filename
+        if self.receptor_parameter_filename is not None:
+            self.receptor_parameter_filename = str(
+                toil.import_file(
+                    "file://"
+                    + os.path.abspath(
+                        self.receptor_parameter_filename
+                    )
                 )
             )
-        )
-        self.receptor_coordinate_filename = str(
-            toil.import_file(
-                "file://"
-                + os.path.abspath(
-                    self.receptor_coordinate_filename
+        if self.receptor_coordinate_filename is not None:
+            self.receptor_coordinate_filename = str(
+                toil.import_file(
+                    "file://"
+                    + os.path.abspath(
+                        self.receptor_coordinate_filename
+                    )
                 )
             )
-        )
            
         
     
@@ -341,7 +344,7 @@ class Config:
             self.workflow.run_endstate_method = False 
             
             if self.endstate_files.ligand_parameter_filename == None:
-                raise ValueError(f"user specified no endstate simulation but did not provided ligand_parameter_filename/coordinate file")
+                raise ValueError(f"user specified to not run an endstate simulation but did not provided ligand_parameter_filename/coordinate endstate files")
         
        
     def _config_sanitity_check(self):
@@ -442,7 +445,7 @@ if __name__ == "__main__":
 
     with Toil(options) as toil:
        
-        config = Config.from_config(yaml_config, toil=toil)    
+        config = Config.from_config(yaml_config)    
         example = toil.import_file("file://" + os.path.abspath("structs/complex/cb7-mol01.parm7"))
         print(example)
         print(config.endstate_method.remd_args)
