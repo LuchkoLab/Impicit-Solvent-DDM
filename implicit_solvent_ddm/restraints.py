@@ -57,7 +57,8 @@ class RestraintMaker(Job):
                 self.config.intermidate_args.max_orientational_restraint,
                 self.config.intermidate_args.max_conformational_restraint)
                 
-                self.orientational_restraints = orientational_restraints
+                self.boresch_deltaG = orientational_restraints.rv(1)
+                
                 self.restraints[
                 f"ligand_{conformational_force}_rst"] = self.addFollowOnJobFn(
                 write_restraint_forces,
@@ -85,7 +86,17 @@ class RestraintMaker(Job):
                 
                 self.restraints[
                     f"complex_{conformational_force}_{orientational_force}_rst"] = self.complex_restraints_file[index]
-        
+
+                self.boresch_deltaG = compute_boresch_restraints(dist_restraint_r=self.config.boresch_parameters.dist_restraint_r,
+                                                                 angle1_rest_val=self.config.boresch_parameters.angle2_rest_val,
+                                                                 angle2_rest_val=self.config.boresch_parameters.angle2_rest_val,
+                                                                 dist_rest_Kr=self.config.boresch_parameters.dist_rest_Kr,
+                                                                 angle1_rest_Ktheta1=self.config.boresch_parameters.max_conformational_force,
+                                                                 angle2_rest_Ktheta2=self.config.boresch_parameters.max_conformational_force,
+                                                                 torsion1_rest_Kphi1=self.config.boresch_parameters.max_orientational_force,
+                                                                 torsion2_rest_Kphi2=self.config.boresch_parameters.max_orientational_force,
+                                                                 torsion3_rest_Kphi3=self.config.boresch_parameters.max_orientational_force,)
+                
         return self
     
     
