@@ -106,7 +106,7 @@ class ParameterFiles:
        
         #check complex is a valid structure 
         #ASK LUCHKO HOW TO CHECK FOR VALID STRUCTURES
-        complex_traj = pt.load(self.complex_coordinate_filename, self.complex_parameter_filename)
+        complex_traj = pt.iterload(self.complex_coordinate_filename, self.complex_parameter_filename)
         pt.check_structure(traj=complex_traj)
         
 
@@ -314,7 +314,31 @@ class IntermidateStatesArgs:
                     self.guest_restraint_files[i] = toil.import_file("file://" + os.path.abspath(guest_rest))  # type: ignore
                     self.receptor_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(receptor_rest)))  # type: ignore
                     self.complex_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(complex_rest)))  # type: ignore
-
+@dataclass 
+class BoreschParameters:
+    dist_restraint_r: float = None 
+    angle2_rest_val: float  = None 
+    dist_rest_Kr: float  = None 
+    max_conformational_force: float = None 
+    max_orientational_force: float  = None 
+    angle1_rest_Ktheta1:float = field(init=False)
+    angle2_rest_Ktheta2:float = field(init=False)
+    torsion1_rest_Kphi1:float = field(init=False)
+    torsion2_rest_Kphi2:float = field(init=False)
+    torsion3_rest_Kphi3:float = field(init=False)
+    
+    def __post_init__(self):
+        
+        self.angle1_rest_Ktheta1 = self.angle2_rest_Ktheta2 = self.max_conformational_force        
+        self.torsion1_rest_Kphi1 = self.torsion2_rest_Kphi2 = self.torsion3_rest_Kphi3 = self.max_orientational_force
+    
+    
+    @classmethod
+    def from_config(cls: Type["BoreschParameters"], obj:dict):
+        if "boresch_parametes" in obj.keys():
+            return cls(**obj["boresch_parametes"])
+        else:
+            return cls()
     
 @dataclass
 class Config:
@@ -332,6 +356,7 @@ class Config:
     amber_masks: AmberMasks
     endstate_method:  EndStateMethod
     intermidate_args: IntermidateStatesArgs
+    boresch_parameters: BoreschParameters
     inputs: dict 
     restraints: dict 
     ignore_receptor: bool = False 
@@ -350,7 +375,7 @@ class Config:
     def _config_sanitity_check(self):
         #check if the amber mask are valid 
         
-        traj = pt.load(self.endstate_files.complex_coordinate_filename, self.endstate_files.complex_parameter_filename)
+        traj = pt.iterload(self.endstate_files.complex_coordinate_filename, self.endstate_files.complex_parameter_filename)
         ligand_natoms = pt.strip(traj, self.amber_masks.receptor_mask).n_atoms 
         receptor_natoms = pt.strip(traj, self.amber_masks.ligand_mask).n_atoms 
         parm = pmd.amber.AmberFormat(self.endstate_files.complex_parameter_filename)
@@ -361,7 +386,16 @@ class Config:
                                 Please check if AMBER masks are correct ligand_mask: "{self.amber_masks.ligand_mask}" receptor_mask: "{self.amber_masks.receptor_mask}"
                                 {self.endstate_files.complex_parameter_filename} residue lables are: {parm.parm_data['RESIDUE_LABEL']}''')
         
-    
+      
+        if self.intermidate_args.guest_restraint_files is not None:
+            boresch_parameters = list(self.boresch_parameters.__dict__.values())
+        
+            boresch_p_type = all(i==None for i in boresch_parameters)
+            if boresch_p_type:
+                raise RuntimeError(f''' User restraints did not specify boresch parameters
+                                   If you providing your own restraints please 
+                                   specifiy all necessary boresch parameters within the config file
+                                   to compute analytical dG''')
     @classmethod 
     def from_config(cls: Type["Config"], user_config:dict):
         return cls(
@@ -372,6 +406,7 @@ class Config:
             amber_masks=AmberMasks.from_config(user_config["AMBER_masks"]),
             endstate_method=EndStateMethod.from_config(user_config["workflow"]),     
             intermidate_args = IntermidateStatesArgs.from_config(user_config["workflow"]["intermidate_states_arguments"]),
+            boresch_parameters = BoreschParameters.from_config(user_config),
             inputs= {},
             restraints={}
         )  
@@ -382,7 +417,7 @@ class Config:
         
     @property 
     def complex_pytraj_trajectory(self)->pt.Trajectory:
-        traj = pt.load(self.endstate_files.complex_coordinate_filename, self.endstate_files.complex_parameter_filename)
+        traj = pt.iterload(self.endstate_files.complex_coordinate_filename, self.endstate_files.complex_parameter_filename)
         return traj 
     @property 
     def ligand_pytraj_trajectory(self)->pt.Trajectory:
@@ -401,7 +436,7 @@ class Config:
         receptor_ligand_path.append(os.path.join(self.system_settings.working_directory,"mdgb/structs/receptor"))
         
         #don't use strip!!! use masks ligand[mask] instead!!!
-        complex_traj = pt.load(self.endstate_files.complex_coordinate_filename, self.endstate_files.complex_parameter_filename)
+        complex_traj = pt.iterload(self.endstate_files.complex_coordinate_filename, self.endstate_files.complex_parameter_filename)
         receptor = pt.strip(complex_traj, self.amber_masks.ligand_mask)
         ligand = pt.strip(complex_traj, self.amber_masks.receptor_mask)
         
@@ -440,17 +475,20 @@ if __name__ == "__main__":
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "OFF"
     options.clean = "always"
-    with open("/nas0/ayoub/Impicit-Solvent-DDM/new_workflow.yaml") as fH:
+    with open("new_workflow.yaml") as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:
        
         config = Config.from_config(yaml_config)    
-        example = toil.import_file("file://" + os.path.abspath("structs/complex/cb7-mol01.parm7"))
+        example = toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/cb7-mol01.parm7"))
         print(example)
         print(config.endstate_method.remd_args)
         
-        config.endstate_method.remd_args.remd_import(toil=toil)
+        config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
         print(config.endstate_method.remd_args)
-        toil.start(Job.wrapJobFn(workflow, config))
+        boresch_p = list(config.boresch_parameters.__dict__.values())
+        print(boresch_p)
+        print(all(i==None for i in boresch_p))
+        #toil.start(Job.wrapJobFn(workflow, config))
   
