@@ -270,9 +270,9 @@ class IntermidateStatesArgs:
     igb_solvent: int 
     mdin_intermidate_config: str 
     temperature: float 
-    guest_restraint_files: Optional[list[Union[str, FileID]]] = field(default=None)  
-    receptor_restraint_files: Optional[list[Union[str, FileID]]] = field(default=None)  
-    complex_restraint_files: Optional[list[Union[str, FileID]]] = field(default=None)
+    guest_restraint_files: Optional[List[Union[str, FileID]]] = field(default=None)  
+    receptor_restraint_files: Optional[List[Union[str, FileID]]] = field(default=None)  
+    complex_restraint_files: Optional[List[Union[str, FileID]]] = field(default=None)
       
     conformational_restraints_forces: np.ndarray = field(init=False)
     orientational_restriant_forces: np.ndarray = field(init=False)
