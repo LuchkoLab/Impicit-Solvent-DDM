@@ -17,6 +17,7 @@ from toil.job import Job
 @dataclass 
 class Workflow:
     setup_workflow: bool = True
+    post_treatment: bool = True 
     run_endstate_method: bool = True
     end_state_postprocess: bool = False 
     add_ligand_conformational_restraints: bool = True
@@ -43,6 +44,7 @@ class Workflow:
         if system == 'ligand':
             return cls(
                 setup_workflow = False, 
+                post_treatment=False, 
                 end_state_postprocess = run_endstate,
                 run_endstate_method = False, 
                 ignore_receptor_endstate = True,
@@ -56,6 +58,7 @@ class Workflow:
         elif system =='receptor':
             return cls(
                 setup_workflow = False,
+                post_treatment=False,
                 end_state_postprocess = run_endstate,
                 run_endstate_method = False,
                 add_ligand_conformational_restraints = False, 
@@ -69,6 +72,7 @@ class Workflow:
         elif system == 'complex':
             return cls(
                 setup_workflow = False,
+                post_treatment=False,
                 end_state_postprocess = run_endstate,
                 run_endstate_method = False,
                 add_ligand_conformational_restraints = False,
