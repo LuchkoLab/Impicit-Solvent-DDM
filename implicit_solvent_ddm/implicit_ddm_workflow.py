@@ -7,6 +7,7 @@ import re
 import sys
 from copy import deepcopy
 from pathlib import Path
+from typing import List
 
 import numpy as np
 import pandas as pd
@@ -1101,7 +1102,7 @@ def ddm_workflow(
     #return ligand_df, receptor_df, complex_df, orientational_restraints.rv(1)
 
 
-def run_post_process(job, sims: list[Simulation]):
+def run_post_process(job, sims: List[Simulation]):
     #->list[pd.DataFrame]
     output_data = []
     for sim in sims:
