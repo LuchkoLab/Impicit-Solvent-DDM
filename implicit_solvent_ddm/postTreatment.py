@@ -20,27 +20,23 @@ from implicit_solvent_ddm.get_dirstruct import Dirstruct
 from implicit_solvent_ddm.mdout import min_to_dataframe
 from implicit_solvent_ddm.simulations import Simulation
 
-working_directory = os.getcwd()
+WORKDIR = os.getcwd()
 
-
-    
 AVAGADRO  = 6.0221367e23
 BOLTZMAN = 1.380658e-23
 JOULES_PER_KCAL= 4184
 
+
 class PostTreatment(Job):
     
-    def __init__(self, simulation_data: List[List[pd.DataFrame]], boresch_df: pd.DataFrame, temp:float, system:str, max_conformation_force:float, max_orientational_force = None) -> None:
-        
+    def __init__(self, simulation_data: List[List[pd.DataFrame]], temp:float, system:str, max_conformation_force:float, max_orientational_force = None) -> None:
+        super().__init__()
         self.simulations_data = simulation_data
-        self.boresch_df = boresch_df
         self.temp = temp
         self.system = system 
         self.max_con_force = str(max_conformation_force)
         self.max_orien_force = str(max_orientational_force)
         self._kt_conversion()
-        self._load_dfs()
-        self._create_MBAR_format()
     
     def _kt_conversion(self):
         self.kt_conversion = 1/(((BOLTZMAN*(AVAGADRO))/JOULES_PER_KCAL)*self.temp)
@@ -51,7 +47,8 @@ class PostTreatment(Job):
         
         flatten_dfs = list(chain(*self.simulations_data))
         self.df =  pd.concat(flatten_dfs, axis=0, ignore_index=True)
-    
+        
+        self.name = self.df["solute"].iloc[0]
     
     def _create_MBAR_format(self):
         
@@ -65,9 +62,15 @@ class PostTreatment(Job):
         
         self.df.columns = column_names  # type: ignore
     
-        
+    def compute_binding_deltaG(self, system1: float, system2: float, borech_dG=0.0):
+                
+        return self.deltaG + system1 + system2 + borech_dG
+      
     def run(self, fileStore):
         
+        self._load_dfs()
+        self._create_MBAR_format()
+        fileStore.logToMaster(f"self.df {self.df}")
         equil_info = pdmbar.detectEquilibration(self.df)
         
         df_subsampled = pdmbar.subsampleCorrelatedData(self.df, equil_info=equil_info)
@@ -92,7 +95,81 @@ class PostTreatment(Job):
         self.error = error
 
         return self 
+
+def consolidate_output(job, ligand_system: PostTreatment, receptor_system: PostTreatment, complex_system: PostTreatment, boresch_df:pd.DataFrame):
     
+    output_path = os.path.join(f"{WORKDIR}",".cache")
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+    #parse out free energies 
+    complex_system.fe.to_hdf(f"{output_path}/{complex_system.name}_fe.h5", key="df", mode='w')
+    receptor_system.fe.to_hdf(f"{output_path}/receptor_{complex_system.name}_fe.h5", key="df", mode='w')
+    ligand_system.fe.to_hdf(f"{output_path}/ligand_{complex_system.name}_fe.h5", key="df", mode='w')
+    
+    #parse out errors of mbar
+    complex_system.error.to_hdf(f"{output_path}/{complex_system.name}_error.h5", key="df", mode='w')
+    receptor_system.error.to_hdf(f"{output_path}/receptor_{complex_system.name}_error.h5", key="df", mode='w')
+    ligand_system.error.to_hdf(f"{output_path}/ligand_{complex_system.name}_error.h5", key="df", mode='w')
+    
+    
+    borech_dG = boresch_df["DeltaG"].values[0] 
+    #compute total deltaG 
+    deltaG_tot = complex_system.compute_binding_deltaG(system1=ligand_system.deltaG, system2=receptor_system.deltaG)
+
+    deltaG_df = pd.DataFrame()
+    
+    deltaG_df[f"{ligand_system.name}_endstate->no_charges"] = [ligand_system.deltaG]
+    deltaG_df[f"{receptor_system.name}_endstate->no_gb"] = [receptor_system.deltaG]
+    deltaG_df["boresch_restraints"] = [borech_dG]
+    deltaG_df[f"{complex_system.name}_no-interactions->endstate"] = [complex_system.deltaG]
+    deltaG_df["deltaG"] = [deltaG_tot]
+    
+    deltaG_df.to_hdf(f"{output_path}/deltaG_{complex_system.name}.h5", key="df", mode='w')
+
+              
+def create_mdout_dataframe(job, directory_args: dict, dirstruct: str, output_dir: str) -> pd.DataFrame:
+
+    sim = Dirstruct("mdgb", directory_args, dirstruct=dirstruct)
+
+    output_dir= os.path.join(WORKDIR,  sim.dirStruct.fromArgs(**sim.parameters))
+
+    mdout = f"{output_dir}/mdout"
+    
+    run_args = sim.dirStruct.fromPath2Dict(mdout)
+    data = min_to_dataframe(mdout)
+    
+    #data["traj_state_label"] = run_args["traj_state_label"]
+    #data["state_label"] = run_args["state_label"]
+    
+    data["solute"] = run_args["topology"]
+    data["parm_state"] = run_args["state_label"]
+    data["traj_state"] = run_args["traj_state_label"]
+    data['Frames'] = data.index
+    
+    data["parm_restraints"] = run_args["conformational_restraint"]
+    data["traj_restraints"] = run_args["trajectory_restraint_conrest"]
+    #complex datastructure 
+    if "trajectory_restraint_orenrest" in run_args.keys():
+            data['parm_restraints'] = f"{run_args['conformational_restraint']}_{run_args['orientational_restraints']}"
+            data['traj_restraints'] = f"{run_args['trajectory_restraint_conrest']}_{run_args['trajectory_restraint_orenrest']}" 
+   
+   
+  
+    data.to_hdf(f"{output_dir}/simulation_mdout.h5", key="df")
+    
+    return data
+    
+
+
+
+
+
+
+
+
+
+
+
 class PostProcess:
     def __init__(self, df: pd.DataFrame, system: str, temp:float, max_conformation_force:float, max_orientational_force = None) -> None:
         self.df = df
@@ -150,40 +227,6 @@ class PostProcess:
     def compute_binding_deltaG(self, system1: float, system2: float, borech_dG=0.0):
                 
         return self.deltaG + system1 + system2 + borech_dG
-              
-def create_mdout_dataframe(job, directory_args: dict, dirstruct: str, output_dir: str) -> pd.DataFrame:
-
-    sim = Dirstruct("mdgb", directory_args, dirstruct=dirstruct)
-
-    output_dir= os.path.join(working_directory,  sim.dirStruct.fromArgs(**sim.parameters))
-
-    mdout = f"{output_dir}/mdout"
-    
-    run_args = sim.dirStruct.fromPath2Dict(mdout)
-    data = min_to_dataframe(mdout)
-    
-    #data["traj_state_label"] = run_args["traj_state_label"]
-    #data["state_label"] = run_args["state_label"]
-    
-    data["solute"] = run_args["topology"]
-    data["parm_state"] = run_args["state_label"]
-    data["traj_state"] = run_args["traj_state_label"]
-    data['Frames'] = data.index
-    
-    data["parm_restraints"] = run_args["conformational_restraint"]
-    data["traj_restraints"] = run_args["trajectory_restraint_conrest"]
-    #complex datastructure 
-    if "trajectory_restraint_orenrest" in run_args.keys():
-            data['parm_restraints'] = f"{run_args['conformational_restraint']}_{run_args['orientational_restraints']}"
-            data['traj_restraints'] = f"{run_args['trajectory_restraint_conrest']}_{run_args['trajectory_restraint_orenrest']}" 
-   
-   
-  
-    data.to_hdf(f"{output_dir}/simulation_mdout.h5", key="df")
-    
-    return data
-    
-
 def main(complex_file, receptor_file, ligand_file, boresch_file):
 
     import re
@@ -205,17 +248,17 @@ def main(complex_file, receptor_file, ligand_file, boresch_file):
     
     #parse out mbar_formate dataframe 
     complex_obj.df.to_hdf(f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/complex/{complex_name}_mbar_format.h5", key="df", mode='w')
-    receptor_obj.df.to_hdf(f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/receptor/receptor_{complex_name}_mbar_format.h5", key="df", mode='w')
+    receptor_obj.df.to_hdf(f"output_path/receptor_{complex_name}_mbar_format.h5", key="df", mode='w')
     ligand_obj.df.to_hdf(f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/ligand/ligand_{complex_name}_mbar_format.h5", key="df", mode='w')
     
     #parse out free energies 
     complex_obj.fe.to_hdf(f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/complex/{complex_name}_fe.h5", key="df", mode='w')
-    receptor_obj.fe.to_hdf(f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/receptor/receptor_{complex_name}_fe.h5", key="df", mode='w')
+    receptor_obj.fe.to_hdf(f"output_path/receptor_{complex_name}_fe.h5", key="df", mode='w')
     ligand_obj.fe.to_hdf(f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/ligand/ligand_{complex_name}_fe.h5", key="df", mode='w')
     
     #parse out errors of mbar
     complex_obj.error.to_hdf(f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/complex/{complex_name}_error.h5", key="df", mode='w')
-    receptor_obj.error.to_hdf(f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/receptor/receptor_{complex_name}_error.h5", key="df", mode='w')
+    receptor_obj.error.to_hdf(f"output_path/receptor_{complex_name}_error.h5", key="df", mode='w')
     ligand_obj.error.to_hdf(f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/ligand/ligand_{complex_name}_error.h5", key="df", mode='w')
     
     
