@@ -6,292 +6,133 @@ import re
 import time
 from string import Template
 from turtle import distance, pos
+from unittest.mock import NonCallableMagicMock
 
 import numpy as np
 import pandas as pd
 import parmed as pmd
 import pytraj as pt
+from toil.common import FileID
+from toil.job import Job
 
 from implicit_solvent_ddm.config import Config
 
 
-def compute_boresch_restraints(
-    dist_restraint_r:float,
-    angle1_rest_val:float,
-    angle2_rest_val:float,
-    dist_rest_Kr:float,
-    angle1_rest_Ktheta1:float,
-    angle2_rest_Ktheta2:float,
-    torsion1_rest_Kphi1:float,
-    torsion2_rest_Kphi2:float,
-    torsion3_rest_Kphi3:float,
-):
-    """
-    Analytically calculate the DeltaG of Boresch restraints contribution
-
-    Parameters
-    ----------
-
-    """
-
-    Rgas = 8.31446261815324 #Ideal Gas constant (J)/(mol*K)
-    kB = (
-        Rgas / 4184
-    )  # Converting from Joules to kcal units (kB = Rgas when using molar units)
-    T = 298  # Value read from mdin file, assume this is natural units for the similatuion(Kelvin)
-    V = 1660  # Angstrom Cubed
-    # k = 1.38*(10**(-23))
-
-    theta_1_rad = math.radians(angle1_rest_val)
-    theta_2_rad = math.radians(angle2_rest_val)
-    K_numerator = math.sqrt(
-        dist_rest_Kr
-        * angle1_rest_Ktheta1
-        * angle2_rest_Ktheta2
-        * torsion1_rest_Kphi1
-        * torsion2_rest_Kphi2
-        * torsion3_rest_Kphi3
-    )
-    K_denom = (2 * (math.pi) * kB * T) ** 3
-    left_numerator = 8 * ((math.pi) ** 2) * V
-    left_denom = (
-        (dist_restraint_r**2) * (math.sin(theta_1_rad)) * (math.sin(theta_2_rad))
-    )
-    log_argument = (left_numerator / left_denom) * (K_numerator / K_denom)
-    result = kB * T * np.log(log_argument)
-
-    df = pd.DataFrame()
-    df["r"] = [dist_restraint_r]
-    df["theta_1"] = [angle1_rest_val]
-    df["theta_2"] = [angle2_rest_val]
-    df["Kr"] = [dist_rest_Kr]
-    df["Ktheta_1"] = [angle1_rest_Ktheta1]
-    df["Ktheta_2"] = [angle2_rest_Ktheta2]
-    df["Kphi1"] = [torsion1_rest_Kphi1]
-    df["Kphi2"] = [torsion2_rest_Kphi2]
-    df["Kphi3"] = [torsion3_rest_Kphi3]
-    df["DeltaG"] = [result]
+class RestraintMaker(Job):
+    def __init__(self,  config: Config, conformational_template=None, orientational_template=None) -> None:
+        super().__init__()
+        self.complex_restraints_file = config.intermidate_args.complex_restraint_files
+        self.ligand_restraint_file = config.intermidate_args.guest_restraint_files
+        self.receptor_restraint_file = config.intermidate_args.receptor_restraint_files
+        self.conformational_forces = config.intermidate_args.conformational_restraints_forces
+        self.orientational_forces = config.intermidate_args.orientational_restriant_forces
+        self.config = config 
+        self.restraints = {}
     
-    return df
+    
+    def run(self,fileStore):
+        
+        for index, (conformational_force, orientational_force) in enumerate(zip(
+                self.config.intermidate_args.conformational_restraints_forces,
+                self.config.intermidate_args.orientational_restriant_forces)):
+            
+            if self.ligand_restraint_file == None:
+                
+               
+                    
+                conformational_restraints = self.addChildJobFn(get_conformational_restraints, 
+                            self.config.endstate_files.complex_parameter_filename,
+                            self.config.inputs["endstate_complex_lastframe"],
+                            self.config.amber_masks.receptor_mask,
+                            self.config.amber_masks.ligand_mask)
+                
+                self.conformational_restraints = conformational_restraints
+                
+                orientational_restraints = self.addChildJobFn(get_orientational_restraints,
+                self.config.endstate_files.complex_parameter_filename,
+                self.config.inputs["endstate_complex_lastframe"],
+                self.config.amber_masks.receptor_mask,
+                self.config.amber_masks.ligand_mask,
+                self.config.intermidate_args.restraint_type,
+                self.config.intermidate_args.max_orientational_restraint,
+                self.config.intermidate_args.max_conformational_restraint)
+                
+                self.boresch_deltaG = orientational_restraints.rv(1)
+                
+                self.restraints[
+                f"ligand_{conformational_force}_rst"] = self.addFollowOnJobFn(
+                write_restraint_forces,
+                conformational_restraints.rv(1),
+                conformational_force=conformational_force).rv()
+                    
+                self.restraints[
+                    f"receptor_{conformational_force}_rst"] =  self.addFollowOnJobFn(
+                    write_restraint_forces,
+                    conformational_restraints.rv(2),
+                    conformational_force=conformational_force).rv()
+                
+                self.restraints[
+                    f"complex_{conformational_force}_{orientational_force}_rst"] = self.addFollowOnJobFn(
+                    write_restraint_forces,
+                    conformational_restraints.rv(0),
+                    orientational_restraints.rv(0),
+                    conformational_force=conformational_force,
+                    orientational_force=orientational_force).rv()
+            else:
+                self.restraints[f"ligand_{conformational_force}_rst"] = self.ligand_restraint_file[index]
+                    
+                self.restraints[
+                    f"receptor_{conformational_force}_rst"] = self.receptor_restraint_file[index]
+                
+                self.restraints[
+                    f"complex_{conformational_force}_{orientational_force}_rst"] = self.complex_restraints_file[index]
 
-
-def flat_bottom_restraints_template(
-    host_guest_atoms, guest_atoms, flat_bottom_distances
-):
-
-    restraint_path = os.path.abspath(
-        os.path.join(
-            os.path.dirname(os.path.realpath(__file__)),
-            "templates/restraints/COM.restraint",
-        )
-    )
-    string_template = ""
-
-    with open(restraint_path) as f:
-        template = Template(f.read())
-
-        restraint_template = template.substitute(
-            host_atom_numbers=host_guest_atoms,
-            guest_atom_numbers=guest_atoms,
-            r1=flat_bottom_distances["r1"],
-            r2=flat_bottom_distances["r2"],
-            r3=flat_bottom_distances["r3"],
-            r4=flat_bottom_distances["r4"],
-            rk2=flat_bottom_distances["rk2"],
-            rk3=flat_bottom_distances["rk3"],
-        )
-
-        string_template += restraint_template
-    return string_template
-
-
-def conformational_restraints_template(
-    solute_conformational_restraint, num_receptor_atoms=0
-):
-
-    restraint_path = os.path.abspath(
-        os.path.join(
-            os.path.dirname(os.path.realpath(__file__)),
-            "templates/restraints/conformational_restraints.template",
-        )
-    )
-    string_template = ""
-    for index in range(len(solute_conformational_restraint)):
-        with open(restraint_path) as f:
-            template = Template(f.read())
-
-            restraint_template = template.substitute(
-                solute_primary_atom=solute_conformational_restraint[index][0]
-                + num_receptor_atoms,
-                solute_sec_atom=solute_conformational_restraint[index][1]
-                + num_receptor_atoms,
-                distance=solute_conformational_restraint[index][2],
-                frest="$frest",
-            )
-            string_template += restraint_template
-    return string_template
-
-
-def orientational_restraints_template(
-    atom_R3,
-    atom_R2,
-    atom_R1,
-    atom_L1,
-    atom_L2,
-    atom_L3,
-    dist_rest,
-    lig_angrest,
-    rec_angrest,
-    lig_torres,
-    rec_torres,
-    central_torres,
-):
-    """
-    To create an orientational restraint .RST file
-
-    The function is an Toil function which will run the restraint_finder module and returns 6 atoms best suited for NMR restraints.
-
-    Parameters
-    ----------
-    complex_file: toil.fileStore.FileID
-        The jobStoreFileID of the imported file is an parameter file (.parm7) of a complex
-    complex_name: str
-        Name of the parameter complex file
-    complex_coord: toil.fileStore.FileID
-        The jobStoreFileID of the imported file. The file being an coordinate file (.ncrst, .nc) of a complex
-    restraint_type: int
-        The type of orientational restraints chosen.
-    work_dir: str
-        The absolute path to user's working directory
-
-    Returns
-    -------
-    None
-    """
-
-    string_template = ""
-    restraint_path = os.path.abspath(
-        os.path.join(
-            os.path.dirname(os.path.realpath(__file__)),
-            "templates/restraints/orientational.template",
-        )
-    )
-    # restraint_path = "/nas0/ayoub/Impicit-Solvent-DDM/implicit_solvent_ddm/templates/restraint.RST"
-    with open(restraint_path) as t:
-        template = Template(t.read())
-        restraint_template = template.substitute(
-            atom_R3=atom_R3,
-            atom_R2=atom_R2,
-            atom_R1=atom_R1,
-            atom_L1=atom_L1,
-            atom_L2=atom_L2,
-            atom_L3=atom_L3,
-            dist_rest=dist_rest,
-            lig_angrest=lig_angrest,
-            rec_angrest=rec_angrest,
-            central_torres=central_torres,
-            rec_torres=rec_torres,
-            lig_torres=lig_torres,
-            drest="$drest",
-            arest="$arest",
-            trest="$trest",
-        )
-        string_template += restraint_template
-    return string_template
-
-
-def write_empty_restraint(job):
-    temp_dir = job.fileStore.getLocalTempDir()
-    with open("empty.restraint", "w") as fn:
-        fn.write("")
-    return job.fileStore.writeGlobalFile("empty.restraint")
-
-
-def write_restraint_forces(
-    job,
-    conformational_template,
-    orientational_template=None,
-    conformational_force=0.0,
-    orientational_force=0.0,
-):
-
-    temp_dir = job.fileStore.getLocalTempDir()
-
-    read_conformational_template = job.fileStore.readGlobalFile(
-        conformational_template,
-        userPath=os.path.join(temp_dir, os.path.basename(conformational_template)),
-    )
-    string_template = ""
-
-    if orientational_template is not None:
-        read_orientational_template = job.fileStore.readGlobalFile(
-            orientational_template,
-            userPath=os.path.join(temp_dir, os.path.basename(orientational_template)),
-        )
-        with open(read_orientational_template) as oren_temp:
-            template = Template(oren_temp.read())
-            orientational_temp = template.substitute(
-                drest=conformational_force,
-                arest=orientational_force,
-                trest=orientational_force,
-            )
-            string_template += orientational_temp
-
-    with open(read_conformational_template) as temp:
-        template = Template(temp.read())
-        restraint_temp = template.substitute(frest=conformational_force)
-        string_template += restraint_temp
-
-    string_template = string_template.replace("&end", "")
-
-    with open("restraint.RST", "w") as fn:
-        fn.write(string_template)
-        fn.write("&end")
-
-    return job.fileStore.writeGlobalFile("restraint.RST")
-
-
-def get_flat_bottom_restraints(
-    job, complex_prmtop, complex_coordinate, flat_well_parabola
-):
-
-    tempDir = job.fileStore.getLocalTempDir()
-    complex_prmtop_ID = job.fileStore.readGlobalFile(
-        complex_prmtop, userPath=os.path.join(tempDir, os.path.basename(complex_prmtop))
-    )
-    complex_coordinate_ID = job.fileStore.readGlobalFile(
-        complex_coordinate,
-        userPath=os.path.join(tempDir, os.path.basename(complex_coordinate[0])),
-    )
-
-    complex_parmed_traj = pmd.load_file(complex_prmtop_ID, complex_coordinate_ID)
-    host_atom_numbers = ",".join(
-        [
-            str(atom)
-            for atom in range(
-                1, int(complex_parmed_traj.parm_data["RESIDUE_POINTER"][1])
-            )
-        ]
-    )
-    guest_atom_numbers = ",".join(
-        [
-            str(i)
-            for i in range(
-                int(complex_parmed_traj.parm_data["RESIDUE_POINTER"][1]),
-                int(complex_parmed_traj.parm_data["POINTERS"][0] + 1),
-            )
-        ]
-    )
-    flat_bottom_string = flat_bottom_restraints_template(
-        host_atom_numbers, guest_atom_numbers, flat_well_parabola
-    )
-
-    temp_file = job.fileStore.getLocalTempFile()
-    with open(temp_file, "w") as fH:
-        fH.write(flat_bottom_string)
-
-    return job.fileStore.writeGlobalFile(temp_file)
-
+                self.boresch_deltaG = compute_boresch_restraints(dist_restraint_r = self.config.boresch_parameters.dist_restraint_r,
+                                                                 angle1_rest_val = self.config.boresch_parameters.angle1_rest_val,
+                                                                 angle2_rest_val = self.config.boresch_parameters.angle2_rest_val,
+                                                                 dist_rest_Kr = self.config.boresch_parameters.dist_rest_Kr,
+                                                                 angle1_rest_Ktheta1 = self.config.boresch_parameters.angle1_rest_Ktheta1,
+                                                                 angle2_rest_Ktheta2 = self.config.boresch_parameters.angle2_rest_Ktheta2,
+                                                                 torsion1_rest_Kphi1 = self.config.boresch_parameters.torsion1_rest_Kphi1,
+                                                                 torsion2_rest_Kphi2 = self.config.boresch_parameters.torsion2_rest_Kphi2,
+                                                                 torsion3_rest_Kphi3 = self.config.boresch_parameters.torsion3_rest_Kphi3,)
+                
+        return self
+    
+    
+    def add_complex_window(self, conformational_force, orientational_force):
+        
+        return self.addChildJobFn(
+                write_restraint_forces,
+                self.conformational_restraints.rv(0),
+                self.orientational_restraints.rv(0),
+                conformational_force=conformational_force,
+                orientational_force=orientational_force).rv()
+    
+    def add_ligand_window(self, system,  conformational_force):
+        
+        return self.addChildJobFn(
+            write_restraint_forces,
+            self.conformational_restraints.rv(1),
+            conformational_force=conformational_force).rv()
+        
+    def add_receptor_window(self, conformational_force):
+            
+        return self.addFollowOnJobFn(
+            write_restraint_forces,
+            self.conformational_restraints.rv(2),
+            conformational_force=conformational_force).rv()
+            
+    @staticmethod
+    def get_restraint_file(restraint_obj, system, conformational_force, orientational_force=None):
+        
+        if system == 'ligand':
+            return restraint_obj[f"ligand_{conformational_force}_rst"]
+        
+        elif system == "receptor":
+            return restraint_obj[f"receptor_{conformational_force}_rst"]
+        else:
+            return restraint_obj[f"complex_{conformational_force}_{orientational_force}_rst"]
 
 def get_conformational_restraints(
     job, complex_prmtop, complex_coordinate, receptor_mask, ligand_mask
@@ -542,6 +383,284 @@ def get_orientational_restraints(
             max_torisonal_rest,
         ),
     )
+    
+def write_restraint_forces(
+    job,
+    conformational_template,
+    orientational_template=None,
+    conformational_force=0.0,
+    orientational_force=0.0,
+):
+
+    temp_dir = job.fileStore.getLocalTempDir()
+
+    read_conformational_template = job.fileStore.readGlobalFile(
+        conformational_template,
+        userPath=os.path.join(temp_dir, os.path.basename(conformational_template)),
+    )
+    string_template = ""
+
+    if orientational_template is not None:
+        read_orientational_template = job.fileStore.readGlobalFile(
+            orientational_template,
+            userPath=os.path.join(temp_dir, os.path.basename(orientational_template)),
+        )
+        with open(read_orientational_template) as oren_temp:
+            template = Template(oren_temp.read())
+            orientational_temp = template.substitute(
+                drest=conformational_force,
+                arest=orientational_force,
+                trest=orientational_force,
+            )
+            string_template += orientational_temp
+
+    with open(read_conformational_template) as temp:
+        template = Template(temp.read())
+        restraint_temp = template.substitute(frest=conformational_force)
+        string_template += restraint_temp
+
+    string_template = string_template.replace("&end", "")
+
+    with open("restraint.RST", "w") as fn:
+        fn.write(string_template)
+        fn.write("&end")
+
+    return job.fileStore.writeGlobalFile("restraint.RST")
+
+  
+def compute_boresch_restraints(
+    dist_restraint_r:float,
+    angle1_rest_val:float,
+    angle2_rest_val:float,
+    dist_rest_Kr:float,
+    angle1_rest_Ktheta1:float,
+    angle2_rest_Ktheta2:float,
+    torsion1_rest_Kphi1:float,
+    torsion2_rest_Kphi2:float,
+    torsion3_rest_Kphi3:float,
+):
+    """
+    Analytically calculate the DeltaG of Boresch restraints contribution
+
+    Parameters
+    ----------
+
+    """
+
+    Rgas = 8.31446261815324 #Ideal Gas constant (J)/(mol*K)
+    kB = (
+        Rgas / 4184
+    )  # Converting from Joules to kcal units (kB = Rgas when using molar units)
+    T = 298  # Value read from mdin file, assume this is natural units for the similatuion(Kelvin)
+    V = 1660  # Angstrom Cubed
+    # k = 1.38*(10**(-23))
+
+    theta_1_rad = math.radians(angle1_rest_val)
+    theta_2_rad = math.radians(angle2_rest_val)
+    K_numerator = math.sqrt(
+        dist_rest_Kr
+        * angle1_rest_Ktheta1
+        * angle2_rest_Ktheta2
+        * torsion1_rest_Kphi1
+        * torsion2_rest_Kphi2
+        * torsion3_rest_Kphi3
+    )
+    K_denom = (2 * (math.pi) * kB * T) ** 3
+    left_numerator = 8 * ((math.pi) ** 2) * V
+    left_denom = (
+        (dist_restraint_r**2) * (math.sin(theta_1_rad)) * (math.sin(theta_2_rad))
+    )
+    log_argument = (left_numerator / left_denom) * (K_numerator / K_denom)
+    result = kB * T * np.log(log_argument)
+
+    df = pd.DataFrame()
+    df["r"] = [dist_restraint_r]
+    df["theta_1"] = [angle1_rest_val]
+    df["theta_2"] = [angle2_rest_val]
+    df["Kr"] = [dist_rest_Kr]
+    df["Ktheta_1"] = [angle1_rest_Ktheta1]
+    df["Ktheta_2"] = [angle2_rest_Ktheta2]
+    df["Kphi1"] = [torsion1_rest_Kphi1]
+    df["Kphi2"] = [torsion2_rest_Kphi2]
+    df["Kphi3"] = [torsion3_rest_Kphi3]
+    df["DeltaG"] = [result]
+    
+    return df
+
+
+def flat_bottom_restraints_template(
+    host_guest_atoms, guest_atoms, flat_bottom_distances
+):
+
+    restraint_path = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.realpath(__file__)),
+            "templates/restraints/COM.restraint",
+        )
+    )
+    string_template = ""
+
+    with open(restraint_path) as f:
+        template = Template(f.read())
+
+        restraint_template = template.substitute(
+            host_atom_numbers=host_guest_atoms,
+            guest_atom_numbers=guest_atoms,
+            r1=flat_bottom_distances["r1"],
+            r2=flat_bottom_distances["r2"],
+            r3=flat_bottom_distances["r3"],
+            r4=flat_bottom_distances["r4"],
+            rk2=flat_bottom_distances["rk2"],
+            rk3=flat_bottom_distances["rk3"],
+        )
+
+        string_template += restraint_template
+    return string_template
+
+
+def conformational_restraints_template(
+    solute_conformational_restraint, num_receptor_atoms=0
+):
+
+    restraint_path = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.realpath(__file__)),
+            "templates/restraints/conformational_restraints.template",
+        )
+    )
+    string_template = ""
+    for index in range(len(solute_conformational_restraint)):
+        with open(restraint_path) as f:
+            template = Template(f.read())
+
+            restraint_template = template.substitute(
+                solute_primary_atom=solute_conformational_restraint[index][0]
+                + num_receptor_atoms,
+                solute_sec_atom=solute_conformational_restraint[index][1]
+                + num_receptor_atoms,
+                distance=solute_conformational_restraint[index][2],
+                frest="$frest",
+            )
+            string_template += restraint_template
+    return string_template
+
+
+def orientational_restraints_template(
+    atom_R3,
+    atom_R2,
+    atom_R1,
+    atom_L1,
+    atom_L2,
+    atom_L3,
+    dist_rest,
+    lig_angrest,
+    rec_angrest,
+    lig_torres,
+    rec_torres,
+    central_torres,
+):
+    """
+    To create an orientational restraint .RST file
+
+    The function is an Toil function which will run the restraint_finder module and returns 6 atoms best suited for NMR restraints.
+
+    Parameters
+    ----------
+    complex_file: toil.fileStore.FileID
+        The jobStoreFileID of the imported file is an parameter file (.parm7) of a complex
+    complex_name: str
+        Name of the parameter complex file
+    complex_coord: toil.fileStore.FileID
+        The jobStoreFileID of the imported file. The file being an coordinate file (.ncrst, .nc) of a complex
+    restraint_type: int
+        The type of orientational restraints chosen.
+    work_dir: str
+        The absolute path to user's working directory
+
+    Returns
+    -------
+    None
+    """
+
+    string_template = ""
+    restraint_path = os.path.abspath(
+        os.path.join(
+            os.path.dirname(os.path.realpath(__file__)),
+            "templates/restraints/orientational.template",
+        )
+    )
+    # restraint_path = "/nas0/ayoub/Impicit-Solvent-DDM/implicit_solvent_ddm/templates/restraint.RST"
+    with open(restraint_path) as t:
+        template = Template(t.read())
+        restraint_template = template.substitute(
+            atom_R3=atom_R3,
+            atom_R2=atom_R2,
+            atom_R1=atom_R1,
+            atom_L1=atom_L1,
+            atom_L2=atom_L2,
+            atom_L3=atom_L3,
+            dist_rest=dist_rest,
+            lig_angrest=lig_angrest,
+            rec_angrest=rec_angrest,
+            central_torres=central_torres,
+            rec_torres=rec_torres,
+            lig_torres=lig_torres,
+            drest="$drest",
+            arest="$arest",
+            trest="$trest",
+        )
+        string_template += restraint_template
+    return string_template
+
+
+def write_empty_restraint(job):
+    temp_dir = job.fileStore.getLocalTempDir()
+    with open("empty.restraint", "w") as fn:
+        fn.write("")
+    return job.fileStore.writeGlobalFile("empty.restraint")
+
+
+def get_flat_bottom_restraints(
+    job, complex_prmtop, complex_coordinate, flat_well_parabola
+):
+
+    tempDir = job.fileStore.getLocalTempDir()
+    complex_prmtop_ID = job.fileStore.readGlobalFile(
+        complex_prmtop, userPath=os.path.join(tempDir, os.path.basename(complex_prmtop))
+    )
+    complex_coordinate_ID = job.fileStore.readGlobalFile(
+        complex_coordinate,
+        userPath=os.path.join(tempDir, os.path.basename(complex_coordinate[0])),
+    )
+
+    complex_parmed_traj = pmd.load_file(complex_prmtop_ID, complex_coordinate_ID)
+    host_atom_numbers = ",".join(
+        [
+            str(atom)
+            for atom in range(
+                1, int(complex_parmed_traj.parm_data["RESIDUE_POINTER"][1])
+            )
+        ]
+    )
+    guest_atom_numbers = ",".join(
+        [
+            str(i)
+            for i in range(
+                int(complex_parmed_traj.parm_data["RESIDUE_POINTER"][1]),
+                int(complex_parmed_traj.parm_data["POINTERS"][0] + 1),
+            )
+        ]
+    )
+    flat_bottom_string = flat_bottom_restraints_template(
+        host_atom_numbers, guest_atom_numbers, flat_well_parabola
+    )
+
+    temp_file = job.fileStore.getLocalTempFile()
+    with open(temp_file, "w") as fH:
+        fH.write(flat_bottom_string)
+
+    return job.fileStore.writeGlobalFile(temp_file)
+
 
 
 def create_atom_neighbor_array(atom_coordinates):
@@ -1317,66 +1436,59 @@ if __name__ == "__main__":
 
     # traj = pt.load("/home/ayoub/nas0/Impicit-Solvent-DDM/success_postprocess/mdgb/split_complex_folder/ligand/split_M01_000.ncrst.1", "/home/ayoub/nas0/Impicit-Solvent-DDM/success_postprocess/mdgb/M01_000/4/4.0/M01_000.parm7")
     complex_coord = (
-        "/home/ayoub/nas0/Impicit-Solvent-DDM/structs/complex/cb7-mol01.ncrst"
+        "/home/ayoub/nas0/Impicit-Solvent-DDM/barton_source/cb7-mol02_hmass_298K_lastframe.ncrst"
     )
     complex_parm = (
-        "/home/ayoub/nas0/Impicit-Solvent-DDM/structs/complex/cb7-mol01.parm7"
+        "/home/ayoub/nas0/Impicit-Solvent-DDM/barton_source/cb7-mol02_hmass.parm7"
     )
     # screen_for_distance_restraints(num_atoms, com, mol)
     traj = pt.load(complex_coord, complex_parm)
     parmed_traj = pmd.load_file(complex_parm)
     receptor = traj[":CB7"]
-    ligand = traj[":M01"]
+    ligand = traj[":M02"]
     ligand_com = pt.center_of_mass(ligand)
     receptor_com = pt.center_of_mass(receptor)
 
     
     # find atom closest to ligand's CoM and relevand information
     # ligand_suba1, lig_a1_coords, dist_liga1_com = distance_btw_center_of_mass(
-    #     ligand_com, ligand
-    # )
-    # ligand_a1 = receptor.n_atoms + ligand_suba1
-    # receptor_a1, rec_a1_coords, dist_rest = distance_btw_center_of_mass(
-    #     lig_a1_coords, receptor
-    # )
     
-    # print("*"*80)
-    # print("ligand_suba1, lig_a1_coords, dist_liga1_com")
-    # print(ligand_suba1, lig_a1_coords, dist_liga1_com)
-    # print("receptor_a1, rec_a1_coords, dist_rest")
-    # print(receptor_a1, rec_a1_coords, dist_rest)
-    
-    ligand_suba1, lig_a1_coords, dist_liga1_com = screen_for_distance_restraints(ligand.n_atoms,
-        ligand_com, ligand
+    receptor_atom_neighbor_index = create_atom_neighbor_array(receptor.xyz[0])
+    ligand_atom_neighbor_index = create_atom_neighbor_array(ligand.xyz[0])
+
+    print("receptor_atom_neighbor_index")
+    print(receptor_atom_neighbor_index)
+    print("-"*80)
+    print("ligand_atom_neighbor_index")
+    print(ligand_atom_neighbor_index)
+    ligand_template = conformational_restraints_template(ligand_atom_neighbor_index)
+    receptor_template = conformational_restraints_template(receptor_atom_neighbor_index)
+    complex_template = conformational_restraints_template(
+        ligand_atom_neighbor_index, num_receptor_atoms=receptor.n_atoms
     )
-    receptor_a1, rec_a1_coords, dist_rest = screen_for_distance_restraints(receptor.n_atoms,
-        lig_a1_coords, receptor
-    )
-    # print("-"*80)
-    # print("ligand_suba1, lig_a1_coords, dist_liga1_com")
-    # print(ligand_suba1, lig_a1_coords, dist_liga1_com)
-    # print("receptor_a1, rec_a1_coords, dist_rest")
-    
-    # (
-    #         ligand_suba1,
-    #         lig_a1_coords,
-    #         receptor_a1,
-    #         rec_a1_coords,
-    #         dist_rest,
-    #     ) = shortest_distance_between_molecules(receptor, ligand)
 
-    (
-        ligand_suba2,
-        lig_a2_coords,
-        dist_liga2_a3,
-        dist_liga1_a2,
-        lig_angle1,
-        lig_angle2,
-        lig_torsion,
-        ligand_suba3,
-        lig_a3_coords,
-    ) = refactor_screen_arrays_for_angle_restraints(
-        lig_a1_coords, rec_a1_coords, ligand, parmed_traj)
+    # Create a local temporary file.
 
+    # ligand_scratchFile = job.fileStore.getLocalTempFile()
+    # receptor_scratchFile = job.fileStore.getLocalTempFile()
+    # complex_scratchFile = job.fileStore.getLocalTempFile()
+    # # job.log(f"ligand_template {ligand_template}")
+    with open("complex_conformational.RST", "w") as fH:
+        fH.write(complex_template)
+        fH.write(receptor_template)
+        fH.write("&end")
+    with open("ligand_conformational.RST", "w") as fH:
+        fH.write(ligand_template)
+        fH.write("&end")
+    with open("receptor_conformational", "w") as fH:
+        fH.write(receptor_template)
+        fH.write("&end")
 
-    
+    # restraint_complex_ID = job.fileStore.writeGlobalFile(complex_scratchFile)
+    # restraint_ligand_ID = job.fileStore.writeGlobalFile(ligand_scratchFile)
+    # restriant_receptor_ID = job.fileStore.writeGlobalFile(receptor_scratchFile)
+
+    # # job.fileStore.export_file(restraint_complex_ID, "file://" + os.path.abspath(os.path.join("/home/ayoub/nas0/Impicit-Solvent-DDM/output_directory", os.path.basename(restraint_complex_ID))))
+    # # toil.exportFile(outputFileID, "file://" + os.path.abspath(os.path.join(ioFileDirectory, "out.txt")))
+
+    # return (restraint_complex_ID, restraint_ligand_ID, restriant_receptor_ID)
