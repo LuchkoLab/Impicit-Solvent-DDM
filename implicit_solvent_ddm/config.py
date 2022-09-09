@@ -265,7 +265,7 @@ class IntermidateStatesArgs:
     restraint_type: int 
     igb_solvent: int 
     mdin_intermidate_config: str 
-    
+    temperature: float 
     guest_restraint_files: Optional[list[Union[str, FileID]]] = field(default=None)  
     receptor_restraint_files: Optional[list[Union[str, FileID]]] = field(default=None)  
     complex_restraint_files: Optional[list[Union[str, FileID]]] = field(default=None)
@@ -316,27 +316,21 @@ class IntermidateStatesArgs:
                     self.complex_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(complex_rest)))  # type: ignore
 @dataclass 
 class BoreschParameters:
-    dist_restraint_r: float = None 
-    angle2_rest_val: float  = None 
-    dist_rest_Kr: float  = None 
-    max_conformational_force: float = None 
-    max_orientational_force: float  = None 
-    angle1_rest_Ktheta1:float = field(init=False)
-    angle2_rest_Ktheta2:float = field(init=False)
-    torsion1_rest_Kphi1:float = field(init=False)
-    torsion2_rest_Kphi2:float = field(init=False)
-    torsion3_rest_Kphi3:float = field(init=False)
-    
-    def __post_init__(self):
-        
-        self.angle1_rest_Ktheta1 = self.angle2_rest_Ktheta2 = self.max_conformational_force        
-        self.torsion1_rest_Kphi1 = self.torsion2_rest_Kphi2 = self.torsion3_rest_Kphi3 = self.max_orientational_force
-    
+    dist_restraint_r: float = 0.0 
+    angle1_rest_val: float = 0.0 
+    angle2_rest_val:  float = 0.0 
+    dist_rest_Kr: float = 0.0 
+    angle1_rest_Ktheta1: float = 0.0 
+    angle2_rest_Ktheta2: float = 0.0 
+    torsion1_rest_Kphi1: float = 0.0 
+    torsion2_rest_Kphi2: float = 0.0 
+    torsion3_rest_Kphi3: float = 0.0 
+  
     
     @classmethod
     def from_config(cls: Type["BoreschParameters"], obj:dict):
-        if "boresch_parametes" in obj.keys():
-            return cls(**obj["boresch_parametes"])
+        if "boresch_parameters" in obj.keys():
+            return cls(**obj["boresch_parameters"])
         else:
             return cls()
     
@@ -390,10 +384,10 @@ class Config:
         if self.intermidate_args.guest_restraint_files is not None:
             boresch_parameters = list(self.boresch_parameters.__dict__.values())
         
-            boresch_p_type = all(i==None for i in boresch_parameters)
+            boresch_p_type = all(i==0.0 for i in boresch_parameters)
             if boresch_p_type:
                 raise RuntimeError(f''' User restraints did not specify boresch parameters
-                                   If you providing your own restraints please 
+                                   If providing your own restraints please 
                                    specifiy all necessary boresch parameters within the config file
                                    to compute analytical dG''')
     @classmethod 
@@ -406,7 +400,7 @@ class Config:
             amber_masks=AmberMasks.from_config(user_config["AMBER_masks"]),
             endstate_method=EndStateMethod.from_config(user_config["workflow"]),     
             intermidate_args = IntermidateStatesArgs.from_config(user_config["workflow"]["intermidate_states_arguments"]),
-            boresch_parameters = BoreschParameters.from_config(user_config),
+            boresch_parameters = BoreschParameters.from_config(user_config["workflow"]),
             inputs= {},
             restraints={}
         )  
@@ -482,13 +476,9 @@ if __name__ == "__main__":
        
         config = Config.from_config(yaml_config)    
         example = toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/cb7-mol01.parm7"))
-        print(example)
-        print(config.endstate_method.remd_args)
         
         config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
-        print(config.endstate_method.remd_args)
         boresch_p = list(config.boresch_parameters.__dict__.values())
-        print(boresch_p)
-        print(all(i==None for i in boresch_p))
+        
         #toil.start(Job.wrapJobFn(workflow, config))
-  
+        print(config.intermidate_args)
