@@ -18,6 +18,7 @@ from toil.job import Job
 import implicit_solvent_ddm.pandasmbar as pdmbar
 from implicit_solvent_ddm.get_dirstruct import Dirstruct
 from implicit_solvent_ddm.mdout import min_to_dataframe
+from implicit_solvent_ddm.restraints import RestraintMaker
 from implicit_solvent_ddm.simulations import Simulation
 
 WORKDIR = os.getcwd()
@@ -96,7 +97,7 @@ class PostTreatment(Job):
 
         return self 
 
-def consolidate_output(job, ligand_system: PostTreatment, receptor_system: PostTreatment, complex_system: PostTreatment, boresch_df:pd.DataFrame):
+def consolidate_output(job, ligand_system: PostTreatment, receptor_system: PostTreatment, complex_system: PostTreatment, boresch_df:RestraintMaker):
     
     output_path = os.path.join(f"{WORKDIR}",".cache")
     if not os.path.exists(output_path):
@@ -112,7 +113,7 @@ def consolidate_output(job, ligand_system: PostTreatment, receptor_system: PostT
     ligand_system.error.to_hdf(f"{output_path}/ligand_{complex_system.name}_error.h5", key="df", mode='w')
     
     
-    borech_dG = boresch_df["DeltaG"].values[0] 
+    borech_dG = boresch_df.boresch_deltaG["DeltaG"].values[0] 
     #compute total deltaG 
     deltaG_tot = complex_system.compute_binding_deltaG(system1=ligand_system.deltaG, system2=receptor_system.deltaG)
 
