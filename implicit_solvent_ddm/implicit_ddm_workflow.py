@@ -1079,30 +1079,22 @@ def ddm_workflow(
     if post_process:
         return calc_list
 
-    md_jobs.addFollowOn(PostTreatment(ligand_df, config.intermidate_args.temperature, system="ligand", 
-                                      max_conformation_force=max_con_exponent))
+    #run pyMBAR and consolidate output. 
+    if config.workflow.post_treatment:
     
-    md_jobs.addFollowOn(PostTreatment(receptor_df, config.intermidate_args.temperature, system="receptor",
-                                      max_conformation_force=max_con_exponent))
-    
-    md_jobs.addFollowOn(PostTreatment(complex_df, 
-                                      config.intermidate_args.temperature, 
-                                      system="complex", max_conformation_force=max_con_exponent, 
-                                      max_orientational_force=max_orien_exponent))
-    
-    job.addFollowOnJobFn(consolidate_output,
-                        md_jobs.addFollowOn(PostTreatment(ligand_df, config.intermidate_args.temperature, system="ligand", 
-                                                           max_conformation_force=max_con_exponent)).rv(),
-                        
-                        md_jobs.addFollowOn(PostTreatment(receptor_df, config.intermidate_args.temperature, system="receptor",
-                                      max_conformation_force=max_con_exponent)).rv(),
-                        
-                        md_jobs.addFollowOn(PostTreatment(complex_df, 
-                                      config.intermidate_args.temperature, 
-                                      system="complex", max_conformation_force=max_con_exponent, 
-                                      max_orientational_force=max_orien_exponent)).rv(),
-                        restraints)
-                        
+        job.addFollowOnJobFn(consolidate_output,
+                            md_jobs.addFollowOn(PostTreatment(ligand_df, config.intermidate_args.temperature, system="ligand", 
+                                                            max_conformation_force=max_con_exponent)).rv(),
+                            
+                            md_jobs.addFollowOn(PostTreatment(receptor_df, config.intermidate_args.temperature, system="receptor",
+                                        max_conformation_force=max_con_exponent)).rv(),
+                            
+                            md_jobs.addFollowOn(PostTreatment(complex_df, 
+                                        config.intermidate_args.temperature, 
+                                        system="complex", max_conformation_force=max_con_exponent, 
+                                        max_orientational_force=max_orien_exponent)).rv(),
+                            restraints)
+                            
                         
     # # do mbar analysis once every postprocess finishes
     # # ligand_output = job.addFollowOnJobFn(PostTreatment)
