@@ -25,13 +25,12 @@ from implicit_solvent_ddm.mdin import get_mdins
 # from mdin import get_mdins
 # from implicit_solvent_ddm.mdin import get_mdins
 # from postTreatment import PostTreatment, create_mdout_dataframe
-from implicit_solvent_ddm.postTreatment import create_mdout_dataframe
+from implicit_solvent_ddm.postTreatment import (PostTreatment,
+                                                consolidate_output,
+                                                create_mdout_dataframe)
 from implicit_solvent_ddm.restraints import (RestraintMaker,
-                                             get_conformational_restraints,
                                              get_flat_bottom_restraints,
-                                             get_orientational_restraints,
-                                             write_empty_restraint,
-                                             write_restraint_forces)
+                                             write_empty_restraint)
 from implicit_solvent_ddm.simulations import (ExtractTrajectories,
                                               REMDSimulation, Simulation)
 
@@ -606,7 +605,7 @@ def ddm_workflow(
             ligand_df.append(
                 post_process_ligand.addFollowOnJobFn(
                     run_post_process, post_process_ligand.rv()
-                )
+                ).rv()
             )
 
         else:
@@ -1080,6 +1079,31 @@ def ddm_workflow(
     if post_process:
         return calc_list
 
+    md_jobs.addFollowOn(PostTreatment(ligand_df, config.intermidate_args.temperature, system="ligand", 
+                                      max_conformation_force=max_con_exponent))
+    
+    md_jobs.addFollowOn(PostTreatment(receptor_df, config.intermidate_args.temperature, system="receptor",
+                                      max_conformation_force=max_con_exponent))
+    
+    md_jobs.addFollowOn(PostTreatment(complex_df, 
+                                      config.intermidate_args.temperature, 
+                                      system="complex", max_conformation_force=max_con_exponent, 
+                                      max_orientational_force=max_orien_exponent))
+    
+    job.addFollowOnJobFn(consolidate_output,
+                        md_jobs.addFollowOn(PostTreatment(ligand_df, config.intermidate_args.temperature, system="ligand", 
+                                                           max_conformation_force=max_con_exponent)).rv(),
+                        
+                        md_jobs.addFollowOn(PostTreatment(receptor_df, config.intermidate_args.temperature, system="receptor",
+                                      max_conformation_force=max_con_exponent)).rv(),
+                        
+                        md_jobs.addFollowOn(PostTreatment(complex_df, 
+                                      config.intermidate_args.temperature, 
+                                      system="complex", max_conformation_force=max_con_exponent, 
+                                      max_orientational_force=max_orien_exponent)).rv(),
+                        restraints)
+                        
+                        
     # # do mbar analysis once every postprocess finishes
     # # ligand_output = job.addFollowOnJobFn(PostTreatment)
     #return ligand_df, receptor_df, complex_df, orientational_restraints.rv(1)
