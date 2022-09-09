@@ -53,9 +53,9 @@ def run_workflow():
                 config.endstate_files.receptor_parameter_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/CB7.parm7")))
                 config.endstate_files.receptor_coordinate_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/CB7.ncrst.1")))
                 
-            output_data = toil.start(Job.wrapJobFn(ddm_workflow, config))
+            toil.start(Job.wrapJobFn(ddm_workflow, config))
             #postprocess analysis 
-            print(len(output_data))
+            
         else:
             toil.restart()
     #cleanup 
