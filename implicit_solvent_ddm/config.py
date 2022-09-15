@@ -1,4 +1,6 @@
 import os
+import re
+import tempfile
 from copy import deepcopy
 from dataclasses import dataclass, field
 from numbers import Complex
@@ -11,7 +13,7 @@ import parmed as pmd
 import pytraj as pt
 import yaml
 from toil.common import FileID, Toil
-from toil.job import Job
+from toil.job import Job, JobFunctionWrappingJob
 
 
 @dataclass 
@@ -270,9 +272,15 @@ class IntermidateStatesArgs:
     igb_solvent: int 
     mdin_intermidate_config: str 
     temperature: float 
-    guest_restraint_files: Optional[List[Union[str, FileID]]] = field(default=None)  
-    receptor_restraint_files: Optional[List[Union[str, FileID]]] = field(default=None)  
-    complex_restraint_files: Optional[List[Union[str, FileID]]] = field(default=None)
+    
+    guest_restraint_template: Optional[str] = None
+    receptor_restraint_template: Optional[str] = None
+    complex_conformational_template: Optional[str] = None
+    complex_orientational_template: Optional[str] = None 
+    
+    guest_restraint_files: List[Union[str,FileID]] = field(default_factory=list)
+    receptor_restraint_files: List[Union[str,FileID]] = field(default_factory=list)
+    complex_restraint_files: List[Union[str,FileID]] = field(default_factory=list)
       
     conformational_restraints_forces: np.ndarray = field(init=False)
     orientational_restriant_forces: np.ndarray = field(init=False)
@@ -287,29 +295,91 @@ class IntermidateStatesArgs:
         
         self.max_conformational_restraint = max(self.conformational_restraints_forces)
         self.max_orientational_restraint = max(self.orientational_restriant_forces)
+        
         self.mdin_intermidate_config = os.path.abspath(self.mdin_intermidate_config)
 
         with open(self.mdin_intermidate_config) as mdin_args:
             self.mdin_intermidate_config = yaml.safe_load(mdin_args)
 
-        if self.guest_restraint_files != None or self.receptor_restraint_files != None or self.complex_restraint_files != None:
             
-            if all(isinstance(i, list) for i in [self.guest_restraint_files, self.receptor_restraint_files, self.complex_restraint_files]):
-                num_guest = len(self.guest_restraint_files) # type: ignore
-                num_receptor = len(self.receptor_restraint_files) # type: ignore
-                num_complex = len(self.complex_restraint_files)  # type: ignore
-                if num_guest != num_receptor or num_guest != num_complex:   
-                    raise RuntimeError(f'''The number of restraint files do not equal each other
-                                    guest_restraint_files: {num_guest}
-                                    receptor_restraint_files: {num_receptor}
-                                    complex_restraint_files: {num_complex}''')
-            else:
-                raise TypeError("guest, receptor or complex did not specify restraint files")
-    
+        if self.guest_restraint_template or self.receptor_restraint_template or self.complex_orientational_template:
+           
+            self.tempdir = tempfile.TemporaryDirectory()
+            for con_force, orient_force in zip(self.conformational_restraints_forces, self.orientational_restriant_forces):
+                self.write_ligand_restraint(conformational_force=con_force)
+                self.write_receptor_restraints(conformational_force=con_force)
+                self.write_complex_restraints(conformational_force=con_force, orientational_force=orient_force)
+            
     @classmethod
     def from_config(cls: Type["IntermidateStatesArgs"], obj:dict):
         return cls(**obj)   
 
+    def write_ligand_restraint(self, conformational_force):
+        filename = re.sub(r"\..*", "", os.path.basename(self.guest_restraint_template))  # type: ignore
+        
+        with open(self.guest_restraint_template) as f:  # type: ignore
+            ligand_restraints = f.readlines()
+
+        string_template = ""
+        for line in ligand_restraints:
+            if 'frest' in line:
+                line = line.replace('frest', str(conformational_force))
+            string_template += line 
+            
+        with open(f"{self.tempdir.name}/{filename}_{conformational_force}.RST", "w") as output:
+            output.write(string_template)
+        
+        self.guest_restraint_files.append(f"{self.tempdir.name}/{filename}_{conformational_force}.RST")      # type: ignore
+    
+    def write_receptor_restraints(self, conformational_force):
+        filename = re.sub(r"\..*", "", os.path.basename(self.receptor_restraint_template))  # type: ignore
+        
+        with open(self.receptor_restraint_template) as f:  # type: ignore
+            receptor_restraints = f.readlines()
+
+        string_template = ""
+        for line in receptor_restraints:
+            if 'frest' in line:
+                 line = line.replace('frest', str(conformational_force))
+            string_template += line 
+    
+        
+        with open(f"{self.tempdir.name}/{filename}_{conformational_force}.RST", "w") as output:
+            output.write(string_template)
+        
+        self.receptor_restraint_files.append(f"{self.tempdir.name}/{filename}_{conformational_force}.RST")      # type: ignore
+    
+    def write_complex_restraints(self, conformational_force, orientational_force):
+        
+        filename = re.sub(r"\..*", "", os.path.basename(self.complex_orientational_template))  # type: ignore
+        
+        with open(self.complex_conformational_template) as f:  # type: ignore
+            complex_conformational = f.readlines()
+        
+        with open(self.complex_orientational_template) as fH:  # type: ignore
+            complex_orientational = fH.readlines()
+        
+        string_template = ""
+        for line in complex_orientational:
+            if 'drest' in line:
+                line = line.replace('drest', str(conformational_force))
+            if 'arest' in line:
+                line = line.replace('arest', str(orientational_force))
+            if 'trest' in line:
+                line = line.replace('trest', str(orientational_force))
+            
+            string_template += line 
+            
+        for line in complex_conformational:
+            if 'frest' in line:
+                line = line.replace('frest', str(conformational_force))
+            string_template += line 
+            
+        with open(f"{self.tempdir.name}/{filename}_{conformational_force}_{orientational_force}.RST", "w") as output:
+            output.write(string_template) 
+        
+        self.complex_restraint_files.append(f"{self.tempdir.name}/{filename}_{conformational_force}_{orientational_force}.RST")   # type: ignore
+        
     def toil_import_user_restriants(self, toil:Toil):
         """
         import restraint files into Toil job store 
@@ -318,25 +388,8 @@ class IntermidateStatesArgs:
                     self.guest_restraint_files[i] = toil.import_file("file://" + os.path.abspath(guest_rest))  # type: ignore
                     self.receptor_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(receptor_rest)))  # type: ignore
                     self.complex_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(complex_rest)))  # type: ignore
-@dataclass 
-class BoreschParameters:
-    dist_restraint_r: float = 0.0 
-    angle1_rest_val: float = 0.0 
-    angle2_rest_val:  float = 0.0 
-    dist_rest_Kr: float = 0.0 
-    angle1_rest_Ktheta1: float = 0.0 
-    angle2_rest_Ktheta2: float = 0.0 
-    torsion1_rest_Kphi1: float = 0.0 
-    torsion2_rest_Kphi2: float = 0.0 
-    torsion3_rest_Kphi3: float = 0.0 
-  
-    
-    @classmethod
-    def from_config(cls: Type["BoreschParameters"], obj:dict):
-        if "boresch_parameters" in obj.keys():
-            return cls(**obj["boresch_parameters"])
-        else:
-            return cls()
+        
+        #self.tempdir.cleanup()
     
 @dataclass
 class Config:
@@ -354,7 +407,6 @@ class Config:
     amber_masks: AmberMasks
     endstate_method:  EndStateMethod
     intermidate_args: IntermidateStatesArgs
-    boresch_parameters: BoreschParameters
     inputs: dict 
     restraints: dict 
     ignore_receptor: bool = False 
@@ -384,16 +436,6 @@ class Config:
                                 Please check if AMBER masks are correct ligand_mask: "{self.amber_masks.ligand_mask}" receptor_mask: "{self.amber_masks.receptor_mask}"
                                 {self.endstate_files.complex_parameter_filename} residue lables are: {parm.parm_data['RESIDUE_LABEL']}''')
         
-      
-        if self.intermidate_args.guest_restraint_files is not None:
-            boresch_parameters = list(self.boresch_parameters.__dict__.values())
-        
-            boresch_p_type = all(i==0.0 for i in boresch_parameters)
-            if boresch_p_type:
-                raise RuntimeError(f''' User restraints did not specify boresch parameters
-                                   If providing your own restraints please 
-                                   specifiy all necessary boresch parameters within the config file
-                                   to compute analytical dG''')
     @classmethod 
     def from_config(cls: Type["Config"], user_config:dict):
         return cls(
@@ -404,7 +446,6 @@ class Config:
             amber_masks=AmberMasks.from_config(user_config["AMBER_masks"]),
             endstate_method=EndStateMethod.from_config(user_config["workflow"]),     
             intermidate_args = IntermidateStatesArgs.from_config(user_config["workflow"]["intermidate_states_arguments"]),
-            boresch_parameters = BoreschParameters.from_config(user_config["workflow"]),
             inputs= {},
             restraints={}
         )  
@@ -464,7 +505,11 @@ class Config:
 
 def workflow(job, config:Config):
     
-    job.log(f"config.ligand_pytraj_trajectory : {config}")
+    tempdir = job.fileStore.getLocalTempDir()
+    
+    job.fileStore.readGlobalFile(
+                    config.intermidate_args.complex_restraint_files[-1], 
+                    userPath=os.path.join(tempdir, os.path.basename(config.intermidate_args.complex_restraint_files[-1])))
 
 if __name__ == "__main__":
   
@@ -473,16 +518,18 @@ if __name__ == "__main__":
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "OFF"
     options.clean = "always"
-    with open("new_workflow.yaml") as fH:
+    with open("/home/ayoub/nas0/Impicit-Solvent-DDM/new_workflow.yaml") as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:
        
         config = Config.from_config(yaml_config)    
+       #print(config)
         example = toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/cb7-mol01.parm7"))
-        
-        config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
-        boresch_p = list(config.boresch_parameters.__dict__.values())
+        config.intermidate_args.toil_import_user_restriants(toil=toil)
+        #print(config)
+        # config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
+        # boresch_p = list(config.boresch_parameters.__dict__.values())
         
         #toil.start(Job.wrapJobFn(workflow, config))
-        print(config.intermidate_args)
+        # print(config.intermidate_args)

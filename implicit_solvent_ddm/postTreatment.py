@@ -112,6 +112,9 @@ def consolidate_output(job, ligand_system: PostTreatment, receptor_system: PostT
     receptor_system.error.to_hdf(f"{output_path}/receptor_{complex_system.name}_error.h5", key="df", mode='w')
     ligand_system.error.to_hdf(f"{output_path}/ligand_{complex_system.name}_error.h5", key="df", mode='w')
     
+    #parse out boresch restraints dataframe 
+    
+    boresch_df.boresch_deltaG.to_hdf(f"{output_path}/boresch_{complex_system.name}.h5", key="df", mode='w')
     
     borech_dG = boresch_df.boresch_deltaG["DeltaG"].values[0] 
     #compute total deltaG 
@@ -262,7 +265,8 @@ def main(complex_file, receptor_file, ligand_file, boresch_file):
     receptor_obj.error.to_hdf(f"output_path/receptor_{complex_name}_error.h5", key="df", mode='w')
     ligand_obj.error.to_hdf(f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/ligand/ligand_{complex_name}_error.h5", key="df", mode='w')
     
-    
+    #parse out boresch restraints
+  
     borech_dG = boresch_df["DeltaG"].values[0] 
     #compute total deltaG 
     deltaG_tot = complex_obj.compute_binding_deltaG(system1=ligand_obj.deltaG, system2=receptor_obj.deltaG)

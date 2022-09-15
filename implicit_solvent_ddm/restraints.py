@@ -5,8 +5,6 @@ import os
 import re
 import time
 from string import Template
-from turtle import distance, pos
-from unittest.mock import NonCallableMagicMock
 
 import numpy as np
 import pandas as pd
@@ -21,7 +19,7 @@ from implicit_solvent_ddm.config import Config
 class RestraintMaker(Job):
     def __init__(self,  config: Config, conformational_template=None, orientational_template=None) -> None:
         super().__init__()
-        self.complex_restraints_file = config.intermidate_args.complex_restraint_files
+        self.complex_restraint_file = config.intermidate_args.complex_restraint_files
         self.ligand_restraint_file = config.intermidate_args.guest_restraint_files
         self.receptor_restraint_file = config.intermidate_args.receptor_restraint_files
         self.conformational_forces = config.intermidate_args.conformational_restraints_forces
@@ -36,9 +34,7 @@ class RestraintMaker(Job):
                 self.config.intermidate_args.conformational_restraints_forces,
                 self.config.intermidate_args.orientational_restriant_forces)):
             
-            if self.ligand_restraint_file == None:
-                
-               
+            if len(self.ligand_restraint_file) == 0:
                     
                 conformational_restraints = self.addChildJobFn(get_conformational_restraints, 
                             self.config.endstate_files.complex_parameter_filename,
@@ -85,18 +81,14 @@ class RestraintMaker(Job):
                     f"receptor_{conformational_force}_rst"] = self.receptor_restraint_file[index]
                 
                 self.restraints[
-                    f"complex_{conformational_force}_{orientational_force}_rst"] = self.complex_restraints_file[index]
-
-                self.boresch_deltaG = compute_boresch_restraints(dist_restraint_r = self.config.boresch_parameters.dist_restraint_r,
-                                                                 angle1_rest_val = self.config.boresch_parameters.angle1_rest_val,
-                                                                 angle2_rest_val = self.config.boresch_parameters.angle2_rest_val,
-                                                                 dist_rest_Kr = self.config.boresch_parameters.dist_rest_Kr,
-                                                                 angle1_rest_Ktheta1 = self.config.boresch_parameters.angle1_rest_Ktheta1,
-                                                                 angle2_rest_Ktheta2 = self.config.boresch_parameters.angle2_rest_Ktheta2,
-                                                                 torsion1_rest_Kphi1 = self.config.boresch_parameters.torsion1_rest_Kphi1,
-                                                                 torsion2_rest_Kphi2 = self.config.boresch_parameters.torsion2_rest_Kphi2,
-                                                                 torsion3_rest_Kphi3 = self.config.boresch_parameters.torsion3_rest_Kphi3,)
-                
+                    f"complex_{conformational_force}_{orientational_force}_rst"] = self.complex_restraint_file[index]
+        
+        if self.complex_restraint_file:
+            self.boresch_deltaG = self._get_boresch_parameters(fileStore.readGlobalFile(
+                self.complex_restraint_file[-1], 
+                userPath=os.path.join(self.tempDir, os.path.basename(self.complex_restraint_file[-1])))
+            )
+            
         return self
     
     
@@ -122,7 +114,49 @@ class RestraintMaker(Job):
             write_restraint_forces,
             self.conformational_restraints.rv(2),
             conformational_force=conformational_force).rv()
+
+    def _get_boresch_parameters(self, restraint_filename):
+        '''
+            Get the Boresch parameter from user provided restraint files.
             
+            The purpose is to read an .RST file. This script assumes the user 
+            formated the .RST file correctly with the 6 orientational restraints
+            at the top of the file. The method will scan each line and find a 
+            floating point number ignoring integers (atom numbers).
+            The order list follows:
+            1. The first floating point number should corresponds to distance(r) restraint
+                between the select host/guest atom. 
+            2. The second is the conformational restraint force constant
+
+            Returns
+            -------
+            boresch_parameter: pd.DataFrame()
+        '''
+        #read in the orientational file with the MAX restraint forces 
+        
+        with open(restraint_filename) as f:
+            restraints = f.readlines()
+        
+        values = []
+        for line in restraints:
+            #if number is floating point number
+            current_line = re.search(r"\d*\.\d*", line)
+            if current_line is not None:
+               values.append(float(current_line[0]))
+        
+        
+        return(compute_boresch_restraints(
+            dist_restraint_r=values[0],
+            angle1_rest_val=values[2],
+            angle2_rest_val=values[4],
+            dist_rest_Kr=values[1],
+            angle1_rest_Ktheta1=values[3],
+            angle2_rest_Ktheta2=values[3],
+            torsion1_rest_Kphi1=values[3],
+            torsion2_rest_Kphi2=values[3],
+            torsion3_rest_Kphi3=values[3]            
+        ))
+        
     @staticmethod
     def get_restraint_file(restraint_obj, system, conformational_force, orientational_force=None):
         
@@ -133,6 +167,7 @@ class RestraintMaker(Job):
             return restraint_obj[f"receptor_{conformational_force}_rst"]
         else:
             return restraint_obj[f"complex_{conformational_force}_{orientational_force}_rst"]
+
 
 def get_conformational_restraints(
     job, complex_prmtop, complex_coordinate, receptor_mask, ligand_mask
