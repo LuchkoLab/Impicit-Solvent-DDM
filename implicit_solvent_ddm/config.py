@@ -304,7 +304,11 @@ class IntermidateStatesArgs:
             
         if self.guest_restraint_template or self.receptor_restraint_template or self.complex_orientational_template:
            
+            #self.tempdir = "mdgb/restraints"
             self.tempdir = tempfile.TemporaryDirectory()
+            if not os.path.exists('mdgb/restraints'):
+                os.makedirs('mdgb/restraints')
+            
             for con_force, orient_force in zip(self.conformational_restraints_forces, self.orientational_restriant_forces):
                 self.write_ligand_restraint(conformational_force=con_force)
                 self.write_receptor_restraints(conformational_force=con_force)
@@ -324,10 +328,12 @@ class IntermidateStatesArgs:
         for line in ligand_restraints:
             if 'frest' in line:
                 line = line.replace('frest', str(conformational_force))
+                
             string_template += line 
             
         with open(f"{self.tempdir.name}/{filename}_{conformational_force}.RST", "w") as output:
             output.write(string_template)
+
         
         self.guest_restraint_files.append(f"{self.tempdir.name}/{filename}_{conformational_force}.RST")      # type: ignore
     
@@ -346,7 +352,8 @@ class IntermidateStatesArgs:
         
         with open(f"{self.tempdir.name}/{filename}_{conformational_force}.RST", "w") as output:
             output.write(string_template)
-        
+            
+            
         self.receptor_restraint_files.append(f"{self.tempdir.name}/{filename}_{conformational_force}.RST")      # type: ignore
     
     def write_complex_restraints(self, conformational_force, orientational_force):
@@ -367,6 +374,8 @@ class IntermidateStatesArgs:
                 line = line.replace('arest', str(orientational_force))
             if 'trest' in line:
                 line = line.replace('trest', str(orientational_force))
+            if '&end' in line:
+                line = line.replace('&end', "")
             
             string_template += line 
             
@@ -377,6 +386,7 @@ class IntermidateStatesArgs:
             
         with open(f"{self.tempdir.name}/{filename}_{conformational_force}_{orientational_force}.RST", "w") as output:
             output.write(string_template) 
+            
         
         self.complex_restraint_files.append(f"{self.tempdir.name}/{filename}_{conformational_force}_{orientational_force}.RST")   # type: ignore
         
