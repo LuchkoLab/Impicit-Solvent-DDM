@@ -47,7 +47,7 @@ class Workflow:
             return cls(
                 setup_workflow = False, 
                 post_treatment=False, 
-                end_state_postprocess = run_endstate,
+                end_state_postprocess = True,
                 run_endstate_method = False, 
                 ignore_receptor_endstate = True,
                 add_receptor_conformational_restraints=False,
@@ -61,7 +61,7 @@ class Workflow:
             return cls(
                 setup_workflow = False,
                 post_treatment=False,
-                end_state_postprocess = run_endstate,
+                end_state_postprocess = True,
                 run_endstate_method = False,
                 add_ligand_conformational_restraints = False, 
                 remove_GB_solvent_ligand = False, 
@@ -75,7 +75,7 @@ class Workflow:
             return cls(
                 setup_workflow = False,
                 post_treatment=False,
-                end_state_postprocess = run_endstate,
+                end_state_postprocess = True,
                 run_endstate_method = False,
                 add_ligand_conformational_restraints = False,
                 remove_GB_solvent_ligand = False,
@@ -251,7 +251,8 @@ class EndStateMethod:
         if obj["endstate_method"] == 0:
             return cls(
                 endstate_method_type=obj["endstate_method"],
-                remd_args = REMD()
+                remd_args = REMD(),
+                flat_bottom_restraints=obj["endstate_arguments"]["flat_bottom_restraints"]
             )
         elif obj["endstate_method"].lower() == 'remd':
             return cls(
