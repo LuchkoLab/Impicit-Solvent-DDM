@@ -9,7 +9,7 @@ system_parameters:
   disk: "3G"
 endstate_parameter_files:
   complex_parameter_filename: implicit_solvent_ddm/tests/structs/cb7-mol01.parm7 # list of topology file of a complex
-  complex_coordinate_filename: implicit_solvent_ddm/tests/structs/cb7-mol01.ncrst # list of coordinate file of a complex  
+  complex_coordinate_filename: implicit_solvent_ddm/tests/structs/cb7-mol01_300K.nc # list of coordinate file of a complex  
   ligand_parameter_filename: implicit_solvent_ddm/tests/structs/M01.parm7
   ligand_coordinate_filename: implicit_solvent_ddm/tests/structs/M01_000_300K.nc 
   receptor_parameter_filename: implicit_solvent_ddm/tests/structs/CB7.parm7
@@ -26,7 +26,8 @@ AMBER_masks:
 
 workflow:
   endstate_method: 0 #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates)endstate_method: REMD #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates) 
- 
+  endstate_arguments:
+    flat_bottom_restraints: {r1: 0, r2: 0, r3: 10, r4: 20, rk2: 0.1, rk3: 0.1} #r1, r2, r3, r4, rk2, rk3
 
   intermidate_states_arguments:
     mdin_intermidate_config: implicit_solvent_ddm/tests/input_files/inter.yaml #intermidate mdins required states 3-8

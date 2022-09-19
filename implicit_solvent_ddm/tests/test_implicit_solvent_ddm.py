@@ -39,19 +39,22 @@ def run_workflow():
     if not os.path.exists(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor")):
         os.makedirs(os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor"))
     
+    
+        
     #config.get_receptor_ligand_topologies()
      
     with Toil(options) as toil:
         if not toil.options.restart:
-            config.endstate_files.complex_parameter_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.complex_parameter_filename)))
-            config.endstate_files.complex_coordinate_filename = str(toil.import_file("file://" + os.path.abspath(config.endstate_files.complex_coordinate_filename)))
-            config.endstate_files.ligand_coordinate_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/M01.ncrst.1")))  
-            config.endstate_files.ligand_parameter_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/M01.parm7")))
+            if config.endstate_method.endstate_method_type == 0:
+                config.endstate_files.get_inital_coordinate()
+                
+            config.endstate_files.toil_import_parmeters(toil=toil)
+                
             config.inputs["min_mdin"] = str(toil.import_file("file://" + os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/input_files/min.mdin")))
             
-            if not config.ignore_receptor:
-                config.endstate_files.receptor_parameter_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/CB7.parm7")))
-                config.endstate_files.receptor_coordinate_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/CB7.ncrst.1")))
+            # if not config.ignore_receptor:
+            #     config.endstate_files.receptor_parameter_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/CB7.parm7")))
+            #     config.endstate_files.receptor_coordinate_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/CB7.ncrst.1")))
                 
             toil.start(Job.wrapJobFn(ddm_workflow, config))
             #postprocess analysis 
