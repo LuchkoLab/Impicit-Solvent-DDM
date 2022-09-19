@@ -509,15 +509,24 @@ def ddm_workflow(
         dirstruct = "post_process_apo"
         if solute == "ligand":
             topology = config.endstate_files.ligand_parameter_filename
-            coordinate = config.endstate_files.ligand_coordinate_filename
+            if config.endstate_files.ligand_initial_coordinate is not None:
+                coordinate = config.endstate_files.ligand_initial_coordinate
+            else:
+                coordinate = config.endstate_files.ligand_coordinate_filename
             num_cores = config.num_cores_per_system.ligand_ncores
         elif solute == "receptor":
             topology = config.endstate_files.receptor_parameter_filename
-            coordinate = config.endstate_files.receptor_coordinate_filename
+            if config.endstate_files.receptor_initial_coordinate is not None:
+                coordinate = config.endstate_files.receptor_initial_coordinate
+            else:
+                coordinate = config.endstate_files.receptor_coordinate_filename
             num_cores = config.num_cores_per_system.receptor_ncores
         else:
             topology = config.endstate_files.complex_parameter_filename
-            coordinate = config.endstate_files.complex_coordinate_filename
+            if config.endstate_files.complex_initial_coordinate is not None:
+                coordinate = config.endstate_files.complex_initial_coordinate
+            else:
+                coordinate = config.endstate_files.complex_coordinate_filename
             num_cores = config.num_cores_per_system.complex_ncores
             dirstruct = "post_process_halo"
             state_label = "endstate"
@@ -1200,7 +1209,9 @@ def main():
     
         if config.endstate_method.endstate_method_type != 0:
             config.get_receptor_ligand_topologies()
-            
+        else:
+            config.endstate_files.get_inital_coordinate()
+        
         if not toil.options.restart:
             config.endstate_files.toil_import_parmeters(toil=toil)
 
