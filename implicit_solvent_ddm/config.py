@@ -47,8 +47,8 @@ class Workflow:
             return cls(
                 setup_workflow = False, 
                 post_treatment=False, 
-                end_state_postprocess = run_endstate,
-                run_endstate_method = False, 
+                end_state_postprocess = True,
+                run_endstate_method = True, 
                 ignore_receptor_endstate = True,
                 add_receptor_conformational_restraints=False,
                 remove_GB_solvent_receptor=False, 
@@ -61,7 +61,7 @@ class Workflow:
             return cls(
                 setup_workflow = False,
                 post_treatment=False,
-                end_state_postprocess = run_endstate,
+                end_state_postprocess = True,
                 run_endstate_method = False,
                 add_ligand_conformational_restraints = False, 
                 remove_GB_solvent_ligand = False, 
@@ -75,7 +75,7 @@ class Workflow:
             return cls(
                 setup_workflow = False,
                 post_treatment=False,
-                end_state_postprocess = run_endstate,
+                end_state_postprocess = True,
                 run_endstate_method = False,
                 add_ligand_conformational_restraints = False,
                 remove_GB_solvent_ligand = False,
@@ -108,6 +108,10 @@ class ParameterFiles:
     receptor_parameter_filename: Optional[Union[str, FileID]] = field(default=None)
     receptor_coordinate_filename: Optional[Union[str, FileID]] = field(default=None)
     
+    complex_initial_coordinate:  Optional[Union[str, FileID]]  = field(default=None)
+    ligand_initial_coordinate: Optional[Union[str, FileID]] = field(default=None)
+    receptor_initial_coordinate: Optional[Union[str, FileID]] = field(default=None)
+    
     def __post_init__(self):
        
         #check complex is a valid structure 
@@ -115,11 +119,33 @@ class ParameterFiles:
         complex_traj = pt.iterload(self.complex_coordinate_filename, self.complex_parameter_filename)
         pt.check_structure(traj=complex_traj)
         
+            
 
     @classmethod 
     def from_config(cls: Type["ParameterFiles"], obj:dict):
        return cls(**obj)
    
+    def get_inital_coordinate(self):
+        solu_complex = re.sub(r"\..*", "", os.path.basename(self.complex_coordinate_filename))
+        solu_receptor = re.sub(r"\..*", "", os.path.basename(self.receptor_coordinate_filename))  # type: ignore
+        solu_ligand = re.sub(r"\..*", "", os.path.basename(self.ligand_coordinate_filename))  # type: ignore
+        
+        path = "mdgb/structs"
+        if not os.path.exists(path):
+            os.makedirs(path)
+        
+        complex_traj = pt.iterload(self.complex_coordinate_filename, self.complex_parameter_filename)
+        receptor_traj = pt.iterload(self.receptor_coordinate_filename, self.receptor_parameter_filename)
+        ligand_traj = pt.iterload(self.ligand_coordinate_filename, self.ligand_parameter_filename)
+        
+        pt.write_traj(f"{path}/{solu_complex}.ncrst", complex_traj, frame_indices=[0])
+        pt.write_traj(f"{path}/{solu_receptor}_.ncrst", receptor_traj, frame_indices=[0])
+        pt.write_traj(f"{path}/{solu_ligand}_.ncrst", ligand_traj, frame_indices=[0])
+        
+        self.complex_initial_coordinate = f"{path}/{solu_complex}.ncrst.1"
+        self.receptor_initial_coordinate = f"{path}/{solu_receptor}_.ncrst.1"
+        self.ligand_initial_coordinate = f"{path}/{solu_ligand}_.ncrst.1"
+        
     def toil_import_parmeters(self, toil):
         
         self.complex_parameter_filename = str(
@@ -167,6 +193,33 @@ class ParameterFiles:
                     )
                 )
             )
+        if self.complex_initial_coordinate is not None:
+            self.complex_initial_coordinate = str(
+                toil.import_file(
+                    "file://"
+                    + os.path.abspath(
+                        self.complex_initial_coordinate
+                    )
+                )
+            )
+        if self.ligand_initial_coordinate is not None:
+            self.ligand_initial_coordinate = str(
+                toil.import_file(
+                    "file://"
+                    + os.path.abspath(
+                        self.ligand_initial_coordinate
+                    )
+                ) 
+            )
+        if self.receptor_initial_coordinate is not None:
+            self.receptor_initial_coordinate = str(
+                toil.import_file(
+                    "file://"
+                    + os.path.abspath(
+                        self.receptor_initial_coordinate
+                    )
+                ) 
+            ) 
            
         
     
@@ -251,7 +304,8 @@ class EndStateMethod:
         if obj["endstate_method"] == 0:
             return cls(
                 endstate_method_type=obj["endstate_method"],
-                remd_args = REMD()
+                remd_args = REMD(),
+                flat_bottom_restraints=obj["endstate_arguments"]["flat_bottom_restraints"]
             )
         elif obj["endstate_method"].lower() == 'remd':
             return cls(
@@ -303,16 +357,19 @@ class IntermidateStatesArgs:
 
             
         if self.guest_restraint_template or self.receptor_restraint_template or self.complex_orientational_template:
-           
+            
+            
             #self.tempdir = "mdgb/restraints"
             self.tempdir = tempfile.TemporaryDirectory()
-            if not os.path.exists('mdgb/restraints'):
-                os.makedirs('mdgb/restraints')
+            # if not os.path.exists('mdgb/restraints'):
+            #     os.makedirs('mdgb/restraints')
             
             for con_force, orient_force in zip(self.conformational_restraints_forces, self.orientational_restriant_forces):
                 self.write_ligand_restraint(conformational_force=con_force)
                 self.write_receptor_restraints(conformational_force=con_force)
                 self.write_complex_restraints(conformational_force=con_force, orientational_force=orient_force)
+                
+            
             
     @classmethod
     def from_config(cls: Type["IntermidateStatesArgs"], obj:dict):
@@ -389,7 +446,7 @@ class IntermidateStatesArgs:
             
         
         self.complex_restraint_files.append(f"{self.tempdir.name}/{filename}_{conformational_force}_{orientational_force}.RST")   # type: ignore
-        
+       
     def toil_import_user_restriants(self, toil:Toil):
         """
         import restraint files into Toil job store 
@@ -535,9 +592,10 @@ if __name__ == "__main__":
        
         config = Config.from_config(yaml_config)    
        #print(config)
-        example = toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/cb7-mol01.parm7"))
+        config.endstate_files.get_inital_coordinate()
+        config.endstate_files.toil_import_parmeters(toil=toil)
         config.intermidate_args.toil_import_user_restriants(toil=toil)
-        #print(config)
+        print(config)
         # config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
         # boresch_p = list(config.boresch_parameters.__dict__.values())
         
