@@ -226,6 +226,7 @@ class Simulation(Calculation):
         input_file,
         restraint_file: Union[RestraintMaker, str],
         directory_args,
+        system_type: Optional[str]=None, 
         conformational_force=None, 
         orientational_force=None, 
         dirstruct="dirstruct",
@@ -254,7 +255,7 @@ class Simulation(Calculation):
             inptraj=inptraj,
         )
         self.restraint_key = restraint_key 
-    
+        self.system_type = system_type
     def setup(self):
         """
         Sets up the command-line arguments. Sander requires a unique restrt file
