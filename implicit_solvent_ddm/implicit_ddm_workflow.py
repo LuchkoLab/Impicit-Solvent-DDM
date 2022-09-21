@@ -1172,11 +1172,11 @@ def main():
     except yaml.YAMLError as e:
         print(e)
 
-    if options.workDir:
-        work_dir = os.path.abspath(options.workDir)
-    else:
-        work_dir = working_directory
-    
+    # if options.workDir:
+    #     work_dir = os.path.abspath(options.workDir)
+    # else:
+    #     work_dir = working_directory
+    work_dir  = working_directory
     if not os.path.exists(
         os.path.join(work_dir, "mdgb/structs/ligand")):
             os.makedirs(
