@@ -21,7 +21,7 @@ class Workflow:
     setup_workflow: bool = True
     post_treatment: bool = True 
     run_endstate_method: bool = True
-    end_state_postprocess: bool = True 
+    end_state_postprocess: bool = False
     add_ligand_conformational_restraints: bool = True
     remove_GB_solvent_ligand: bool = True
     remove_ligand_charges: bool = True
