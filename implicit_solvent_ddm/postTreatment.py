@@ -30,7 +30,7 @@ JOULES_PER_KCAL= 4184
 
 class PostTreatment(Job):
     
-    def __init__(self, simulation_data: List[List[pd.DataFrame]], temp:float, system:str, max_conformation_force:float, max_orientational_force = None) -> None:
+    def __init__(self, simulation_data: List[pd.DataFrame], temp:float, system:str, max_conformation_force:float, max_orientational_force = None) -> None:
         super().__init__()
         self.simulations_data = simulation_data
         self.temp = temp
@@ -45,9 +45,7 @@ class PostTreatment(Job):
     
     def _load_dfs(self):
         
-        
-        flatten_dfs = list(chain(*self.simulations_data))
-        self.df =  pd.concat(flatten_dfs, axis=0, ignore_index=True)
+        self.df =  pd.concat(self.simulations_data, axis=0, ignore_index=True)
         
         self.name = self.df["solute"].iloc[0]
     
@@ -94,7 +92,7 @@ class PostTreatment(Job):
         
         self.fe = fe 
         self.error = error
-
+        self.mbar = mbar 
         return self 
 
 def consolidate_output(job, ligand_system: PostTreatment, receptor_system: PostTreatment, complex_system: PostTreatment, boresch_df:RestraintMaker):
@@ -102,6 +100,9 @@ def consolidate_output(job, ligand_system: PostTreatment, receptor_system: PostT
     output_path = os.path.join(f"{WORKDIR}",".cache")
     if not os.path.exists(output_path):
         os.makedirs(output_path)
+        
+    #parse out formated dataframe 
+    
     #parse out free energies 
     complex_system.fe.to_hdf(f"{output_path}/{complex_system.name}_fe.h5", key="df", mode='w')
     receptor_system.fe.to_hdf(f"{output_path}/receptor_{complex_system.name}_fe.h5", key="df", mode='w')
