@@ -5,6 +5,7 @@ import os
 import os.path
 import re
 import sys
+import time
 from copy import deepcopy
 from pathlib import Path
 from typing import List
@@ -427,7 +428,7 @@ def ddm_workflow(
                 "trajectory_restraint_conrest": 0.0,
                 "trajectory_restraint_orenrest": 0.0,
                 "filename": "state_8_endstate_postprocess",
-                "runtype": f"Running post process with trajectory: {config.inputs['endstate_complex_traj']}",
+                "runtype": f"Running post process in endstate potential with trajectory: {config.inputs['endstate_complex_traj']}",
             }.copy(),
             post_process=True,
             restraints=restraints
@@ -443,7 +444,7 @@ def ddm_workflow(
                 "state_level": 0.0,
                 "filename": "state_2_endstate_postprocess",
                 "trajectory_restraint_conrest": 0.0,
-                "runtype": f"Running post process with trajectory: {config.inputs['endstate_ligand_traj']}",
+                "runtype": f"Running post process in endstate potential with trajectory: {config.inputs['endstate_ligand_traj']}",
             }.copy(),
             post_process=True,
             restraints=restraints,
@@ -460,7 +461,7 @@ def ddm_workflow(
                 "state_level": 0.0,
                 "filename": "state_2_endstate_postprocess",
                 "trajectory_restraint_conrest": 0.0,
-                "runtype": f"Running post process with trajectory: {config.inputs['endstate_receptor_traj']}",
+                "runtype": f"Running post process in endstate potential with trajectory: {config.inputs['endstate_receptor_traj']}",
             }.copy(),
             post_process=True,
             restraints=restraints, 
@@ -576,7 +577,7 @@ def ddm_workflow(
             "igb": "igb_6",
             "state_level": 0.0,
             "filename": "state_4_prod",
-            "runtype": "Running production Simulation in state 4",
+            "runtype": f"Running production Simulation in state 4 (No GB). Max conformational force: {max_con_force} ",
         }
         no_solv_args.update(dirstuct_traj_args)
         no_solv_ligand = Simulation(
@@ -607,7 +608,7 @@ def ddm_workflow(
                     "trajectory_restraint_conrest": max_con_exponent,
                     "traj_igb": "igb_6",
                     "filename": "state_4_postprocess",
-                    "runtype": f"Running post process with trajectory: {no_solv_ligand.rv(1)}",
+                    "runtype": f"Running post process with for ligand system with GB=6. inptraj: {no_solv_ligand.rv(1)}",
                 }.copy(),
                 post_process=True,
                 restraints=restraints
@@ -631,7 +632,7 @@ def ddm_workflow(
             "conformational_restraint": max_con_exponent,
             "igb": "igb_6",
             "filename": "state_5_prod",
-            "runtype": "Production Simulation in State 5",
+            "runtype": "Production Simulation. In vacuum and ligand charges set to 0",
         }
         ligand_no_charge_args.update(dirstuct_traj_args)
 
@@ -664,7 +665,7 @@ def ddm_workflow(
                     "trajectory_restraint_conrest": max_con_exponent,
                     "traj_igb": "igb_6",
                     "filename": "state_5_postprocess",
-                    "runtype": f"Running post process with trajectory: {ligand_no_charge.rv(1)}",
+                    "runtype": f"Running post process with GB=6 and ligand_charge=0. inptraj: {ligand_no_charge.rv(1)}",
                 }.copy(),
                 post_process=True,
                 restraints= restraints
@@ -721,7 +722,7 @@ def ddm_workflow(
                     "trajectory_restraint_conrest": max_con_exponent,
                     "traj_igb": "igb_6",
                     "filename": "state_4_postprocess",
-                    "runtype": f"Running post process with trajectory: {no_solv_receptor.rv(1)}",
+                    "runtype": f"Running post process with GB=6 for receptor. inptraj: {no_solv_receptor.rv(1)}",
                 }.copy(),
                 post_process=True,
                 restraints=restraints
@@ -746,7 +747,7 @@ def ddm_workflow(
             "conformational_restraint": max_con_exponent,
             "orientational_restraints": max_orien_exponent,
             "filename": "state_7_prod",
-            "runtype": "Running production simulation in state 7: Complex",
+            "runtype": "Running production simulation in state 7: No iteractions with receptor/guest and in vacuum",
         }
 
         complex_ligand_exclusions_args.update(dirstuct_traj_args)
@@ -780,7 +781,7 @@ def ddm_workflow(
                     "trajectory_restraint_orenrest": max_orien_exponent,
                     "traj_igb": "igb_6",
                     "filename": "state_7_postprocess",
-                    "runtype": f"Running post process with trajectory: {complex_no_interactions.rv(1)}",
+                    "runtype": f"Running post process in no interactions complex. inptraj: {complex_no_interactions.rv(1)}",
                 }.copy(),
                 post_process=True,
                 restraints=restraints,
@@ -804,7 +805,7 @@ def ddm_workflow(
             "conformational_restraint": max_con_exponent,
             "orientational_restraints": max_orien_exponent,
             "filename": "state_7a_prod",
-            "runtype": "Running production simulation in state 7a: Complex",
+            "runtype": "Running production simulation in state 7a: Turing back on interactions with recetor and guest in vacuum",
         }
         complex_turn_off_exclusions_args.update(dirstuct_traj_args)
 
@@ -837,7 +838,7 @@ def ddm_workflow(
                     "trajectory_restraint_orenrest": max_orien_exponent,
                     "traj_igb": "igb_6",
                     "filename": "state_7a_postprocess",
-                    "runtype": f"Running post process with trajectory: {complex_no_electrostatics.rv(1)}",
+                    "runtype": f"Running post process with interactions back. inptraj: {complex_no_electrostatics.rv(1)}",
                 }.copy(),
                 post_process=True,
                 restraints=restraints, 
@@ -864,7 +865,7 @@ def ddm_workflow(
             "conformational_restraint": max_con_exponent,
             "orientational_restraints": max_orien_exponent,
             "filename": "state_7b_prod",
-            "runtype": "Running production simulation in state 7b: Complex",
+            "runtype": "Running production simulation in state 7b: Turning back on ligand charges, still in vacuum",
         }
         complex_turn_on_ligand_charges_args.update(dirstuct_traj_args)
 
@@ -896,7 +897,7 @@ def ddm_workflow(
                     "trajectory_restraint_orenrest": max_orien_exponent,
                     "traj_igb": "igb_6",
                     "filename": "state_7b_postprocess",
-                    "runtype": f"Running post process with trajectory: {complex_turn_on_ligand_charges.rv(1)}",
+                    "runtype": f"Running post process with full charge ligand atoms. inptraj: {complex_turn_on_ligand_charges.rv(1)}",
                 }.copy(),
                 post_process=True,
                 restraints=restraints,
@@ -958,7 +959,7 @@ def ddm_workflow(
                         "trajectory_restraint_conrest": exponent_conformational,
                         "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
                         "filename": "state_2_postprocess",
-                        "runtype": f"Running post process with trajectory: {ligand_windows.rv(1)}",
+                        "runtype": f"Running post process in lambda window {con_force}: {ligand_windows.rv(1)}",
                     }.copy(),
                     post_process=True,
                     restraints=restraints
@@ -1072,7 +1073,7 @@ def ddm_workflow(
                         "trajectory_restraint_orenrest": exponent_orientational,
                         "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
                         "filename": "state_8_postprocess",
-                        "runtype": f"Running post process with trajectory: {remove_restraints.rv(1)}",
+                        "runtype": f"Running post process in lambda window {con_force}&{orien_force}. inptraj: {remove_restraints.rv(1)}",
                     }.copy(),
                     post_process=True,
                     restraints=restraints
@@ -1157,14 +1158,9 @@ def main():
     #         config_file = yaml.safe_load(f)
     # except yaml.YAMLError as e:
     #     print(e)
+    start = time.perf_counter()
     work_dir = os.getcwd()
-    file_handler = logging.FileHandler(os.path.join(work_dir, "WORKFLOW.log"), mode="w")
-    formatter = logging.Formatter('%(asctime)s~%(levelname)s~%(message)s~module:%(module)s')
-    file_handler.setFormatter(formatter)
-    logger = logging.getLogger(__name__)
-    logger.addHandler(file_handler)
-    logger.setLevel(logging.DEBUG)
-    logger.info(f"ignore_receptor flag {ignore_receptor}")
+   
     
     try:
         with open(config_file) as f:
@@ -1194,6 +1190,16 @@ def main():
     
     complex_name = re.sub(r"\..*", "", os.path.basename(config_file["endstate_parameter_files"]["complex_parameter_filename"]))
     # create a log file
+   
+    #log the performance time 
+    file_handler = logging.FileHandler(os.path.join(work_dir, f"mdgb/{complex_name}_workflow_performance.log"), mode="w")
+    formatter = logging.Formatter('%(asctime)s~%(levelname)s~%(message)s~module:%(module)s')
+    file_handler.setFormatter(formatter)
+    logger = logging.getLogger(__name__)
+    logger.addHandler(file_handler)
+    logger.setLevel(logging.DEBUG)
+    
+    
     job_number = 1
     while os.path.exists(f"mdgb/log_job_{job_number:03}.txt"):
         job_number += 1
@@ -1246,7 +1252,7 @@ def main():
             #copy_cofig = deepcopy(config)
             #ligand_df, receptor_df, complex_df, boresch_df =
             toil.start(Job.wrapJobFn(ddm_workflow, config))
-
+            logger.info(f" Total workflow time: {time.perf_counter() - start} seconds\n")
             # place completed dataframes into .cache directory
             
             # logger.info(f'config.workflow.ignore_resceptor {config.workflow.ignore_receptor_endstate}')
