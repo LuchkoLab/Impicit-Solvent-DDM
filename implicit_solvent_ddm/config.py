@@ -93,8 +93,8 @@ class SystemSettings:
     mpi_command: str
     working_directory: str = 'no set' 
     CUDA: bool = field(default=False)
-    memory: Optional[Union[int, str]] = field(default="10G")
-    disk: Optional[Union[int, str]] = field(default="10G")
+    memory: Optional[Union[int, str]] = field(default="5G")
+    disk: Optional[Union[int, str]] = field(default="5G")
     @classmethod
     def from_config(cls: Type["SystemSettings"], obj:dict):
         return cls(**obj)

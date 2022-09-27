@@ -21,6 +21,7 @@ from implicit_solvent_ddm.restraints import RestraintMaker
 
 working_directory = os.getcwd()
 import logging
+import time
 
 
 class Calculation(Job):
@@ -138,9 +139,11 @@ class Calculation(Job):
         """
         #fileStore.logToMaster(f"the self.directory_args {self.directory_args}")
         # self._output_directory()
+        start = time.perf_counter()
         self._setLogging()
         self.logger.info(f"{self.directory_args['runtype']}")
-        self.logger.info("")
+        self.logger.info(f"Running: {self.directory_args['runtype']}")
+        
         #fileStore.logToMaster(f"directory args {self.directory_args}")
         # If this has not been set up yet
         # then raise a stink
@@ -211,7 +214,7 @@ class Calculation(Job):
         restart_ID, trajectory_ID = self.export_files(
             fileStore, self.output_dir, files_in_current_directory
         )
-
+        self.logger.info(f"Performance runtime for current simulation Run: {time.perf_counter() - start} seconds")
         return (restart_ID, trajectory_ID)
 
 
@@ -439,7 +442,7 @@ class REMDSimulation(Calculation):
         self.read_files["groupfile"] = fileStore.readGlobalFile(groupfile_ID)
 
     def run(self, fileStore):
-
+        
         tempDir = self.tempDir
         #fileStore.logToMaster(f"self.incrd is {self.incrd}")
         # read in parameter files
