@@ -21,7 +21,7 @@ class Workflow:
     setup_workflow: bool = True
     post_treatment: bool = True 
     run_endstate_method: bool = True
-    end_state_postprocess: bool = True 
+    end_state_postprocess: bool = False
     add_ligand_conformational_restraints: bool = True
     remove_GB_solvent_ligand: bool = True
     remove_ligand_charges: bool = True
@@ -93,8 +93,8 @@ class SystemSettings:
     mpi_command: str
     working_directory: str = 'no set' 
     CUDA: bool = field(default=False)
-    memory: Optional[Union[int, str]] = field(default="10G")
-    disk: Optional[Union[int, str]] = field(default="10G")
+    memory: Optional[Union[int, str]] = field(default="5G")
+    disk: Optional[Union[int, str]] = field(default="5G")
     @classmethod
     def from_config(cls: Type["SystemSettings"], obj:dict):
         return cls(**obj)

@@ -4,6 +4,8 @@ import logging
 import os
 import os.path
 import re
+import sys
+import time
 from copy import deepcopy
 from pathlib import Path
 from platform import system_alias
@@ -485,7 +487,7 @@ def ddm_workflow(
             "igb": "igb_6",
             "state_level": 0.0,
             "filename": "state_4_prod",
-            "runtype": "Running production Simulation in state 4",
+            "runtype": f"Running production Simulation in state 4 (No GB). Max conformational force: {max_con_force} ",
         }
         no_solv_ligand = Simulation(
             config.system_settings.executable,
@@ -511,7 +513,7 @@ def ddm_workflow(
             "conformational_restraint": max_con_exponent,
             "igb": "igb_6",
             "filename": "state_5_prod",
-            "runtype": "Production Simulation in State 5",
+            "runtype": "Production Simulation. In vacuum and ligand charges set to 0",
         }
 
         ligand_no_charge = Simulation(
@@ -569,7 +571,7 @@ def ddm_workflow(
             "conformational_restraint": max_con_exponent,
             "orientational_restraints": max_orien_exponent,
             "filename": "state_7_prod",
-            "runtype": "Running production simulation in state 7: Complex",
+            "runtype": "Running production simulation in state 7: No iteractions with receptor/guest and in vacuum",
         }
         complex_no_interactions = Simulation(
             config.system_settings.executable,
@@ -598,7 +600,7 @@ def ddm_workflow(
             "conformational_restraint": max_con_exponent,
             "orientational_restraints": max_orien_exponent,
             "filename": "state_7a_prod",
-            "runtype": "Running production simulation in state 7a: Complex",
+            "runtype": "Running production simulation in state 7a: Turing back on interactions with recetor and guest in vacuum",
         }
         complex_no_electrostatics = Simulation(
             config.system_settings.executable,
@@ -626,7 +628,7 @@ def ddm_workflow(
             "conformational_restraint": max_con_exponent,
             "orientational_restraints": max_orien_exponent,
             "filename": "state_7b_prod",
-            "runtype": "Running production simulation in state 7b: Complex",
+            "runtype": "Running production simulation in state 7b: Turning back on ligand charges, still in vacuum",
         }
         complex_turn_on_ligand_charges = Simulation(
             config.system_settings.executable,
@@ -784,16 +786,18 @@ def main():
     options.clean = "onSuccess"
     config_file = options.config_file[0]
     ignore_receptor = options.ignore_receptor
-   
-   
+    # options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
+    # options.logLevel = "INFO"
+    # options.clean = "always"
+    # yaml_file = '/home/ayoub/nas0/Impicit-Solvent-DDM/new_workflow.yaml'
+    # try:
+    #     with open(yaml_file) as f:
+    #         config_file = yaml.safe_load(f)
+    # except yaml.YAMLError as e:
+    #     print(e)
+    start = time.perf_counter()
     work_dir = os.getcwd()
-    file_handler = logging.FileHandler(os.path.join(work_dir, "WORKFLOW.log"), mode="w")
-    formatter = logging.Formatter('%(asctime)s~%(levelname)s~%(message)s~module:%(module)s')
-    file_handler.setFormatter(formatter)
-    logger = logging.getLogger(__name__)
-    logger.addHandler(file_handler)
-    logger.setLevel(logging.DEBUG)
-    logger.info(f"ignore_receptor flag {ignore_receptor}")
+   
     
     try:
         with open(config_file) as f:
@@ -805,7 +809,7 @@ def main():
     #     work_dir = os.path.abspath(options.workDir)
     # else:
     #     work_dir = working_directory
-    
+    work_dir  = working_directory
     if not os.path.exists(
         os.path.join(work_dir, "mdgb/structs/ligand")):
             os.makedirs(
@@ -823,6 +827,16 @@ def main():
     
     complex_name = re.sub(r"\..*", "", os.path.basename(config_file["endstate_parameter_files"]["complex_parameter_filename"]))
     # create a log file
+   
+    #log the performance time 
+    file_handler = logging.FileHandler(os.path.join(work_dir, f"mdgb/{complex_name}_workflow_performance.log"), mode="w")
+    formatter = logging.Formatter('%(asctime)s~%(levelname)s~%(message)s~module:%(module)s')
+    file_handler.setFormatter(formatter)
+    logger = logging.getLogger(__name__)
+    logger.addHandler(file_handler)
+    logger.setLevel(logging.DEBUG)
+    
+    
     job_number = 1
     while os.path.exists(f"mdgb/log_job_{job_number:03}.txt"):
         job_number += 1

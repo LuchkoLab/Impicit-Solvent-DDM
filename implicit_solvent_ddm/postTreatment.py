@@ -100,8 +100,11 @@ def consolidate_output(job, ligand_system: PostTreatment, receptor_system: PostT
     output_path = os.path.join(f"{WORKDIR}",".cache")
     if not os.path.exists(output_path):
         os.makedirs(output_path)
-        
-    #parse out formated dataframe 
+    
+    #parse out formatted dataframe
+    complex_system.df.to_hdf(f"{output_path}/{complex_system.name}_formatted.h5", key="df", mode='w')
+    receptor_system.fe.to_hdf(f"{output_path}/receptor_{complex_system.name}_formatted.h5", key="df", mode='w')
+    ligand_system.fe.to_hdf(f"{output_path}/ligand_{complex_system.name}_formatted.h5", key="df", mode='w')
     
     #parse out free energies 
     complex_system.fe.to_hdf(f"{output_path}/{complex_system.name}_fe.h5", key="df", mode='w')
