@@ -33,10 +33,9 @@ from implicit_solvent_ddm.simulations import (ExtractTrajectories,
 
 working_directory = os.getcwd()
 
-def ddm_workflow(
-    job: JobFunctionWrappingJob,
-    config: Config):
-    
+
+def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
+
     ligand_simulations = []
     receptor_simuations = []
     complex_simuations = []
@@ -92,25 +91,25 @@ def ddm_workflow(
 
             # run endstate method for complex system
             minimization_complex = Simulation(
-                    config.system_settings.executable,
-                    config.system_settings.mpi_command,
-                    config.num_cores_per_system.complex_ncores,
-                    config.endstate_files.complex_parameter_filename,
-                    config.endstate_files.complex_coordinate_filename,
-                    config.inputs["min_mdin"],
-                    config.inputs["flat_bottom_restraint"],
-                    {
-                        "runtype": "minimization",
-                        "filename": "min",
-                        "topology": config.endstate_files.complex_parameter_filename,
-                    },
-                    system_type="complex",
-                    memory=config.system_settings.memory,
-                    disk=config.system_settings.disk 
-                )
+                config.system_settings.executable,
+                config.system_settings.mpi_command,
+                config.num_cores_per_system.complex_ncores,
+                config.endstate_files.complex_parameter_filename,
+                config.endstate_files.complex_coordinate_filename,
+                config.inputs["min_mdin"],
+                config.inputs["flat_bottom_restraint"],
+                {
+                    "runtype": "minimization",
+                    "filename": "min",
+                    "topology": config.endstate_files.complex_parameter_filename,
+                },
+                system_type="complex",
+                memory=config.system_settings.memory,
+                disk=config.system_settings.disk,
+            )
             endstate_method.addChild(minimization_complex)
-            
-            #config.endstate_method.remd_args.nthreads
+
+            # config.endstate_method.remd_args.nthreads
             equilibrate_complex = minimization_complex.addFollowOn(
                 REMDSimulation(
                     config.system_settings.executable,
@@ -127,30 +126,31 @@ def ddm_workflow(
                         "topology": config.endstate_files.complex_parameter_filename,
                     },
                     memory=config.system_settings.memory,
-                    disk=config.system_settings.disk 
+                    disk=config.system_settings.disk,
                 )
             )
-            
-            remd_complex = equilibrate_complex.addFollowOn(REMDSimulation(
-                config.system_settings.executable,
-                config.system_settings.mpi_command,
-                config.endstate_method.remd_args.nthreads_complex,
-                config.endstate_files.complex_parameter_filename,
-                equilibrate_complex.rv(0),
-                config.endstate_method.remd_args.remd_mdins,
-                config.inputs["flat_bottom_restraint"],
-                "remd",
-                config.endstate_method.remd_args.ngroups,
-                directory_args={
-                    "runtype": "remd",
-                    "topology": config.endstate_files.complex_parameter_filename,
-                },
-                memory=config.system_settings.memory,
-                disk=config.system_settings.disk 
+
+            remd_complex = equilibrate_complex.addFollowOn(
+                REMDSimulation(
+                    config.system_settings.executable,
+                    config.system_settings.mpi_command,
+                    config.endstate_method.remd_args.nthreads_complex,
+                    config.endstate_files.complex_parameter_filename,
+                    equilibrate_complex.rv(0),
+                    config.endstate_method.remd_args.remd_mdins,
+                    config.inputs["flat_bottom_restraint"],
+                    "remd",
+                    config.endstate_method.remd_args.ngroups,
+                    directory_args={
+                        "runtype": "remd",
+                        "topology": config.endstate_files.complex_parameter_filename,
+                    },
+                    memory=config.system_settings.memory,
+                    disk=config.system_settings.disk,
+                )
             )
-        )
-            
-            #extact target temparture trajetory and last frame
+
+            # extact target temparture trajetory and last frame
             extract_complex = remd_complex.addFollowOn(
                 ExtractTrajectories(
                     config.endstate_files.complex_parameter_filename,
@@ -162,8 +162,7 @@ def ddm_workflow(
             config.inputs["endstate_complex_traj"] = extract_complex.rv(0)
             config.inputs["endstate_complex_lastframe"] = extract_complex.rv(1)
             # run minimization at the end states for ligand system only
-           
-            
+
             minimization_ligand = endstate_method.addChild(
                 Simulation(
                     config.system_settings.executable,
@@ -180,7 +179,7 @@ def ddm_workflow(
                     },
                     system_type="ligand",
                     memory=config.system_settings.memory,
-                    disk=config.system_settings.disk 
+                    disk=config.system_settings.disk,
                 )
             )
 
@@ -200,11 +199,12 @@ def ddm_workflow(
                         "topology": config.endstate_files.ligand_parameter_filename,
                     },
                     memory=config.system_settings.memory,
-                    disk=config.system_settings.disk 
+                    disk=config.system_settings.disk,
                 )
             )
-            
-            remd_ligand =  equilibrate_ligand.addFollowOn(REMDSimulation(
+
+            remd_ligand = equilibrate_ligand.addFollowOn(
+                REMDSimulation(
                     config.system_settings.executable,
                     config.system_settings.mpi_command,
                     config.endstate_method.remd_args.nthreads_ligand,
@@ -219,10 +219,10 @@ def ddm_workflow(
                         "topology": config.endstate_files.ligand_parameter_filename,
                     },
                     memory=config.system_settings.memory,
-                    disk=config.system_settings.disk 
+                    disk=config.system_settings.disk,
                 )
             )
-            
+
             # extact target temparture trajetory and last frame
             extract_ligand = remd_ligand.addFollowOn(
                 ExtractTrajectories(
@@ -233,8 +233,7 @@ def ddm_workflow(
             )
             config.inputs["endstate_ligand_traj"] = extract_ligand.rv(0)
             config.inputs["endstate_ligand_lastframe"] = extract_ligand.rv(1)
-            
-            
+
             if not workflow.ignore_receptor_endstate:
                 minimization_receptor = endstate_method.addChild(
                     Simulation(
@@ -252,7 +251,7 @@ def ddm_workflow(
                         },
                         system_type="receptor",
                         memory=config.system_settings.memory,
-                        disk=config.system_settings.disk 
+                        disk=config.system_settings.disk,
                     )
                 )
 
@@ -272,30 +271,30 @@ def ddm_workflow(
                             "topology": config.endstate_files.receptor_parameter_filename,
                         },
                         memory=config.system_settings.memory,
-                        disk=config.system_settings.disk 
+                        disk=config.system_settings.disk,
                     )
                 )
-                
-                remd_receptor = equilibrate_receptor.addFollowOn(REMDSimulation(
-                    config.system_settings.executable,
-                    config.system_settings.mpi_command,
-                    config.endstate_method.remd_args.nthreads_receptor,
-                    config.endstate_files.receptor_parameter_filename,
-                    equilibrate_receptor.rv(0),
-                    config.endstate_method.remd_args.remd_mdins,
-                    config.inputs["empty_restraint"],
-                    "remd",
-                    config.endstate_method.remd_args.ngroups,
-                    directory_args={
-                        "runtype": "remd",
-                        "topology": config.endstate_files.receptor_parameter_filename,
-                    },
-                    memory=config.system_settings.memory,
-                    disk=config.system_settings.disk 
+
+                remd_receptor = equilibrate_receptor.addFollowOn(
+                    REMDSimulation(
+                        config.system_settings.executable,
+                        config.system_settings.mpi_command,
+                        config.endstate_method.remd_args.nthreads_receptor,
+                        config.endstate_files.receptor_parameter_filename,
+                        equilibrate_receptor.rv(0),
+                        config.endstate_method.remd_args.remd_mdins,
+                        config.inputs["empty_restraint"],
+                        "remd",
+                        config.endstate_method.remd_args.ngroups,
+                        directory_args={
+                            "runtype": "remd",
+                            "topology": config.endstate_files.receptor_parameter_filename,
+                        },
+                        memory=config.system_settings.memory,
+                        disk=config.system_settings.disk,
+                    )
                 )
-            )
-                
-                
+
                 # extact target temparture trajetory and last frame
                 extract_receptor = remd_receptor.addFollowOn(
                     ExtractTrajectories(
@@ -306,9 +305,7 @@ def ddm_workflow(
                 )
                 config.inputs["endstate_receptor_traj"] = extract_receptor.rv(0)
                 config.inputs["endstate_receptor_lastframe"] = extract_receptor.rv(1)
-        
 
-                
     # fill in orientational and conformational forces within templates
     else:
         endstate_method = setup_inputs.addFollowOn(
@@ -327,9 +324,8 @@ def ddm_workflow(
         )
         config.inputs["endstate_ligand_traj"] = ligand_extract.rv(0)
         config.inputs["endstate_ligand_lastframe"] = ligand_extract.rv(1)
-        
-        
-        receptor_extract =  endstate_method.addChild(
+
+        receptor_extract = endstate_method.addChild(
             ExtractTrajectories(
                 config.endstate_files.receptor_parameter_filename,
                 config.endstate_files.receptor_coordinate_filename,
@@ -337,34 +333,33 @@ def ddm_workflow(
         )
         config.inputs["endstate_receptor_traj"] = receptor_extract.rv(0)
         config.inputs["endstate_receptor_lastframe"] = receptor_extract.rv(1)
-    
-    #split the coordinates from endstate simulations complex        
+
+    # split the coordinates from endstate simulations complex
     split_job = endstate_method.addFollowOnJobFn(
-            split_complex_system,
-            config.endstate_files.complex_parameter_filename,
-            config.inputs["endstate_complex_lastframe"],
-            config.amber_masks.ligand_mask,
-            config.amber_masks.receptor_mask,
-        )
+        split_complex_system,
+        config.endstate_files.complex_parameter_filename,
+        config.inputs["endstate_complex_lastframe"],
+        config.amber_masks.ligand_mask,
+        config.amber_masks.receptor_mask,
+    )
 
     config.inputs["ligand_endstate_frame"] = split_job.rv(1)
     config.inputs["receptor_endstate_frame"] = split_job.rv(0)
 
-    #create orientational and conformational restraints 
-    
+    # create orientational and conformational restraints
+
     restraints = split_job.addChild(RestraintMaker(config=config)).rv()
-    
-    
-    md_jobs = split_job.addFollowOnJobFn(initilized_jobs)    
-    
+
+    md_jobs = split_job.addFollowOnJobFn(initilized_jobs)
+
     if workflow.end_state_postprocess:
         complex_coordinate = config.endstate_files.complex_coordinate_filename
-        
-        if config.endstate_files.ligand_initial_coordinate is not None:
-            complex_coordinate = config.endstate_files.ligand_initial_coordinate
-            
+
+        if config.endstate_files.complex_initial_coordinate is not None:
+            complex_coordinate = config.endstate_files.complex_initial_coordinate
+
         complex_endstate_dirstruct = {
-            "topology":  config.endstate_files.complex_parameter_filename,
+            "topology": config.endstate_files.complex_parameter_filename,
             "state_label": "endstate",
             "igb": f"igb_{config.intermidate_args.igb_solvent}",
             "conformational_restraint": 0.0,
@@ -390,17 +385,17 @@ def ddm_workflow(
             dirstruct="post_process_halo",
             inptraj=[config.inputs["endstate_complex_traj"]],
             memory=config.system_settings.memory,
-            disk=config.system_settings.disk 
+            disk=config.system_settings.disk,
         )
         ligand_simulations.append(complex_endstate_postprocess)
-        
+
         ligand_coordiante = config.endstate_files.ligand_coordinate_filename
-        
-        if config.endstate_files.complex_initial_coordinate is not None:
-            ligand_coordiante = config.endstate_files.complex_initial_coordinate 
-        
+
+        if config.endstate_files.ligand_initial_coordinate is not None:
+            ligand_coordiante = config.endstate_files.ligand_initial_coordinate
+
         ligand_endstate_dirstruct = {
-            "topology":  config.endstate_files.ligand_parameter_filename,
+            "topology": config.endstate_files.ligand_parameter_filename,
             "state_label": "endstate",
             "igb": f"igb_{config.intermidate_args.igb_solvent}",
             "conformational_restraint": 0.0,
@@ -414,7 +409,7 @@ def ddm_workflow(
             "filename": "state_2_endstate_postprocess",
             "trajectory_restraint_conrest": 0.0,
         }
-        
+
         ligand_endstate_postprocess = Simulation(
             config.system_settings.executable,
             config.system_settings.mpi_command,
@@ -428,16 +423,17 @@ def ddm_workflow(
             dirstruct="post_process_apo",
             inptraj=[config.inputs["endstate_ligand_traj"]],
             memory=config.system_settings.memory,
-            disk=config.system_settings.disk  
+            disk=config.system_settings.disk,
         )
         ligand_simulations.append(ligand_endstate_postprocess)
-        
+
         receptor_coordiate = config.endstate_files.receptor_coordinate_filename
         if config.endstate_files.receptor_initial_coordinate is not None:
             receptor_coordiate = config.endstate_files.receptor_initial_coordinate
+
         job.log(f"RECEPTOR coordinate {receptor_coordiate}")
         receptor_endstate_dirstruct = {
-            "topology":  config.endstate_files.receptor_parameter_filename,
+            "topology": config.endstate_files.receptor_parameter_filename,
             "state_label": "endstate",
             "igb": f"igb_{config.intermidate_args.igb_solvent}",
             "conformational_restraint": 0.0,
@@ -459,12 +455,12 @@ def ddm_workflow(
             receptor_coordiate,
             config.inputs["post_mdin"],
             config.inputs["empty_restraint"],
-            directory_args=receptor_endstate_dirstruct, 
+            directory_args=receptor_endstate_dirstruct,
             system_type="receptor",
             dirstruct="post_process_apo",
             inptraj=[config.inputs["endstate_receptor_traj"]],
             memory=config.system_settings.memory,
-            disk=config.system_settings.disk
+            disk=config.system_settings.disk,
         )
         ligand_simulations.append(receptor_endstate_postprocess)
     # turning off the solvent for ligand simulation, set max force of conformational restraints
@@ -478,7 +474,7 @@ def ddm_workflow(
     max_orien_exponent = float(
         max(config.intermidate_args.exponent_orientational_forces)
     )
-    
+
     if workflow.remove_GB_solvent_ligand:
         no_solv_args = {
             "topology": config.endstate_files.ligand_parameter_filename,
@@ -500,12 +496,12 @@ def ddm_workflow(
             directory_args=no_solv_args.copy(),
             system_type="ligand",
             dirstruct=ligand_receptor_dirstruct,
-            restraint_key= f"ligand_{max_con_force}_rst",
+            restraint_key=f"ligand_{max_con_force}_rst",
             memory=config.system_settings.memory,
-            disk=config.system_settings.disk
+            disk=config.system_settings.disk,
         )
         ligand_simulations.append(no_solv_ligand)
-    
+
     if workflow.remove_ligand_charges:
         ligand_no_charge_args = {
             "topology": config.endstate_files.ligand_parameter_filename,
@@ -529,12 +525,12 @@ def ddm_workflow(
             dirstruct=ligand_receptor_dirstruct,
             restraint_key=f"ligand_{max_con_force}_rst",
             memory=config.system_settings.memory,
-            disk=config.system_settings.disk 
+            disk=config.system_settings.disk,
         )
         # ligand_jobs.addChild(ligand_no_charge)
-    
+
         ligand_simulations.append(ligand_no_charge)
-    
+
     if workflow.remove_GB_solvent_receptor:
         no_solv_args_receptor = {
             "topology": config.endstate_files.receptor_parameter_filename,
@@ -543,7 +539,7 @@ def ddm_workflow(
             "igb": "igb_6",
             "filename": "state_4_prod",
             "runtype": "Running production simulation in state 4: Receptor only",
-        }    
+        }
         no_solv_receptor = Simulation(
             config.system_settings.executable,
             config.system_settings.mpi_command,
@@ -557,11 +553,10 @@ def ddm_workflow(
             dirstruct=ligand_receptor_dirstruct,
             restraint_key=f"receptor_{max_con_force}_rst",
             memory=config.system_settings.memory,
-            disk=config.system_settings.disk 
+            disk=config.system_settings.disk,
         )
         ligand_simulations.append(no_solv_receptor)
-        
-        
+
     # Exclusions turned on, no electrostatics, in gas phase
     if workflow.complex_ligand_exclusions:
         complex_ligand_exclusions_args = {
@@ -586,11 +581,11 @@ def ddm_workflow(
             dirstruct=complex_dirstruct,
             restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
             memory=config.system_settings.memory,
-            disk=config.system_settings.disk 
-        )   
-        
+            disk=config.system_settings.disk,
+        )
+
         ligand_simulations.append(complex_no_interactions)
-        
+
     # No electrostatics and in the gas phase
     if workflow.complex_turn_off_exclusions:
         complex_turn_off_exclusions_args = {
@@ -615,10 +610,10 @@ def ddm_workflow(
             dirstruct=complex_dirstruct,
             restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
             memory=config.system_settings.memory,
-            disk=config.system_settings.disk 
+            disk=config.system_settings.disk,
         )
         ligand_simulations.append(complex_no_electrostatics)
-        
+
     # Turn on ligand charges/vacuum
     if workflow.complex_turn_on_ligand_charges:
         complex_turn_on_ligand_charges_args = {
@@ -643,8 +638,8 @@ def ddm_workflow(
             dirstruct=complex_dirstruct,
             restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
             memory=config.system_settings.memory,
-            disk=config.system_settings.disk 
-        ) 
+            disk=config.system_settings.disk,
+        )
         ligand_simulations.append(complex_turn_on_ligand_charges)
     # Lambda window interate through conformational and orientational restraint forces
     for (con_force, orien_force) in zip(
@@ -676,11 +671,11 @@ def ddm_workflow(
                 directory_args=ligand_window_args,
                 system_type="ligand",
                 dirstruct=ligand_receptor_dirstruct,
-                restraint_key= f"ligand_{con_force}_rst",
+                restraint_key=f"ligand_{con_force}_rst",
                 memory=config.system_settings.memory,
-                disk=config.system_settings.disk 
+                disk=config.system_settings.disk,
             )
-    
+
             ligand_simulations.append(ligand_windows)
 
         if workflow.add_receptor_conformational_restraints:
@@ -701,19 +696,18 @@ def ddm_workflow(
                 config.endstate_files.receptor_parameter_filename,
                 config.inputs["receptor_endstate_frame"],
                 default_mdin,
-                restraint_file = restraints,
+                restraint_file=restraints,
                 directory_args=receptor_window_args,
                 system_type="receptor",
                 dirstruct=ligand_receptor_dirstruct,
                 restraint_key=f"receptor_{con_force}_rst",
                 memory=config.system_settings.memory,
-                disk=config.system_settings.disk 
+                disk=config.system_settings.disk,
             )
             ligand_simulations.append(receptor_windows)
-            
-            
+
         # slowly remove conformational and orientational restraints
-        #if config.workflow.complex_remove_restraint:
+        # if config.workflow.complex_remove_restraint:
         if workflow.complex_remove_restraint:
             remove_restraints_args = {
                 "topology": config.endstate_files.complex_parameter_filename,
@@ -737,35 +731,62 @@ def ddm_workflow(
                 dirstruct=complex_dirstruct,
                 restraint_key=f"complex_{con_force}_{orien_force}_rst",
                 memory=config.system_settings.memory,
-                disk=config.system_settings.disk 
+                disk=config.system_settings.disk,
             )
-            
+
             ligand_simulations.append(remove_restraints)
-        
-    intermidate_simulations = md_jobs.addChild(IntermidateRunner(ligand_simulations, restraints, 
-                                                                 post_process_mdin=config.inputs["post_nosolv_mdin"], 
-                                                                 post_process_distruct="post_process_apo"))
+
+    intermidate_simulations = md_jobs.addChild(
+        IntermidateRunner(
+            ligand_simulations,
+            restraints,
+            post_process_mdin=config.inputs["post_nosolv_mdin"],
+            post_process_distruct="post_process_apo",
+        )
+    )
     # return intermidate_simulations
-    job.addFollowOnJobFn(consolidate_output,
-                            intermidate_simulations.addFollowOn(PostTreatment(intermidate_simulations.rv(0), config.intermidate_args.temperature, system="ligand", 
-                                                            max_conformation_force=max_con_exponent)).rv(),
-                            
-                            intermidate_simulations.addFollowOn(PostTreatment(intermidate_simulations.rv(1), config.intermidate_args.temperature, system="receptor",
-                                        max_conformation_force=max_con_exponent)).rv(),
-                            
-                            intermidate_simulations.addFollowOn(PostTreatment(intermidate_simulations.rv(2), 
-                                        config.intermidate_args.temperature, 
-                                        system="complex", max_conformation_force=max_con_exponent, 
-                                        max_orientational_force=max_orien_exponent)).rv(),
-                            restraints)
+    if workflow.post_treatment:
+        job.addFollowOnJobFn(
+            consolidate_output,
+            intermidate_simulations.addFollowOn(
+                PostTreatment(
+                    intermidate_simulations.rv(0),
+                    config.intermidate_args.temperature,
+                    system="ligand",
+                    max_conformation_force=max_con_exponent,
+                )
+            ).rv(),
+            intermidate_simulations.addFollowOn(
+                PostTreatment(
+                    intermidate_simulations.rv(1),
+                    config.intermidate_args.temperature,
+                    system="receptor",
+                    max_conformation_force=max_con_exponent,
+                )
+            ).rv(),
+            intermidate_simulations.addFollowOn(
+                PostTreatment(
+                    intermidate_simulations.rv(2),
+                    config.intermidate_args.temperature,
+                    system="complex",
+                    max_conformation_force=max_con_exponent,
+                    max_orientational_force=max_orien_exponent,
+                )
+            ).rv(),
+            restraints,
+        )
+
 
 def initilized_jobs(job):
     "Place holder to schedule jobs for MD and post-processing"
     return
-def export_df(job, sims:IntermidateRunner):
+
+
+def export_df(job, sims: IntermidateRunner):
     concat_sims = pd.concat(sims.post_output)
     concat_sims.to_hdf("/home/ayoub/nas0/Impicit-Solvent-DDM/newData.h5", key="df")
-    
+
+
 def main():
 
     parser = Job.Runner.getDefaultArgumentParser()
@@ -797,8 +818,7 @@ def main():
     #     print(e)
     start = time.perf_counter()
     work_dir = os.getcwd()
-   
-    
+
     try:
         with open(config_file) as f:
             config_file = yaml.safe_load(f)
@@ -809,75 +829,79 @@ def main():
     #     work_dir = os.path.abspath(options.workDir)
     # else:
     #     work_dir = working_directory
-    work_dir  = working_directory
-    if not os.path.exists(
-        os.path.join(work_dir, "mdgb/structs/ligand")):
-            os.makedirs(
-                os.path.join(
-                    work_dir, "mdgb/structs/ligand"
-                )
-            )
-    if not os.path.exists(
-        os.path.join(work_dir, "mdgb/structs/receptor")):
-            os.makedirs(
-                os.path.join(
-                    work_dir, "mdgb/structs/receptor"
-                )
-            )
-    
-    complex_name = re.sub(r"\..*", "", os.path.basename(config_file["endstate_parameter_files"]["complex_parameter_filename"]))
+    work_dir = working_directory
+    if not os.path.exists(os.path.join(work_dir, "mdgb/structs/ligand")):
+        os.makedirs(os.path.join(work_dir, "mdgb/structs/ligand"))
+    if not os.path.exists(os.path.join(work_dir, "mdgb/structs/receptor")):
+        os.makedirs(os.path.join(work_dir, "mdgb/structs/receptor"))
+
+    complex_name = re.sub(
+        r"\..*",
+        "",
+        os.path.basename(
+            config_file["endstate_parameter_files"]["complex_parameter_filename"]
+        ),
+    )
     # create a log file
-   
-    #log the performance time 
-    file_handler = logging.FileHandler(os.path.join(work_dir, f"mdgb/{complex_name}_workflow_performance.log"), mode="w")
-    formatter = logging.Formatter('%(asctime)s~%(levelname)s~%(message)s~module:%(module)s')
+
+    # log the performance time
+    file_handler = logging.FileHandler(
+        os.path.join(work_dir, f"mdgb/{complex_name}_workflow_performance.log"),
+        mode="w",
+    )
+    formatter = logging.Formatter(
+        "%(asctime)s~%(levelname)s~%(message)s~module:%(module)s"
+    )
     file_handler.setFormatter(formatter)
     logger = logging.getLogger(__name__)
     logger.addHandler(file_handler)
     logger.setLevel(logging.DEBUG)
-    
-    
+
     job_number = 1
     while os.path.exists(f"mdgb/log_job_{job_number:03}.txt"):
         job_number += 1
     Path(f"mdgb/{complex_name}_job{job_number:03}.txt").touch()
 
     options.logFile = f"mdgb/{complex_name}_job{job_number:03}.txt"
-    
+
     with Toil(options) as toil:
-        #setup config 
+        # setup config
         config = Config.from_config(config_file)
-        
+
         config.workflow.ignore_receptor_endstate = ignore_receptor
-    
+
         if config.endstate_method.endstate_method_type != 0:
             config.get_receptor_ligand_topologies()
-            
+        else:
+            config.endstate_files.get_inital_coordinate()
+
         if not toil.options.restart:
             config.endstate_files.toil_import_parmeters(toil=toil)
 
             if config.endstate_method.endstate_method_type == "remd":
                 config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
-            
+
             if config.intermidate_args.guest_restraint_files is not None:
                 config.intermidate_args.toil_import_user_restriants(toil=toil)
-            
+
             config.inputs["min_mdin"] = str(
-            toil.import_file(
-                "file://"
-                + os.path.abspath(
-                    os.path.dirname(os.path.realpath(__file__))
-                    + "/templates/min.mdin"
+                toil.import_file(
+                    "file://"
+                    + os.path.abspath(
+                        os.path.dirname(os.path.realpath(__file__))
+                        + "/templates/min.mdin"
+                    )
                 )
             )
-        )  
 
             output = toil.start(Job.wrapJobFn(ddm_workflow, config))
             concat_sims = pd.concat(output.post_output)
-            concat_sims.to_hdf("/home/ayoub/nas0/Impicit-Solvent-DDM/newData.h5", key="df")
+            concat_sims.to_hdf(
+                "/home/ayoub/nas0/Impicit-Solvent-DDM/newData.h5", key="df"
+            )
         else:
             toil.restart()
-        
+
 
 if __name__ == "__main__":
     main()
