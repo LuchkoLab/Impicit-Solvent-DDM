@@ -1,11 +1,11 @@
 import os
 import re
+import shutil
 import tempfile
 from copy import deepcopy
 from dataclasses import dataclass, field
 from numbers import Complex
 from optparse import Option
-from tempfile import TemporaryFile
 from typing import List, Optional, Type, Union
 
 import numpy as np
@@ -119,12 +119,26 @@ class ParameterFiles:
         complex_traj = pt.iterload(self.complex_coordinate_filename, self.complex_parameter_filename)
         pt.check_structure(traj=complex_traj)
         
+        if self.receptor_parameter_filename is not None:
+            receptor_path = 'mdgb/structs/receptor_unique'
+            if not os.path.exists(receptor_path):
+                os.makedirs(receptor_path)
             
+            self.generate_unique_receptor_id(receptor_path)
 
     @classmethod 
     def from_config(cls: Type["ParameterFiles"], obj:dict):
        return cls(**obj)
    
+    def generate_unique_receptor_id(self, file_path):
+        solu_rep = re.sub(r"\..*", "", os.path.basename(self.receptor_parameter_filename))  # type: ignore
+        file_number = 0
+        while os.path.exists(f"{file_path}/{solu_rep}_{file_number:03}.parm7"):
+            file_number +=1
+        
+        shutil.copyfile(self.receptor_parameter_filename, f"{file_path}/{solu_rep}_{file_number:03}.parm7")  # type: ignore
+        self.receptor_parameter_filename = f"{file_path}/{solu_rep}_{file_number:03}.parm7"
+        
     def get_inital_coordinate(self):
         solu_complex = re.sub(r"\..*", "", os.path.basename(self.complex_coordinate_filename))
         solu_receptor = re.sub(r"\..*", "", os.path.basename(self.receptor_coordinate_filename))  # type: ignore
@@ -517,10 +531,7 @@ class Config:
             restraints={}
         )  
     
-    
-            
-        
-        
+       
     @property 
     def complex_pytraj_trajectory(self)->pt.Trajectory:
         traj = pt.iterload(self.endstate_files.complex_coordinate_filename, self.endstate_files.complex_parameter_filename)
