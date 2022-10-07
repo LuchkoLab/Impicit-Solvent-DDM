@@ -37,10 +37,10 @@ class PostTreatment(Job):
         self.system = system 
         self.max_con_force = str(max_conformation_force)
         self.max_orien_force = str(max_orientational_force)
-        self._kt_conversion()
+        self._kcals_per_Kt()
     
-    def _kt_conversion(self):
-        self.kt_conversion = 1/(((BOLTZMAN*(AVAGADRO))/JOULES_PER_KCAL)*self.temp)
+    def _kcals_per_Kt(self):
+        self.kcals_per_Kt = (((BOLTZMAN*(AVAGADRO))/JOULES_PER_KCAL)*self.temp)
     
     
     def _load_dfs(self):
@@ -62,7 +62,10 @@ class PostTreatment(Job):
         column_names = [(state, restraint) for state, restraint in zip(states, restraints)]
         
         self.df.columns = column_names  # type: ignore
-    
+        
+        #divide by Kcal per Kt
+        self.df = self.df/self.kcals_per_Kt
+        
     def compute_binding_deltaG(self, system1: float, system2: float, borech_dG=0.0):
                 
         return self.deltaG + system1 + system2 + borech_dG
@@ -72,15 +75,17 @@ class PostTreatment(Job):
         self._load_dfs()
         self._create_MBAR_format()
         fileStore.logToMaster(f"self.df {self.df}")
+        
         equil_info = pdmbar.detectEquilibration(self.df)
         
         df_subsampled = pdmbar.subsampleCorrelatedData(self.df, equil_info=equil_info)
         
         fe, error, mbar =  (pdmbar.mbar(df_subsampled))
         
-        fe = fe/self.kt_conversion
+        fe = fe * self.kcals_per_Kt
         
-        error = error/self.kt_conversion
+        #then multiply by kt 
+        error = error * self.kcals_per_Kt
         
         if self.system == 'ligand':
             self.deltaG = fe.loc[('endstate',  '0.0'), [('no_charges', self.max_con_force)]].values[0]  # type: ignore
@@ -105,8 +110,8 @@ def consolidate_output(job, ligand_system: PostTreatment, receptor_system: PostT
     
     #parse out formatted dataframe
     complex_system.df.to_hdf(f"{output_path}/{complex_system.name}_formatted.h5", key="df", mode='w')
-    receptor_system.fe.to_hdf(f"{output_path}/receptor_{complex_system.name}_formatted.h5", key="df", mode='w')
-    ligand_system.fe.to_hdf(f"{output_path}/ligand_{complex_system.name}_formatted.h5", key="df", mode='w')
+    receptor_system.df.to_hdf(f"{output_path}/receptor_{complex_system.name}_formatted.h5", key="df", mode='w')
+    ligand_system.df.to_hdf(f"{output_path}/ligand_{complex_system.name}_formatted.h5", key="df", mode='w')
     
     #parse out free energies 
     complex_system.fe.to_hdf(f"{output_path}/{complex_system.name}_fe.h5", key="df", mode='w')
