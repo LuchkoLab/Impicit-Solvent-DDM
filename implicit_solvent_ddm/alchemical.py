@@ -1,4 +1,5 @@
 
+import copy
 import os
 import re
 from typing import Tuple
@@ -88,10 +89,7 @@ def get_intermidate_parameter_files(job, complex_prmtop, complex_coordinate, lig
     read_complex_coordiate = job.fileStore.readGlobalFile(complex_coordinate, userPath= os.path.join(temp_dir, os.path.basename(complex_coordinate)))
     complex_traj = pmd.load_file(read_complex_prmtop, read_complex_coordiate)
     ligand_traj = complex_traj[ligand_mask]
-    receptor_traj = complex_traj[receptor_mask]
     
-    ligand_no_vdw_ID = job.fileStore.writeGlobalFile(alter_topology(ligand_traj, ligand_mask=ligand_mask, receptor_mask=ligand_mask, exculsions=True))
-    receptor_no_vdw_ID = job.fileStore.writeGlobalFile(alter_topology(receptor_traj, ligand_mask=receptor_mask, receptor_mask=receptor_mask, exculsions=True))
     
     ligand_no_charge_parm_ID = job.fileStore.writeGlobalFile(alter_topology(ligand_traj, ligand_mask, receptor_mask, no_charge=True))
     complex_ligand_no_charge_ID = job.fileStore.writeGlobalFile(alter_topology(complex_traj, ligand_mask, receptor_mask, no_charge=True))
@@ -102,7 +100,7 @@ def get_intermidate_parameter_files(job, complex_prmtop, complex_coordinate, lig
     
     return (ligand_no_charge_parm_ID, complex_ligand_no_charge_ID, complex_no_ligand_interaction_ID)
 
-def alter_topology(solute_parm, ligand_mask, receptor_mask, no_charge=False, exculsions=False)-> str:
+def alter_topology(solute_amber_parm, ligand_mask, receptor_mask, no_charge=False, exculsions=False)-> str:
     '''
     Altering the ligand charge to zero and non-bonded interactions with receptor w/ligand will not be computed.
 
@@ -124,6 +122,7 @@ def alter_topology(solute_parm, ligand_mask, receptor_mask, no_charge=False, exc
     solute_altered_filename: str 
         absolute path to ligand topology file containing all modified parameters   
     '''
+    solute_parm = copy.deepcopy(solute_amber_parm)
     saved_filename = ""
     if no_charge:
         pmd.tools.actions.change(solute_parm, 'charge', ligand_mask, 0).execute()
