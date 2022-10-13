@@ -137,15 +137,16 @@ class Calculation(Job):
             ),
         )
         # export coordinate file
-        fileStore.export_file(
-            self.read_files["incrd"],
-            "file://"
-            + os.path.abspath(
-                os.path.join(
-                    self.output_dir, os.path.basename(self.read_files["incrd"])
-                )
-            ),
-        )
+        if ("incrd" in self.read_files.keys()):
+            fileStore.export_file(
+                self.read_files["incrd"],
+                "file://"
+                + os.path.abspath(
+                    os.path.join(
+                        self.output_dir, os.path.basename(self.read_files["incrd"])
+                    )
+                ),
+            )
         # export restraint File
         fileStore.export_file(
             self.read_files["restraint_file"],
@@ -279,6 +280,7 @@ class Simulation(Calculation):
             self.exec_list.pop(0)
             self.exec_list.append(re.sub(r"\..*", "", self.executable))
         else:
+            self.exec_list.append("--exclusive")
             self.exec_list.extend(("-n", str(self.num_cores)))
             self.exec_list.append(self.executable)
 

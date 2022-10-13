@@ -125,7 +125,7 @@ def alter_topology(solute_amber_parm, ligand_mask, receptor_mask, no_charge=Fals
     solute_parm = copy.deepcopy(solute_amber_parm)
     saved_filename = ""
     if no_charge:
-        pmd.tools.actions.change(solute_parm, 'charge', ligand_mask, 0).execute()
+        pmd.tools.actions.change(solute_parm, 'CHARGE', ligand_mask, 0).execute()
         saved_filename += "charges_off_"
     if exculsions:
         pmd.tools.actions.addExclusions(solute_parm, ligand_mask, receptor_mask).execute()

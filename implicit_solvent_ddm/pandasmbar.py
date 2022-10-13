@@ -71,10 +71,13 @@ last line supplies the group columns as an argument, and the middle
 line does not directly use groups.
 
 '''
-import pymbar
-import pandas as pd
+from sys import excepthook
 
-def mbar(df, groupby=None):
+import pandas as pd
+import pymbar
+
+
+def mbar(df, groupby=None, solver_protocol=None):
     '''Applies mbar() to grouped or ungrouped data.  
 
     *Ungrouped data*
@@ -258,12 +261,16 @@ def _mbar(df):
     
     # replace the NaNs with 0 and match the order of the column states
     N_k = N_k.fillna(0).reindex(df.columns)
+    
 
-    mbar = pymbar.MBAR(df.values.T, N_k.values.flatten())
-    
-    free_energies, errors  = mbar.getFreeEnergyDifferences()
-    
-    
+    #solver_protocol= (dict(method="L-BFGS-B"), )
+    try:
+        mbar = pymbar.MBAR(df.values.T, N_k.values.flatten())
+        free_energies, errors  = mbar.getFreeEnergyDifferences()
+    except:
+        mbar = pymbar.MBAR(df.values.T, N_k.values.flatten(), solver_protocol= (dict(method="L-BFGS-B"), ))
+        free_energies, errors  = mbar.getFreeEnergyDifferences()
+        
     free_energies = pd.DataFrame(free_energies, columns=df.columns.values)
     try:
         free_energies.index = pd.MultiIndex.from_tuples(df.columns, names = df.index.names)

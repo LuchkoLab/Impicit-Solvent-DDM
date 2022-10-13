@@ -1107,11 +1107,6 @@ def ddm_workflow(
                                         max_orientational_force=max_orien_exponent)).rv(),
                             restraints)
                             
-                        
-    # # do mbar analysis once every postprocess finishes
-    # # ligand_output = job.addFollowOnJobFn(PostTreatment)
-    #return ligand_df, receptor_df, complex_df, orientational_restraints.rv(1)
-
 
 def run_post_process(job, sims: List[Simulation]):
     #->list[pd.DataFrame]
@@ -1127,7 +1122,6 @@ def run_post_process(job, sims: List[Simulation]):
 def initilized_jobs(job):
     "Place holder to schedule jobs for MD and post-processing"
     return
-
 
 def main():
 
@@ -1149,15 +1143,7 @@ def main():
     options.clean = "onSuccess"
     config_file = options.config_file[0]
     ignore_receptor = options.ignore_receptor
-    # options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
-    # options.logLevel = "INFO"
-    # options.clean = "always"
-    # yaml_file = '/home/ayoub/nas0/Impicit-Solvent-DDM/new_workflow.yaml'
-    # try:
-    #     with open(yaml_file) as f:
-    #         config_file = yaml.safe_load(f)
-    # except yaml.YAMLError as e:
-    #     print(e)
+  
     start = time.perf_counter()
     work_dir = os.getcwd()
    
@@ -1168,10 +1154,7 @@ def main():
     except yaml.YAMLError as e:
         print(e)
 
-    # if options.workDir:
-    #     work_dir = os.path.abspath(options.workDir)
-    # else:
-    #     work_dir = working_directory
+ 
     work_dir  = working_directory
     if not os.path.exists(
         os.path.join(work_dir, "mdgb/structs/ligand")):
@@ -1236,68 +1219,10 @@ def main():
                 )
             )
         )  
-            # if config.endstate_method.endstate_method_type == "remd":
-            #     for index, (equil_mdin, remd_mdin) in enumerate(
-            #         zip(
-            #             config.endstate_method.remd_args.equilibration_replica_mdins,
-            #             config.endstate_method.remd_args.remd_mdins,
-            #         )
-            #     ):
-            #         config.endstate_method.remd_args.equilibration_replica_mdins[
-            #             index
-            #         ] = str(toil.import_file("file://" + os.path.abspath(equil_mdin)))
-            #         config.endstate_method.remd_args.remd_mdins[index] = str(
-            #             toil.import_file("file://" + os.path.abspath(remd_mdin))
-            #         )
-            #copy_cofig = deepcopy(config)
-            #ligand_df, receptor_df, complex_df, boresch_df =
+           
             toil.start(Job.wrapJobFn(ddm_workflow, config))
             logger.info(f" Total workflow time: {time.perf_counter() - start} seconds\n")
-            # place completed dataframes into .cache directory
             
-            # logger.info(f'config.workflow.ignore_resceptor {config.workflow.ignore_receptor_endstate}')
-            
-            # #complex name 
-            
-            # receptor_name = re.sub(r"\..*",  "", os.path.basename(config.endstate_files.receptor_parameter_filename)) # type: ignore
-            # ligand_name = re.sub(r"\..*",  "", os.path.basename(config.endstate_files.ligand_parameter_filename)) # type: ignore
-            # if not os.path.exists(".cache/"):
-            #     os.makedirs(".cache/")
-
-            # # postprocess analysis
-
-            # #boresch_df.to_hdf(f'.cache/{complex_name}_boresch.h5', key="df")
-            # ligand_data = list(itertools.chain(*ligand_df))
-            # complex_data = list(itertools.chain(*complex_df))
-            # receptor_data = list(itertools.chain(*receptor_df))
-
-            # logger.info(f"ligand_data length: {len(ligand_data)}")
-            # logger.info(f'ignore_receptor {config.ignore_receptor}')
-            # if len(ligand_data) > 0:
-            #     ligand_df = pd.concat(ligand_data, axis=0, ignore_index=True)
-            #     logger.info(f"ligand_df len: {len(ligand_df)}")
-            #     ligand_df.to_hdf(
-            #         f".cache/ligand_{ligand_name}_implicit_ddm.h5",
-            #         key="df", mode="w")
-
-            # if len(complex_data) > 0:
-            #     complex_df = pd.concat(complex_data, axis=0, ignore_index=True)
-            #     complex_df.to_hdf(
-            #         f".cache/complex_{complex_name}_implicit_ddm.h5",
-            #         key="df", mode="w"
-            #     )
-            # logger.info(f'ignore_receptor {config.ignore_receptor}')
-            # if len(receptor_data) > 0:
-            #     receptor_df = pd.concat(receptor_data, axis=0, ignore_index=True)
-            #     receptor_df.to_hdf(
-            #         f".cache/receptor_{receptor_name}_implicit_ddm.h5",
-            #         key="df", mode="w"
-            #     )
-            # logger.info(f"Boresch restaints df: {boresch_df}")
-            # logger.info(f'len boresch df: {len(boresch_df)}')
-            # logger.info(f"type boresch {type(boresch_df)}")
-            # if len(boresch_df) > 0:
-            #     boresch_df.to_hdf(f".cache/boresh_{complex_name}.h5", key="df")
         else:
             toil.restart()
 

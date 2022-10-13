@@ -66,9 +66,9 @@ class PostTreatment(Job):
         #divide by Kcal per Kt
         self.df = self.df/self.kcals_per_Kt
         
-    def compute_binding_deltaG(self, system1: float, system2: float, borech_dG=0.0):
+    def compute_binding_deltaG(self, system1: float, system2: float, boresch_dG:float):
                 
-        return self.deltaG + system1 + system2 + borech_dG
+        return self.deltaG + system1 + system2 + boresch_dG
       
     def run(self, fileStore):
         
@@ -127,15 +127,15 @@ def consolidate_output(job, ligand_system: PostTreatment, receptor_system: PostT
     
     boresch_df.boresch_deltaG.to_hdf(f"{output_path}/boresch_{complex_system.name}.h5", key="df", mode='w')
     
-    borech_dG = boresch_df.boresch_deltaG["DeltaG"].values[0] 
+    boresch_dG = boresch_df.boresch_deltaG["DeltaG"].values[0]
     #compute total deltaG 
-    deltaG_tot = complex_system.compute_binding_deltaG(system1=ligand_system.deltaG, system2=receptor_system.deltaG)
+    deltaG_tot = complex_system.compute_binding_deltaG(system1=ligand_system.deltaG, system2=receptor_system.deltaG, boresch_dG=boresch_dG)    # type: ignore
 
     deltaG_df = pd.DataFrame()
     
     deltaG_df[f"{ligand_system.name}_endstate->no_charges"] = [ligand_system.deltaG]
     deltaG_df[f"{receptor_system.name}_endstate->no_gb"] = [receptor_system.deltaG]
-    deltaG_df["boresch_restraints"] = [borech_dG]
+    deltaG_df["boresch_restraints"] = [boresch_dG]
     deltaG_df[f"{complex_system.name}_no-interactions->endstate"] = [complex_system.deltaG]
     deltaG_df["deltaG"] = [deltaG_tot]
     
@@ -242,6 +242,7 @@ class PostProcess:
     def compute_binding_deltaG(self, system1: float, system2: float, borech_dG=0.0):
                 
         return self.deltaG + system1 + system2 + borech_dG
+    
 def main(complex_file, receptor_file, ligand_file, boresch_file):
 
     import re
