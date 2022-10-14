@@ -37,10 +37,10 @@ class PostTreatment(Job):
         self.system = system 
         self.max_con_force = str(max_conformation_force)
         self.max_orien_force = str(max_orientational_force)
-        self._kt_conversion()
+        self._kcals_per_Kt()
     
-    def _kt_conversion(self):
-        self.kt_conversion = 1/(((BOLTZMAN*(AVAGADRO))/JOULES_PER_KCAL)*self.temp)
+    def _kcals_per_Kt(self):
+        self.kcals_per_Kt = (((BOLTZMAN*(AVAGADRO))/JOULES_PER_KCAL)*self.temp)
     
     
     def _load_dfs(self):
@@ -60,25 +60,30 @@ class PostTreatment(Job):
         column_names = [(state, restraint) for state, restraint in zip(states, restraints)]
         
         self.df.columns = column_names  # type: ignore
-    
-    def compute_binding_deltaG(self, system1: float, system2: float, borech_dG=0.0):
+        
+        #divide by Kcal per Kt
+        self.df = self.df/self.kcals_per_Kt
+        
+    def compute_binding_deltaG(self, system1: float, system2: float, boresch_dG:float):
                 
-        return self.deltaG + system1 + system2 + borech_dG
+        return self.deltaG + system1 + system2 + boresch_dG
       
     def run(self, fileStore):
         
         self._load_dfs()
         self._create_MBAR_format()
         fileStore.logToMaster(f"self.df {self.df}")
+        
         equil_info = pdmbar.detectEquilibration(self.df)
         
         df_subsampled = pdmbar.subsampleCorrelatedData(self.df, equil_info=equil_info)
         
         fe, error, mbar =  (pdmbar.mbar(df_subsampled))
         
-        fe = fe/self.kt_conversion
+        fe = fe * self.kcals_per_Kt
         
-        error = error/self.kt_conversion
+        #then multiply by kt 
+        error = error * self.kcals_per_Kt
         
         if self.system == 'ligand':
             self.deltaG = fe.loc[('endstate',  '0.0'), [('no_charges', self.max_con_force)]].values[0]  # type: ignore
@@ -120,15 +125,15 @@ def consolidate_output(job, ligand_system: PostTreatment, receptor_system: PostT
     
     boresch_df.boresch_deltaG.to_hdf(f"{output_path}/boresch_{complex_system.name}.h5", key="df", mode='w')
     
-    borech_dG = boresch_df.boresch_deltaG["DeltaG"].values[0] 
+    boresch_dG = boresch_df.boresch_deltaG["DeltaG"].values[0]
     #compute total deltaG 
-    deltaG_tot = complex_system.compute_binding_deltaG(system1=ligand_system.deltaG, system2=receptor_system.deltaG)
+    deltaG_tot = complex_system.compute_binding_deltaG(system1=ligand_system.deltaG, system2=receptor_system.deltaG, boresch_dG=boresch_dG)    # type: ignore
 
     deltaG_df = pd.DataFrame()
     
     deltaG_df[f"{ligand_system.name}_endstate->no_charges"] = [ligand_system.deltaG]
     deltaG_df[f"{receptor_system.name}_endstate->no_gb"] = [receptor_system.deltaG]
-    deltaG_df["boresch_restraints"] = [borech_dG]
+    deltaG_df["boresch_restraints"] = [boresch_dG]
     deltaG_df[f"{complex_system.name}_no-interactions->endstate"] = [complex_system.deltaG]
     deltaG_df["deltaG"] = [deltaG_tot]
     
@@ -235,6 +240,7 @@ class PostProcess:
     def compute_binding_deltaG(self, system1: float, system2: float, borech_dG=0.0):
                 
         return self.deltaG + system1 + system2 + borech_dG
+    
 def main(complex_file, receptor_file, ligand_file, boresch_file):
 
     import re

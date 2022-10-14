@@ -3,6 +3,7 @@ import itertools
 import logging
 import os
 import os.path
+import queue
 import re
 import sys
 import time
@@ -36,7 +37,8 @@ working_directory = os.getcwd()
 
 def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
 
-    ligand_simulations = []
+    intermidate_simulations = []
+    queue_simulations = {} #{simulation: rank} rank=0 (highest priority)
     receptor_simuations = []
     complex_simuations = []
     workflow = config.workflow
@@ -163,7 +165,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             config.inputs["endstate_complex_lastframe"] = extract_complex.rv(1)
             # run minimization at the end states for ligand system only
 
-            minimization_ligand = endstate_method.addChild(
+            minimization_ligand = minimization_complex.addFollowOn(
                 Simulation(
                     config.system_settings.executable,
                     config.system_settings.mpi_command,
@@ -387,7 +389,8 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             memory=config.system_settings.memory,
             disk=config.system_settings.disk,
         )
-        ligand_simulations.append(complex_endstate_postprocess)
+        queue_simulations[complex_endstate_postprocess] = 0
+        #intermidate_simulationsappend(complex_endstate_postprocess)
 
         ligand_coordiante = config.endstate_files.ligand_coordinate_filename
 
@@ -425,7 +428,8 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             memory=config.system_settings.memory,
             disk=config.system_settings.disk,
         )
-        ligand_simulations.append(ligand_endstate_postprocess)
+        queue_simulations[ligand_endstate_postprocess] = 2
+        ##intermidate_simulationsappend(ligand_endstate_postprocess)
 
         receptor_coordiate = config.endstate_files.receptor_coordinate_filename
         if config.endstate_files.receptor_initial_coordinate is not None:
@@ -462,7 +466,9 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             memory=config.system_settings.memory,
             disk=config.system_settings.disk,
         )
-        ligand_simulations.append(receptor_endstate_postprocess)
+        queue_simulations[receptor_endstate_postprocess] = 1
+        #intermidate_simulationsappend(receptor_endstate_postprocess)
+    
     # turning off the solvent for ligand simulation, set max force of conformational restraints
     # define max conformational and restraint forces
     max_con_force = max(config.intermidate_args.conformational_restraints_forces)
@@ -500,7 +506,8 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             memory=config.system_settings.memory,
             disk=config.system_settings.disk,
         )
-        ligand_simulations.append(no_solv_ligand)
+        queue_simulations[no_solv_ligand] = 2
+        #intermidate_simulationsappend(no_solv_ligand)
 
     if workflow.remove_ligand_charges:
         ligand_no_charge_args = {
@@ -528,8 +535,8 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             disk=config.system_settings.disk,
         )
         # ligand_jobs.addChild(ligand_no_charge)
-
-        ligand_simulations.append(ligand_no_charge)
+        queue_simulations[ligand_no_charge] = 2
+        #intermidate_simulationsappend(ligand_no_charge)
 
     if workflow.remove_GB_solvent_receptor:
         no_solv_args_receptor = {
@@ -555,7 +562,8 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             memory=config.system_settings.memory,
             disk=config.system_settings.disk,
         )
-        ligand_simulations.append(no_solv_receptor)
+        queue_simulations[no_solv_receptor] = 1
+        #intermidate_simulationsappend(no_solv_receptor)
 
     # Exclusions turned on, no electrostatics, in gas phase
     if workflow.complex_ligand_exclusions:
@@ -583,8 +591,8 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             memory=config.system_settings.memory,
             disk=config.system_settings.disk,
         )
-
-        ligand_simulations.append(complex_no_interactions)
+        queue_simulations[complex_no_interactions] = 0
+        #intermidate_simulationsappend(complex_no_interactions)
 
     # No electrostatics and in the gas phase
     if workflow.complex_turn_off_exclusions:
@@ -612,7 +620,8 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             memory=config.system_settings.memory,
             disk=config.system_settings.disk,
         )
-        ligand_simulations.append(complex_no_electrostatics)
+        queue_simulations[complex_no_electrostatics] =  0
+        #intermidate_simulationsappend(complex_no_electrostatics)
 
     # Turn on ligand charges/vacuum
     if workflow.complex_turn_on_ligand_charges:
@@ -640,7 +649,8 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             memory=config.system_settings.memory,
             disk=config.system_settings.disk,
         )
-        ligand_simulations.append(complex_turn_on_ligand_charges)
+        queue_simulations[complex_turn_on_ligand_charges] =  0
+        #intermidate_simulationsappend(complex_turn_on_ligand_charges)
     # Lambda window interate through conformational and orientational restraint forces
     for (con_force, orien_force) in zip(
         config.intermidate_args.conformational_restraints_forces,
@@ -675,8 +685,8 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                 memory=config.system_settings.memory,
                 disk=config.system_settings.disk,
             )
-
-            ligand_simulations.append(ligand_windows)
+            queue_simulations[ligand_windows] = 2
+            #intermidate_simulationsappend(ligand_windows)
 
         if workflow.add_receptor_conformational_restraints:
 
@@ -704,7 +714,8 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                 memory=config.system_settings.memory,
                 disk=config.system_settings.disk,
             )
-            ligand_simulations.append(receptor_windows)
+            queue_simulations[receptor_windows] = 1
+            #intermidate_simulationsappend(receptor_windows)
 
         # slowly remove conformational and orientational restraints
         # if config.workflow.complex_remove_restraint:
@@ -733,40 +744,40 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                 memory=config.system_settings.memory,
                 disk=config.system_settings.disk,
             )
+            queue_simulations[remove_restraints] = 0
+            #intermidate_simulationsappend(remove_restraints)
 
-            ligand_simulations.append(remove_restraints)
-
-    intermidate_simulations = md_jobs.addChild(
+    intermidate_runner = md_jobs.addChild(
         IntermidateRunner(
-            ligand_simulations,
+            queue_simulations,
             restraints,
             post_process_mdin=config.inputs["post_nosolv_mdin"],
             post_process_distruct="post_process_apo",
         )
     )
-    # return intermidate_simulations
+    
     if workflow.post_treatment:
         job.addFollowOnJobFn(
             consolidate_output,
-            intermidate_simulations.addFollowOn(
+            intermidate_runner.addFollowOn(
                 PostTreatment(
-                    intermidate_simulations.rv(0),
+                    intermidate_runner.rv(0),
                     config.intermidate_args.temperature,
                     system="ligand",
                     max_conformation_force=max_con_exponent,
                 )
             ).rv(),
-            intermidate_simulations.addFollowOn(
+            intermidate_runner.addFollowOn(
                 PostTreatment(
-                    intermidate_simulations.rv(1),
+                    intermidate_runner.rv(1),
                     config.intermidate_args.temperature,
                     system="receptor",
                     max_conformation_force=max_con_exponent,
                 )
             ).rv(),
-            intermidate_simulations.addFollowOn(
+            intermidate_runner.addFollowOn(
                 PostTreatment(
-                    intermidate_simulations.rv(2),
+                    intermidate_runner.rv(2),
                     config.intermidate_args.temperature,
                     system="complex",
                     max_conformation_force=max_con_exponent,
@@ -780,12 +791,6 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
 def initilized_jobs(job):
     "Place holder to schedule jobs for MD and post-processing"
     return
-
-
-def export_df(job, sims: IntermidateRunner):
-    concat_sims = pd.concat(sims.post_output)
-    concat_sims.to_hdf("/home/ayoub/nas0/Impicit-Solvent-DDM/newData.h5", key="df")
-
 
 def main():
 
@@ -807,15 +812,7 @@ def main():
     options.clean = "onSuccess"
     config_file = options.config_file[0]
     ignore_receptor = options.ignore_receptor
-    # options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
-    # options.logLevel = "INFO"
-    # options.clean = "always"
-    # yaml_file = '/home/ayoub/nas0/Impicit-Solvent-DDM/new_workflow.yaml'
-    # try:
-    #     with open(yaml_file) as f:
-    #         config_file = yaml.safe_load(f)
-    # except yaml.YAMLError as e:
-    #     print(e)
+  
     start = time.perf_counter()
     work_dir = os.getcwd()
 
@@ -825,23 +822,24 @@ def main():
     except yaml.YAMLError as e:
         print(e)
 
-    # if options.workDir:
-    #     work_dir = os.path.abspath(options.workDir)
-    # else:
-    #     work_dir = working_directory
-    work_dir = working_directory
-    if not os.path.exists(os.path.join(work_dir, "mdgb/structs/ligand")):
-        os.makedirs(os.path.join(work_dir, "mdgb/structs/ligand"))
-    if not os.path.exists(os.path.join(work_dir, "mdgb/structs/receptor")):
-        os.makedirs(os.path.join(work_dir, "mdgb/structs/receptor"))
-
-    complex_name = re.sub(
-        r"\..*",
-        "",
-        os.path.basename(
-            config_file["endstate_parameter_files"]["complex_parameter_filename"]
-        ),
-    )
+ 
+    work_dir  = working_directory
+    if not os.path.exists(
+        os.path.join(work_dir, "mdgb/structs/ligand")):
+            os.makedirs(
+                os.path.join(
+                    work_dir, "mdgb/structs/ligand"
+                )
+            )
+    if not os.path.exists(
+        os.path.join(work_dir, "mdgb/structs/receptor")):
+            os.makedirs(
+                os.path.join(
+                    work_dir, "mdgb/structs/receptor"
+                )
+            )
+    
+    complex_name = re.sub(r"\..*", "", os.path.basename(config_file["endstate_parameter_files"]["complex_parameter_filename"]))
     # create a log file
 
     # log the performance time
@@ -892,13 +890,11 @@ def main():
                         + "/templates/min.mdin"
                     )
                 )
-            )
-
-            output = toil.start(Job.wrapJobFn(ddm_workflow, config))
-            concat_sims = pd.concat(output.post_output)
-            concat_sims.to_hdf(
-                "/home/ayoub/nas0/Impicit-Solvent-DDM/newData.h5", key="df"
-            )
+            )  
+           
+            toil.start(Job.wrapJobFn(ddm_workflow, config))
+            logger.info(f" Total workflow time: {time.perf_counter() - start} seconds\n")
+            
         else:
             toil.restart()
 

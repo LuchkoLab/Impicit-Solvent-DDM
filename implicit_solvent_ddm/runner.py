@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional, TypedDict, Union
 
 import pandas as pd
 import yaml
+from matplotlib.backend_bases import key_press_handler
+from toil.batchSystems import abstractBatchSystem
 from toil.common import Toil
 from toil.job import FileID, Job, JobFunctionWrappingJob, PromisedRequirement
 
@@ -21,13 +23,13 @@ from implicit_solvent_ddm.simulations import Simulation
 class IntermidateRunner(Job):
     
     def __init__(self, 
-                 simulations: List[Simulation], restraints:RestraintMaker, 
+                 simulations: dict[Simulation, int], restraints:RestraintMaker, 
                  post_process_mdin: FileID,
                  post_process_distruct: str, memory: Optional[Union[int, str]] = None, cores: Optional[Union[int, float, str]] = None, disk: Optional[Union[int, str]] = None, preemptable: Optional[Union[bool, int, str]] = None, unitName: Optional[str] = "", checkpoint: Optional[bool] = False, displayName: Optional[str] = "", descriptionClass: Optional[str] = None) -> None:
        
         super().__init__(memory, cores, disk, preemptable, unitName, checkpoint, displayName, descriptionClass)
       
-        self.simulations = simulations
+        self.simulations = {sim: rank for sim, rank in sorted(simulations.items(), key=lambda item: item[1])} # sort by rank 
         self.restraints = restraints
         self.post_process_mdin = post_process_mdin
         self.post_output = []
@@ -41,7 +43,7 @@ class IntermidateRunner(Job):
         
         def run_post_process(job:Job, ran_simulation:Simulation):
             
-            for post_simulation in self.simulations:
+            for post_simulation in self.simulations.keys():
                 
                 #check if the system are the same. ligand with ligand | receptor with receptor ect 
                 if ran_simulation.system_type == post_simulation.system_type:
@@ -73,10 +75,10 @@ class IntermidateRunner(Job):
                     self.system_specific_add(post_simulation.system_type, data_frame=data_frame.rv())
         
         # iterate and submit all intermidate simulations. Then followup with post-process        
-        for simulation in self.simulations:
+        for simulation in self.simulations.keys():
             
-           run_post_process(job=self.addChild(simulation), ran_simulation = simulation)
-
+            run_post_process(job=self.addChild(simulation), ran_simulation = simulation)
+            
         return self.ligand_output, self.receptor_output, self.complex_output
     
     @staticmethod

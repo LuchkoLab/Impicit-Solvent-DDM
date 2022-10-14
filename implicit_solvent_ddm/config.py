@@ -1,17 +1,18 @@
 import os
+import random
 import re
 import shutil
+import string
 import tempfile
-from copy import deepcopy
 from dataclasses import dataclass, field
-from numbers import Complex
-from optparse import Option
+from enum import unique
 from typing import List, Optional, Type, Union
 
 import numpy as np
 import parmed as pmd
 import pytraj as pt
 import yaml
+from pydantic import NoneIsAllowedError
 from toil.common import FileID, Toil
 from toil.job import Job, JobFunctionWrappingJob
 
@@ -21,7 +22,7 @@ class Workflow:
     setup_workflow: bool = True
     post_treatment: bool = True 
     run_endstate_method: bool = True
-    end_state_postprocess: bool = False
+    end_state_postprocess: bool = True
     add_ligand_conformational_restraints: bool = True
     remove_GB_solvent_ligand: bool = True
     remove_ligand_charges: bool = True
@@ -113,16 +114,14 @@ class ParameterFiles:
     receptor_initial_coordinate: Optional[Union[str, FileID]] = field(default=None)
     
     def __post_init__(self):
-       
+        self.tempdir = tempfile.TemporaryDirectory()
         #check complex is a valid structure 
         #ASK LUCHKO HOW TO CHECK FOR VALID STRUCTURES
         complex_traj = pt.iterload(self.complex_coordinate_filename, self.complex_parameter_filename)
         pt.check_structure(traj=complex_traj)
         
         if self.receptor_parameter_filename is not None:
-            receptor_path = 'mdgb/structs/receptor_unique'
-            if not os.path.exists(receptor_path):
-                os.makedirs(receptor_path)
+            self._create_unique_receptor_id()
             
             self.generate_unique_receptor_id(receptor_path)
 
@@ -143,13 +142,15 @@ class ParameterFiles:
         solu_complex = re.sub(r"\..*", "", os.path.basename(self.complex_coordinate_filename))
         solu_receptor = re.sub(r"\..*", "", os.path.basename(self.receptor_coordinate_filename))  # type: ignore
         solu_ligand = re.sub(r"\..*", "", os.path.basename(self.ligand_coordinate_filename))  # type: ignore
-        
+        print(os.path.exists(self.receptor_parameter_filename))
         path = "mdgb/structs"
         if not os.path.exists(path):
             os.makedirs(path)
         
         complex_traj = pt.iterload(self.complex_coordinate_filename, self.complex_parameter_filename)
+        print(complex_traj)
         receptor_traj = pt.iterload(self.receptor_coordinate_filename, self.receptor_parameter_filename)
+        print(receptor_traj)
         ligand_traj = pt.iterload(self.ligand_coordinate_filename, self.ligand_parameter_filename)
         
         pt.write_traj(f"{path}/{solu_complex}.ncrst", complex_traj, frame_indices=[0])
@@ -159,7 +160,25 @@ class ParameterFiles:
         self.complex_initial_coordinate = f"{path}/{solu_complex}.ncrst.1"
         self.receptor_initial_coordinate = f"{path}/{solu_receptor}_.ncrst.1"
         self.ligand_initial_coordinate = f"{path}/{solu_ligand}_.ncrst.1"
+    
+    
+    
+    def _create_unique_receptor_id(self):
+        '''
+        Splits the complex into the ligand and receptor individual files.
+        '''
+        unique_id = ''.join(random.choice(string.ascii_letters) for x in range(3))
         
+        ligand_basename = re.sub(r"\..*", "", os.path.basename(self.ligand_parameter_filename))  # type: ignore
+        receptor_basename = re.sub(r"\..*", "", os.path.basename(self.receptor_parameter_filename))  # type: ignore
+        unique_receptor_ID = os.path.join(self.tempdir.name, f"{receptor_basename}-{ligand_basename}_{unique_id}.parm7")
+        
+        shutil.copyfile(self.receptor_parameter_filename, unique_receptor_ID)  # type: ignore
+        
+        self.receptor_parameter_filename = unique_receptor_ID
+        print("test",os.path.exists(self.receptor_parameter_filename))
+    
+    
     def toil_import_parmeters(self, toil):
         
         self.complex_parameter_filename = str(
@@ -494,7 +513,7 @@ class Config:
     
     def __post_init__(self):
         self._config_sanitity_check()
-
+        
         #if endstate_method_type =0 don't run any endstate calculations 
         if self.endstate_method.endstate_method_type == 0:
             self.workflow.run_endstate_method = False 
@@ -545,50 +564,46 @@ class Config:
     
     def get_receptor_ligand_topologies(self):
         '''
-        Splits the complex into the ligand and receptor individual files.
+        Splits the complex into the ligand and receptor individual files. 
+        
+        These parameters files are inputs for ENDSTATE simulation 
         '''
-        receptor_ligand_path = []
-        #/mdgb/structs/receptor /ligand
-        receptor_ligand_path.append(os.path.join(self.system_settings.working_directory, "mdgb/structs/ligand"))
-        receptor_ligand_path.append(os.path.join(self.system_settings.working_directory,"mdgb/structs/receptor"))
+        self.tempdir = tempfile.TemporaryDirectory()
+       
         
         #don't use strip!!! use masks ligand[mask] instead!!!
         complex_traj = pt.iterload(self.endstate_files.complex_coordinate_filename, self.endstate_files.complex_parameter_filename)
-        receptor = pt.strip(complex_traj, self.amber_masks.ligand_mask)
-        ligand = pt.strip(complex_traj, self.amber_masks.receptor_mask)
-        
-        ligand_name = os.path.join(receptor_ligand_path[0], self.amber_masks.ligand_mask.strip(":"))
-        receptor_name = os.path.join(receptor_ligand_path[1], self.amber_masks.receptor_mask.strip(":"))
-        
-        file_number = 0
-        while os.path.exists(f"{ligand_name}_{file_number:03}.parm7"):
-            file_number +=1    
-        pt.write_parm(f"{ligand_name}_{file_number:03}.parm7", ligand.top, overwrite=True)
-        pt.write_traj(f"{ligand_name}_{file_number:03}.ncrst", ligand, overwrite=True)
-        
-        self.endstate_files.ligand_parameter_filename = os.path.abspath(f"{ligand_name}_{file_number:03}.parm7")
-        self.endstate_files.ligand_coordinate_filename = os.path.abspath(f"{ligand_name}_{file_number:03}.ncrst.1")
-        
-        file_number = 0
-        while os.path.exists(f"{receptor_name}_{file_number:03}.parm7"):
-            file_number +=1
-        # if os.path.exists(f"{receptor_name}_{0:03}.parm7"):
-        if  self.ignore_receptor:
-            self.endstate_files.receptor_parameter_filename = f"{receptor_name}_{file_number:03}.parm7"
-        else:
-            pt.write_parm(f"{receptor_name}_{file_number:03}.parm7",receptor.top)
-            pt.write_traj(f"{receptor_name}_{file_number:03}.ncrst",receptor)
-            self.endstate_files.receptor_parameter_filename = os.path.abspath(f"{receptor_name}_{file_number:03}.parm7")
-            self.endstate_files.receptor_coordinate_filename = os.path.abspath(f"{receptor_name}_{file_number:03}.ncrst.1")
+        receptor_traj = complex_traj[self.amber_masks.receptor_mask]
 
+        #get ligand trajectory coordinate from provided complex.parm7
+        ligand_traj= complex_traj[self.amber_masks.ligand_mask]
+        ligand_name = self.amber_masks.ligand_mask.strip(":")
+        
+        ligand_filename = os.path.join(self.tempdir.name, ligand_name)
+        receptor_filename = os.path.join(self.tempdir.name, f"{self.amber_masks.receptor_mask.strip(':')}_{ligand_name}")
+        
+        print("lignad_filename", ligand_filename)
+        pt.write_parm(f"{ligand_filename}.parm7", ligand_traj.top)
+        pt.write_traj(f"{ligand_filename}.ncrst", ligand_traj)
+        
+        self.endstate_files.ligand_parameter_filename = os.path.abspath(f"{ligand_filename}.parm7")
+        self.endstate_files.ligand_coordinate_filename = os.path.abspath(f"{ligand_filename}.ncrst.1")
+        
+        pt.write_parm(f"{receptor_filename}.parm7",receptor_traj.top)
+        pt.write_traj(f"{receptor_filename}.ncrst",receptor_traj)
+        self.endstate_files.receptor_parameter_filename = os.path.abspath(f"{receptor_filename}.parm7")
+        self.endstate_files.receptor_coordinate_filename = os.path.abspath(f"{receptor_filename}.ncrst.1")
+
+        self.endstate_files._create_unique_receptor_id()
+        
 def workflow(job, config:Config):
     
     tempdir = job.fileStore.getLocalTempDir()
     
     job.fileStore.readGlobalFile(
-                    config.intermidate_args.complex_restraint_files[-1], 
-                    userPath=os.path.join(tempdir, os.path.basename(config.intermidate_args.complex_restraint_files[-1])))
-
+                    config.endstate_files.complex_coordinate_filename, 
+                    userPath=os.path.join(tempdir, os.path.basename(config.endstate_files.complex_coordinate_filename)))
+    return 1
 if __name__ == "__main__":
   
     import yaml
@@ -596,19 +611,25 @@ if __name__ == "__main__":
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "OFF"
     options.clean = "always"
-    with open("/home/ayoub/nas0/Impicit-Solvent-DDM/new_workflow.yaml") as fH:
+    with open("/nas0/ayoub/CB7_restraint_workflow/CB7_config_files/mdgb_01.yaml") as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:
        
         config = Config.from_config(yaml_config)    
        #print(config)
-        config.endstate_files.get_inital_coordinate()
+        #config.endstate_files.get_inital_coordinate()
+        if config.endstate_method.endstate_method_type != 0:
+            config.get_receptor_ligand_topologies()
+        else:
+            config.endstate_files.get_inital_coordinate()
+            config.intermidate_args.toil_import_user_restriants(toil=toil)
+    
         config.endstate_files.toil_import_parmeters(toil=toil)
-        config.intermidate_args.toil_import_user_restriants(toil=toil)
+       
         print(config)
         # config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
         # boresch_p = list(config.boresch_parameters.__dict__.values())
         
-        #toil.start(Job.wrapJobFn(workflow, config))
+        toil.start(Job.wrapJobFn(workflow, config))
         # print(config.intermidate_args)

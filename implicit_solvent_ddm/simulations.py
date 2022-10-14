@@ -36,7 +36,7 @@ class Calculation(Job):
         restraint_file: Union[RestraintMaker, str],
         directory_args: TypedDict,
         dirstruct="dirstruct",
-        inptraj=None
+        inptraj=None,
     ):
         self.executable = executable
         self.mpi_command = mpi_command
@@ -102,8 +102,7 @@ class Calculation(Job):
         os.remove("mdin")
         return fileStore.readGlobalFile(mdin_ID)
 
-    @staticmethod
-    def export_files(fileStore, output_directory, parameter_files):
+    def export_files(self, fileStore, output_directory, parameter_files):
         restart_files = []
         traj_files = []
         for root, dirs, files in os.walk(".", topdown=False):
@@ -112,10 +111,10 @@ class Calculation(Job):
                     continue
                 # output_file = fileStore.writeGlobalFile(name)
                 # fileStore.export_file(output_file,"file://" + os.path.abspath(os.path.join(output_directory, os.path.basename(name))))
-                if re.match(r".*.rst7.*", name):
+                if re.match(r".*\.rst7.*", name):
                     output_file = fileStore.writeGlobalFile(name, cleanup=True)
                     restart_files.append(str(output_file))
-                elif re.match(r".*.nc.*", name):
+                elif re.match(r".*\.nc.*", name):
                     output_file = fileStore.writeGlobalFile(name, cleanup=True)
                     traj_files.append(str(output_file))
                 else:
@@ -127,9 +126,39 @@ class Calculation(Job):
                         os.path.join(output_directory, os.path.basename(name))
                     ),
                 )
-
-        #fileStore.logToMaster(f"the current trajectory files {traj_files}")
-        #fileStore.logToMaster(f"the restart files: {restart_files}")
+        # export parameter files
+        fileStore.export_file(
+            self.read_files["prmtop"],
+            "file://"
+            + os.path.abspath(
+                os.path.join(
+                    self.output_dir, os.path.basename(self.read_files["prmtop"])
+                )
+            ),
+        )
+        # export coordinate file
+        if ("incrd" in self.read_files.keys()):
+            fileStore.export_file(
+                self.read_files["incrd"],
+                "file://"
+                + os.path.abspath(
+                    os.path.join(
+                        self.output_dir, os.path.basename(self.read_files["incrd"])
+                    )
+                ),
+            )
+        # export restraint File
+        fileStore.export_file(
+            self.read_files["restraint_file"],
+            "file://"
+            + os.path.abspath(
+                os.path.join(
+                    self.output_dir, os.path.basename(self.read_files["restraint_file"])
+                )
+            ),
+        )
+        # fileStore.logToMaster(f"the current trajectory files {traj_files}")
+        # fileStore.logToMaster(f"the restart files: {restart_files}")
 
         return (restart_files, traj_files)
 
@@ -137,14 +166,14 @@ class Calculation(Job):
         """Runs the program. All command-line arguments must be set before
         calling this method. Command-line arguments should be set in setup()
         """
-        #fileStore.logToMaster(f"the self.directory_args {self.directory_args}")
+        # fileStore.logToMaster(f"the self.directory_args {self.directory_args}")
         # self._output_directory()
         start = time.perf_counter()
         self._setLogging()
         self.logger.info(f"{self.directory_args['runtype']}")
         self.logger.info(f"Running: {self.directory_args['runtype']}")
-        
-        #fileStore.logToMaster(f"directory args {self.directory_args}")
+
+        # fileStore.logToMaster(f"directory args {self.directory_args}")
         # If this has not been set up yet
         # then raise a stink
         if not self.calc_setup:
@@ -170,7 +199,7 @@ class Calculation(Job):
             f"{os.path.dirname(self.read_files['prmtop'])}"
         )
 
-        #fileStore.logToMaster(f"file in current directory {files_in_current_directory}")
+        # fileStore.logToMaster(f"file in current directory {files_in_current_directory}")
         fileStore.logToMaster(f"exec_list : {self.exec_list}")
         self.logger.info(
             f"The files in the current working directory: {files_in_current_directory}"
@@ -191,30 +220,12 @@ class Calculation(Job):
         fileStore.logToMaster(f"amber_stdout: {amber_stdout}")
         fileStore.logToMaster(f"amber_stderr: {amber_stderr}")
 
-        # export parameter files
-        fileStore.export_file(
-            self.read_files["prmtop"],
-            "file://"
-            + os.path.abspath(
-                os.path.join(
-                    self.output_dir, os.path.basename(self.read_files["prmtop"])
-                )
-            ),
-        )
-        fileStore.export_file(
-            self.read_files["restraint_file"],
-            "file://"
-            + os.path.abspath(
-                os.path.join(
-                    self.output_dir, os.path.basename(self.read_files["restraint_file"])
-                )
-            ),
-        )
-
         restart_ID, trajectory_ID = self.export_files(
             fileStore, self.output_dir, files_in_current_directory
         )
-        self.logger.info(f"Performance runtime for current simulation Run: {time.perf_counter() - start} seconds")
+        self.logger.info(
+            f"Performance runtime for current simulation Run: {time.perf_counter() - start} seconds"
+        )
         return (restart_ID, trajectory_ID)
 
 
@@ -270,6 +281,7 @@ class Simulation(Calculation):
             self.exec_list.pop(0)
             self.exec_list.append(re.sub(r"\..*", "", self.executable))
         else:
+            self.exec_list.append("--exclusive")
             self.exec_list.extend(("-n", str(self.num_cores)))
             self.exec_list.append(self.executable)
 
@@ -313,11 +325,16 @@ class Simulation(Calculation):
                 userPath=os.path.join(tempDir, os.path.basename(self.inptraj[0])),
             )
         if isinstance(self.restraint_file, RestraintMaker):
-            #fileStore.logToMaster(f"RESTRAINT {self.restraint_file}")
-            #fileStore.logToMaster(f"RESTRAINT {self.restraint_file.restraints}")
+            # fileStore.logToMaster(f"RESTRAINT {self.restraint_file}")
+            # fileStore.logToMaster(f"RESTRAINT {self.restraint_file.restraints}")
             self.read_files["restraint_file"] = fileStore.readGlobalFile(
                 self.restraint_file.restraints[self.restraint_key],
-                userPath=os.path.join(tempDir, os.path.basename(self.restraint_file.restraints[self.restraint_key])), 
+                userPath=os.path.join(
+                    tempDir,
+                    os.path.basename(
+                        self.restraint_file.restraints[self.restraint_key]
+                    ),
+                ),
             )
         else:
             self.read_files["restraint_file"] = fileStore.readGlobalFile(
@@ -392,16 +409,16 @@ class REMDSimulation(Calculation):
     def _groupfile(self, fileStore):
 
         scratch_file = fileStore.getLocalTempFile()
-        #fileStore.logToMaster(f"self.input_file {self.input_file}")
+        # fileStore.logToMaster(f"self.input_file {self.input_file}")
         # create groupfile mdin
         with open(scratch_file, "w") as group:
             for count, mdin in enumerate(self.input_file):
-                #fileStore.logToMaster(f"mdin for remd {mdin}")
+                # fileStore.logToMaster(f"mdin for remd {mdin}")
                 read_mdin = fileStore.readGlobalFile(
                     mdin, userPath=os.path.join(self.tempDir, os.path.basename(mdin))
                 )
                 local_mdin = Calculation._mdin_restraint(self, fileStore, read_mdin)
-                #fileStore.logToMaster(f"local mdin {local_mdin}")
+                # fileStore.logToMaster(f"local mdin {local_mdin}")
                 solu = re.sub(r"\..*", "", os.path.basename(self.prmtop))
 
                 if self.runtype == "equil":
@@ -443,9 +460,9 @@ class REMDSimulation(Calculation):
         self.read_files["groupfile"] = fileStore.readGlobalFile(groupfile_ID)
 
     def run(self, fileStore):
-        
+
         tempDir = self.tempDir
-        #fileStore.logToMaster(f"self.incrd is {self.incrd}")
+        # fileStore.logToMaster(f"self.incrd is {self.incrd}")
         # read in parameter files
         self.read_files["prmtop"] = fileStore.readGlobalFile(
             self.prmtop, userPath=os.path.join(tempDir, os.path.basename(self.prmtop))
@@ -503,7 +520,7 @@ class ExtractTrajectories(Job):
                 write_bash_script,
                 userPath=os.path.join(temp_dir, os.path.basename(write_bash_script)),
             )
-            #fileStore.logToMaster(f"read bash {read_bash_script}")
+            # fileStore.logToMaster(f"read bash {read_bash_script}")
             # extract trajectories at target temperature
             # extract_target_temp_traj = self.run_bash(read_bash_script, fileStore)
             solute_traj = self.run_bash(read_bash_script, fileStore)
