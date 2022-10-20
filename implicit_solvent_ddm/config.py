@@ -163,9 +163,14 @@ class ParameterFiles:
         receptor_basename = re.sub(r"\..*", "", os.path.basename(self.receptor_parameter_filename))  # type: ignore
         unique_receptor_ID = os.path.join(self.tempdir.name, f"{receptor_basename}-{ligand_basename}_{unique_id}.parm7")
         
+        unique_ligand_ID = os.path.join(self.tempdir.name, f"{ligand_basename}_{unique_id}.parm7")
+        
         shutil.copyfile(self.receptor_parameter_filename, unique_receptor_ID)  # type: ignore
+        shutil.copyfile(self.ligand_parameter_filename, unique_ligand_ID) # type: ignore
         
         self.receptor_parameter_filename = unique_receptor_ID
+        self.ligand_parameter_filename = unique_ligand_ID
+        
         print("test",os.path.exists(self.receptor_parameter_filename))
     
     
@@ -573,7 +578,7 @@ class Config:
         ligand_name = self.amber_masks.ligand_mask.strip(":")
         
         ligand_filename = os.path.join(self.tempdir.name, ligand_name)
-        receptor_filename = os.path.join(self.tempdir.name, f"{self.amber_masks.receptor_mask.strip(':')}_{ligand_name}")
+        receptor_filename = os.path.join(self.tempdir.name, f"{self.amber_masks.receptor_mask.strip(':')}")
         
         print("lignad_filename", ligand_filename)
         pt.write_parm(f"{ligand_filename}.parm7", ligand_traj.top)
@@ -588,7 +593,7 @@ class Config:
         self.endstate_files.receptor_coordinate_filename = os.path.abspath(f"{receptor_filename}.ncrst.1")
 
         self.endstate_files._create_unique_receptor_id()
-        
+       
 def workflow(job, config:Config):
     
     tempdir = job.fileStore.getLocalTempDir()
