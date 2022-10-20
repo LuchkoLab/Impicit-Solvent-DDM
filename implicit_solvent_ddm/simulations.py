@@ -4,6 +4,7 @@ import shutil
 import subprocess as sp
 import sys
 from asyncore import file_dispatcher
+from datetime import datetime
 from importlib.metadata import files
 from logging import setLogRecordFactory
 from string import Template
@@ -170,12 +171,15 @@ class Calculation(Job):
         # self._output_directory()
         start = time.perf_counter()
         self._setLogging()
-        self.logger.info(f"{self.directory_args['runtype']}")
-        self.logger.info(f"Running: {self.directory_args['runtype']}")
-
-        # fileStore.logToMaster(f"directory args {self.directory_args}")
-        # If this has not been set up yet
-        # then raise a stink
+        
+        self.logger.info(f"Run Type: {self.directory_args['runtype']}\n")
+        self.logger.info(f"Running: {self.directory_args['runtype']}\n")
+        self.logger.info(f"Number of cores: {self.num_cores}\n")
+        
+   
+        self.logger.info(f"Prior simulation datetime: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
+        
+        
         if not self.calc_setup:
             raise RuntimeError(
                 "Cannot run a calculation without calling its"
@@ -202,9 +206,9 @@ class Calculation(Job):
         # fileStore.logToMaster(f"file in current directory {files_in_current_directory}")
         fileStore.logToMaster(f"exec_list : {self.exec_list}")
         self.logger.info(
-            f"The files in the current working directory: {files_in_current_directory}"
+            f"The files in the current working directory: {files_in_current_directory}\n"
         )
-        self.logger.info(f"executable command {self.exec_list}")
+        self.logger.info(f"executable command {self.exec_list}\n")
 
         # amber_output = sp.Popen(self.exec_list, stdout=sp.PIPE, stderr=sp.PIPE)
         amber_output = sp.run(self.exec_list, stdout=sp.PIPE, stderr=sp.PIPE)
@@ -214,8 +218,8 @@ class Calculation(Job):
         # amber_stdout = amber_output.stdout.read().splitlines()
         # amber_stderr = amber_output.stderr.read().splitlines()
 
-        self.logger.error(f"AMBER stdout: {amber_stdout}")
-        self.logger.error(f"AMBER stderr: {amber_stderr}")
+        self.logger.error(f"AMBER stdout: {amber_stdout}\n")
+        self.logger.error(f"AMBER stderr: {amber_stderr}\n")
 
         fileStore.logToMaster(f"amber_stdout: {amber_stdout}")
         fileStore.logToMaster(f"amber_stderr: {amber_stderr}")
@@ -223,8 +227,9 @@ class Calculation(Job):
         restart_ID, trajectory_ID = self.export_files(
             fileStore, self.output_dir, files_in_current_directory
         )
+        self.logger.info(f"Completed simulation datetime {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
         self.logger.info(
-            f"Performance runtime for current simulation Run: {time.perf_counter() - start} seconds"
+            f"Performance runtime for current simulation Run: {time.perf_counter() - start} seconds\n"
         )
         return (restart_ID, trajectory_ID)
 

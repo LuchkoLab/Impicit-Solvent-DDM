@@ -14,6 +14,8 @@ endstate_parameter_files:
   ligand_coordinate_filename: implicit_solvent_ddm/tests/structs/M01_000_300K.nc 
   receptor_parameter_filename: implicit_solvent_ddm/tests/structs/CB7.parm7
   receptor_coordinate_filename: implicit_solvent_ddm/tests/structs/CB7_000_300K.nc 
+  ignore_unique_naming: True 
+  
 number_of_cores_per_system:
   complex_ncores: 1 #total number of cores per job
   ligand_ncores: 1 #total number of cores per ligand simulation
@@ -38,8 +40,7 @@ workflow:
     temperature: 298
 
 workflow_jobs:
-  setup_workflow: False 
-  run_endstate_method: False 
+  setup_workflow: False  
   end_state_postprocess: False 
   post_treatment: False 
   #complex_turn_off_exclusions: False 
