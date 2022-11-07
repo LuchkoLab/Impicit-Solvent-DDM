@@ -10,12 +10,10 @@ from typing import List, Optional, Type, Union
 
 import numpy as np
 import parmed as pmd
-import pytest
 import pytraj as pt
 import yaml
-from pydantic import NoneIsAllowedError
 from toil.common import FileID, Toil
-from toil.job import Job, JobFunctionWrappingJob
+from toil.job import Job
 
 
 @dataclass
@@ -89,6 +87,20 @@ class Workflow:
         else:
             raise Exception(f"system not valid: {system}")
 
+@dataclass
+class NumberOfCoresPerSystem:
+    complex_ncores: int
+    ligand_ncores: int
+    receptor_ncores: int
+
+    @classmethod
+    def from_config(cls: Type["NumberOfCoresPerSystem"], obj: dict):
+        return cls(
+            complex_ncores=obj["complex_ncores"],
+            ligand_ncores=obj["ligand_ncores"],
+            receptor_ncores=obj["receptor_ncores"],
+        )
+
 
 @dataclass
 class SystemSettings:
@@ -146,7 +158,6 @@ class ParameterFiles:
         )
         solu_receptor = re.sub(r"\..*", "", os.path.basename(self.receptor_coordinate_filename))  # type: ignore
         solu_ligand = re.sub(r"\..*", "", os.path.basename(self.ligand_coordinate_filename))  # type: ignore
-        print(os.path.exists(self.receptor_parameter_filename))
         path = "mdgb/structs"
         if not os.path.exists(path):
             os.makedirs(path)
@@ -256,21 +267,6 @@ class ParameterFiles:
 
 
 @dataclass
-class NumberOfCoresPerSystem:
-    complex_ncores: int
-    ligand_ncores: int
-    receptor_ncores: int
-
-    @classmethod
-    def from_config(cls: Type["NumberOfCoresPerSystem"], obj: dict):
-        return cls(
-            complex_ncores=obj["complex_ncores"],
-            ligand_ncores=obj["ligand_ncores"],
-            receptor_ncores=obj["receptor_ncores"],
-        )
-
-
-@dataclass
 class AmberMasks:
     receptor_mask: str
     ligand_mask: str
@@ -323,12 +319,27 @@ class REMD:
 
             self.remd_mdins[index] = toil.import_file("file://" + os.path.abspath(remd_mdin))  # type: ignore
 
-
+@dataclass
+class FlatBottomRestraints:
+    flat_bottom_width: float = 5.0
+    harmonic_distance: float = 10.0
+    spring_constant: float = 1.0 
+    restrained_receptor_atoms: Optional[List[int]] = None 
+    restrained_ligand_atoms: Optional[List[int]] = None 
+    flat_bottom_restraints: Optional[dict[str,float]] = None # {r1: 0, r2: 0, r3: 10, r4: 20, rk2: 0.1, rk3: 0.1}
+        
+    @classmethod
+    def from_config(cls: Type["FlatBottomRestraints"], obj:dict):
+        if "restraints" in obj.keys():
+            return cls(**obj["restraints"])
+        else:
+            return cls()
+  
 @dataclass
 class EndStateMethod:
     endstate_method_type: str
     remd_args: REMD
-    flat_bottom_restraints: Optional[List[float]] = None
+    flat_bottom: FlatBottomRestraints
 
     def __post_init__(self):
         endstate_method_options = ["remd", "md", 0]
@@ -343,20 +354,16 @@ class EndStateMethod:
             return cls(
                 endstate_method_type=obj["endstate_method"],
                 remd_args=REMD(),
-                flat_bottom_restraints=obj["endstate_arguments"][
-                    "flat_bottom_restraints"
-                ],
+                flat_bottom=FlatBottomRestraints.from_config(obj=obj["endstate_arguments"]),
             )
         elif obj["endstate_method"].lower() == "remd":
             return cls(
                 endstate_method_type=str(obj["endstate_method"]).lower(),
                 remd_args=REMD.from_config(obj=obj),
-                flat_bottom_restraints=obj["endstate_arguments"][
-                    "flat_bottom_restraints"
-                ],
+                flat_bottom=FlatBottomRestraints.from_config(obj=obj["endstate_arguments"])
             )
         else:
-            return cls(endstate_method_type=obj["endstate_method"], remd_args=REMD())
+            return cls(endstate_method_type=obj["endstate_method"], remd_args=REMD(), flat_bottom=FlatBottomRestraints.from_config(obj=obj))
 
 
 @dataclass
@@ -543,6 +550,8 @@ class Config:
                 raise ValueError(
                     f"user specified to not run an endstate simulation but did not provided ligand_parameter_filename/coordinate endstate files"
                 )
+                
+        self._check_missing_flatbottom_parameters()
 
     def _config_sanitity_check(self):
         # check if the amber mask are valid
@@ -585,6 +594,10 @@ class Config:
             restraints={},
         )
 
+    def _check_missing_flatbottom_parameters(self):
+        pass
+    
+        
     @property
     def complex_pytraj_trajectory(self) -> pt.Trajectory:
         traj = pt.iterload(
@@ -669,7 +682,7 @@ if __name__ == "__main__":
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "OFF"
     options.clean = "always"
-    with open("/nas0/ayoub/CB7_restraint_workflow/CB7_config_files/mdgb_01.yaml") as fH:
+    with open("/nas0/ayoub/Impicit-Solvent-DDM/implicit_solvent_ddm/tests/input_files/config.yaml") as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:
@@ -685,9 +698,11 @@ if __name__ == "__main__":
 
         config.endstate_files.toil_import_parmeters(toil=toil)
 
-        print(config)
+        print(config.endstate_method)
+        print(config.amber_masks)
+        print(config.endstate_files)
         # config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
         # boresch_p = list(config.boresch_parameters.__dict__.values())
 
-        toil.start(Job.wrapJobFn(workflow, config))
+        #toil.start(Job.wrapJobFn(workflow, config))
         # print(config.intermidate_args)
