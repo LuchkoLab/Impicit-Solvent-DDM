@@ -121,8 +121,19 @@ def get_mdouts(request, run_workflow):
     yield mdout_files
 
 
+@pytest.mark.parametrize("test_input, expected", [("mdgb/M01/", 5), ("mdgb/CB7/", 4), ("mdgb/cb7-mol01/", 6)])
+def test_completed_workflow(test_input, expected, run_workflow):
+    print('test input:', test_input)
+    mdout_files = []
+    for root, dirs, files in os.walk(test_input, topdown=False):
+        for name in files:
+            if "mdout" == name:
+                mdout_files.append(os.path.join(root, name))
+    
+    assert len(mdout_files) == expected
+                
 # read in all mdout files and check if run was completed
-def test_completed_workflow(get_mdouts):
+def test_successful_simulations(get_mdouts):
     """
     Executes the entire workflow and does a check if all output files were completed.
     """
