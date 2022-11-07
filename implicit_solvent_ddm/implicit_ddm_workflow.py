@@ -19,14 +19,12 @@ from toil.job import Job, JobFunctionWrappingJob
 
 from implicit_solvent_ddm.alchemical import (get_intermidate_parameter_files,
                                              split_complex_system)
-# from implicit_solvent_ddm.alchemical import (get_intermidate_parameter_files,
-#                                              split_complex_system)
-from implicit_solvent_ddm.config import Config
+from implicit_solvent_ddm.config import Config, IntermidateStatesArgs
 from implicit_solvent_ddm.mdin import get_mdins
 from implicit_solvent_ddm.postTreatment import (PostTreatment,
-                                                consolidate_output)
-from implicit_solvent_ddm.restraints import (RestraintMaker,
-                                             get_flat_bottom_restraints,
+                                                consolidate_output,
+                                                create_mdout_dataframe)
+from implicit_solvent_ddm.restraints import (FlatBottom, RestraintMaker,
                                              write_empty_restraint)
 from implicit_solvent_ddm.runner import IntermidateRunner
 from implicit_solvent_ddm.simulations import (ExtractTrajectories,
@@ -75,13 +73,9 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
     # write empty restraint.RST
     empty_restraint = setup_inputs.addChildJobFn(write_empty_restraint)
     config.inputs["empty_restraint"] = empty_restraint.rv()
+    
     # flat bottom restraints potential restraints
-    flat_bottom_template = setup_inputs.addChildJobFn(
-        get_flat_bottom_restraints,
-        config.endstate_files.complex_parameter_filename,
-        config.endstate_files.complex_coordinate_filename,
-        config.endstate_method.flat_bottom_restraints,
-    )
+    flat_bottom_template = setup_inputs.addChild(FlatBottom(config=config))
 
     config.inputs["flat_bottom_restraint"] = flat_bottom_template.rv()
 

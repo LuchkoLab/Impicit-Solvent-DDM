@@ -102,7 +102,7 @@ class PostTreatment(Job):
 
 def consolidate_output(job, ligand_system: PostTreatment, receptor_system: PostTreatment, complex_system: PostTreatment, boresch_df:RestraintMaker):
     
-    output_path = os.path.join(f"{WORKDIR}",".cache")
+    output_path = os.path.join(f"{WORKDIR}",f".cache/{complex_system.name}")
     if not os.path.exists(output_path):
         os.makedirs(output_path)
     
