@@ -1,21 +1,299 @@
 import itertools
-import logging
 import math
 import os
 import re
 import time
 from string import Template
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
 import parmed as pmd
 import pytraj as pt
-from toil.common import FileID
 from toil.job import Job
 
 from implicit_solvent_ddm.config import Config
 
 
+class FlatBottom(Job):
+    def __init__(self, config: Config, memory: Optional[Union[int, str]] = None, 
+                 cores: Optional[Union[int, float, str]] = None, 
+                 disk: Optional[Union[int, str]] = None, 
+                 preemptable: Optional[Union[bool, int, str]] = None, 
+                 unitName: Optional[str] = "", checkpoint: Optional[bool] = False, 
+                 displayName: Optional[str] = "", 
+                 descriptionClass: Optional[str] = None) -> None:
+        """A receptor-ligand restraint using a flat potential well with harmonic walls.
+
+    A receptor-ligand restraint that uses flat potential inside the 
+    host/protein volume with harmonic restrainting walls. It will 
+    prevent the ligand drifting too far from the receptor during 
+    implicit solvent calculations. The ligand will be allow
+    for free movement in the “bound” region and sample still different 
+    binding modes. The restriant will be applied between the groups of 
+    atoms that belong to the receptor and ligand respectively. 
+
+    Parameters
+    ----------
+    config : Config 
+        The config is an configuration file containing 
+        user input values 
+    
+    Attributes
+    ----------
+    well_radius : simtk.unit.Quantity, optional
+        The distance r0 (see energy expression above) at which the harmonic
+        restraint is imposed in units of distance (default is None).
+    restrained_receptor_atoms : iterable of int, int, or str, optional
+        The indices of the receptor atoms to restrain, an 
+        This can temporarily be left undefined, but ``_missing_parameters()``
+        will be called which will define receptor atoms by the provided AMBER masks.
+    restrained_ligand_atoms : iterable of int, int, or str, optional
+        The indices of the ligand atoms to restrain.
+        This can temporarily be left undefined, but ``_missing_parameters()``
+        will be called which will define ligand atoms by the provided AMBER masks.
+    flat_bottom_width: float, optional 
+        The distance r0  at which the harmonic restraint is imposed. 
+        The well with a square bottom between r2 and r3, with parabolic sides out 
+        to a defined distance. This has an default value of 5 Å if not provided. 
+    harmonic_restraint: float, optional 
+        The upper bound parabolic sides out to define distance 
+        (r1 and r4 for lower and upper bounds, respectively), 
+        and linear sides beyond that distance. This has an default 
+        value of 10 Å, if not provided. 
+    spring_constant: float 
+        The spring constant K in units compatible
+        with kJ/mol*nm^2 f (default is 1 kJ/mol*nm^2).
+    flat_bottom_restraints: dict, optional
+        User provided {r1, r2, r3, r4, rk2, rk3} restraint 
+        parameters. This can be temporily left undefined, but 
+        ``_missing_parameters()`` will be called which which would 
+        define all the restraint parameters. See example down below.
+    receptor_mask: str 
+        An AMBER mask which denotes all receptor atoms. 
+    ligand_mask: str 
+        An AMBER mask which denotes all ligand atoms.     
+    complex_topology: toil.fileStores.FileID
+        The complex paramter (.parm7) filepath. 
+    complex_coordinate: toil.fileStores.FileID
+        The complex coordinate (.ncrst, rst7, ect) filepath. 
+    """
+        super().__init__(memory, cores, disk, preemptable, unitName, checkpoint, displayName, descriptionClass)
+        #restraint parameters 
+        self.restrained_receptor_atoms = config.endstate_method.flat_bottom.restrained_receptor_atoms
+        self.restrained_ligand_atoms = config.endstate_method.flat_bottom.restrained_ligand_atoms
+        self.flat_bottom_width = config.endstate_method.flat_bottom.flat_bottom_width
+        self.harmonic_restraint = config.endstate_method.flat_bottom.harmonic_distance
+        self.spring_constant = config.endstate_method.flat_bottom.spring_constant
+        self.flat_bottom_restraints = config.endstate_method.flat_bottom.flat_bottom_restraints
+        #amber masks
+        self.receptor_mask = config.amber_masks.receptor_mask
+        self.ligand_mask = config.amber_masks.ligand_mask
+        #topology parameters 
+        self.complex_topology = config.endstate_files.complex_parameter_filename
+        self.complex_coordinate = config.endstate_files.complex_coordinate_filename
+        
+        self.readfiles = {}
+    
+    @property 
+    def _restrained_atoms_given(self) -> bool:
+        """Check if the atoms were defined for ligand and receptor"""
+        
+        for atoms in [self.restrained_receptor_atoms, self.restrained_ligand_atoms]:
+            if atoms is None or not (isinstance(atoms, list)) and len(atoms) > 0:
+                return False 
+        return True 
+    
+    @property 
+    def _restraints_parameters_given(self) -> bool:
+        """Check if the AMBER restraint parameters were given"""
+        for parameters in [self.flat_bottom_restraints]:
+            if parameters is None or not (isinstance(parameters, dict)) and len(parameters) > 0:
+                return False 
+        return True
+      
+    @property 
+    def _com_ligand(self) -> np.ndarray:
+        """ Compute ligand center of mass """
+        
+        return pt.center_of_mass(self.complex_traj, mask=self.restrained_ligand_atoms)[-1]  # type: ignore
+    
+    @property 
+    def _com_receptor(self) -> np.ndarray:
+        """ Compute receptor center of mass """
+        
+        return pt.center_of_mass(self.complex_traj, mask=self.restrained_receptor_atoms)[-1]  # type: ignore
+    
+    @property 
+    def _center_of_mass_difference(self)->float:
+        """ The center of mass difference between the receptor and ligand 
+
+        Returns:
+            float: 
+        """
+        return float(abs(np.linalg.norm(np.subtract(self._com_receptor, self._com_ligand))))
+    
+
+    @property
+    def _r1(self):
+        """Compute lower bound linear response region"""
+        
+        return max(0, self._r2 - self.harmonic_restraint)
+    
+    @property
+    def _r2(self):
+        """Compute lower bounds of the flat well"""
+
+        return max(0, self._center_of_mass_difference - self.flat_bottom_width)          
+    
+    @property 
+    def _r3(self):
+        """Compute the upper bound of the flat well"""
+        
+        return self._r2 + min(self._center_of_mass_difference + self.flat_bottom_width, 2 * self.flat_bottom_width)
+    
+    @property 
+    def _r4(self):
+        """Compute upper bound linear response region """
+        
+        return self._r3 + self.harmonic_restraint
+    
+    @property
+    def _flat_bottom_restraints_template(self):
+        """Parse in flat bottom restraint template. 
+        
+
+        Returns:
+            _type_: str
+            return an string template with specified restraint 
+            parameters for AMBER (center of mass) flatbottom restraint file. 
+        """
+        restraint_path = os.path.abspath(
+            os.path.join(
+                os.path.dirname(os.path.realpath(__file__)),
+                "templates/restraints/COM.restraint",
+            )
+        )
+        restraint_path = "/nas0/ayoub/Impicit-Solvent-DDM/implicit_solvent_ddm/templates/restraints/COM.restraint"
+        string_template = ""
+        
+        
+        with open(restraint_path) as f:
+            template = Template(f.read())
+
+            restraint_template = template.substitute(
+                host_atom_numbers = ','.join(
+                    [str(atom_index + 1) for atom_index in self.restrained_receptor_atoms]  # type: ignore
+                ),
+                guest_atom_numbers=','.join(
+                    [str(atom_index + 1) for atom_index in self.restrained_ligand_atoms]  # type: ignore
+                ),
+                r1=self.flat_bottom_restraints["r1"], # type: ignore
+                r2=self.flat_bottom_restraints["r2"], # type: ignore
+                r3=self.flat_bottom_restraints["r3"], # type: ignore
+                r4=self.flat_bottom_restraints["r4"], # type: ignore
+                rk2=self.flat_bottom_restraints["rk2"], # type: ignore
+                rk3=self.flat_bottom_restraints["rk3"], # type: ignore
+            )
+
+            string_template += restraint_template
+       
+        return string_template
+    
+    
+    def _missing_parameters(self):
+        """"Automatically determine missing parameters"""
+        
+        if not self._restrained_atoms_given:
+            self._determine_restraint_atoms() 
+        
+        if not self._restraints_parameters_given:
+            self._determine_restraint_parameters()
+    
+    def _determine_restraint_atoms(self):
+        """Define receptor and ligand atoms by there respected AMBER masks"""
+        
+        self.restrained_receptor_atoms = self.topology.select(self.receptor_mask)  
+        self.restrained_ligand_atoms = self.topology.select(self.ligand_mask)
+        
+    def _determine_restraint_parameters(self):
+        """Define distance, harmonic and linear restraint values."""
+        
+        self.flat_bottom_restraints = {}
+        self.flat_bottom_restraints["r1"] = self._r1  # type: ignore
+        self.flat_bottom_restraints["r2"] = self._r2 # type: ignore
+        self.flat_bottom_restraints["r3"] = self._r3 # type: ignore
+        self.flat_bottom_restraints["r4"] = self._r4 # type: ignore
+
+        self.flat_bottom_restraints["rk2"] = self.spring_constant # type: ignore
+        self.flat_bottom_restraints["rk3"] = self.spring_constant # type: ignore
+
+    
+    def run(self,fileStore):
+        
+        fileStore.logToMaster("Creating FlatBottom Harmonic Restraints")
+        
+        self.filestore = fileStore
+        tempDir = fileStore.getLocalTempDir()
+        
+        self.readfiles["prmtop"] = fileStore.readGlobalFile(
+            self.complex_topology, userPath=os.path.join(tempDir, os.path.basename(self.complex_topology))
+        )
+        self.readfiles["incrd"] = fileStore.readGlobalFile(
+            self.complex_coordinate, userPath=os.path.join(tempDir, os.path.basename(self.complex_coordinate))
+        )
+        
+        
+        #load pytraj object 
+        self.complex_traj = pt.iterload(self.readfiles["incrd"],  self.readfiles["prmtop"])
+        
+        self.topology = self.complex_traj.top
+        
+        self._missing_parameters()
+        fileStore.logToMaster("Setting restraint parameters:")
+        fileStore.logToMaster(f"self.r1: {self._r1}")
+        fileStore.logToMaster(f"self.r2: {self._r2}")
+        fileStore.logToMaster(f"self.r3: {self._r3}")
+        fileStore.logToMaster(f"self.r4: {self._r4}")
+        fileStore.logToMaster(f"receptor atoms: {self.restrained_receptor_atoms}")
+        fileStore.logToMaster(f"ligand atoms: {self.restrained_ligand_atoms}")
+        
+        temp_file = fileStore.getLocalTempFile()
+        with open(temp_file, "w") as fH:
+            fH.write(self._flat_bottom_restraints_template)
+
+        return fileStore.writeGlobalFile(temp_file)
+    
+
+
+class BoreschRestraints(Job):
+    def __init__(self, restrained_receptor_atoms=None, restrained_ligand_atoms=None,
+                 K_r=None, r_aA0=None,
+                 K_thetaA=None, theta_A0=None,
+                 K_thetaB=None, theta_B0=None,
+                 K_phiA=None, phi_A0=None,
+                 K_phiB=None, phi_B0=None,
+                 K_phiC=None, phi_C0=None,
+                 memory: Optional[Union[int, str]] = None, cores: Optional[Union[int, float, str]] = None, 
+                 disk: Optional[Union[int, str]] = None, preemptable: Optional[Union[bool, int, str]] = None, 
+                 unitName: Optional[str] = "", checkpoint: Optional[bool] = False, displayName: Optional[str] = "", descriptionClass: Optional[str] = None) -> None:
+        super().__init__(memory, cores, disk, preemptable, unitName, checkpoint, displayName, descriptionClass)  
+        self.k_r = K_r
+        self.r_aA0 = r_aA0
+        self.K_thetaA = K_thetaA
+        self.theta_A0 = theta_A0
+        self.K_thetaB = K_thetaB
+        self.theta_B0 = theta_B0
+        self.K_phiA = K_phiA
+        self.phi_A0 = phi_A0
+        self.K_phiB = K_phiB
+        self.phi_B0 = phi_B0
+        self.K_phiC = K_phiC
+        self.phi_C0 = phi_C0
+    
+    def _determine_missing_atoms(self):
+        pass
+    
 class RestraintMaker(Job):
     def __init__(self,  config: Config, conformational_template=None, orientational_template=None) -> None:
         super().__init__()
@@ -523,36 +801,6 @@ def compute_boresch_restraints(
     return df
 
 
-def flat_bottom_restraints_template(
-    host_guest_atoms, guest_atoms, flat_bottom_distances
-):
-
-    restraint_path = os.path.abspath(
-        os.path.join(
-            os.path.dirname(os.path.realpath(__file__)),
-            "templates/restraints/COM.restraint",
-        )
-    )
-    string_template = ""
-
-    with open(restraint_path) as f:
-        template = Template(f.read())
-
-        restraint_template = template.substitute(
-            host_atom_numbers=host_guest_atoms,
-            guest_atom_numbers=guest_atoms,
-            r1=flat_bottom_distances["r1"],
-            r2=flat_bottom_distances["r2"],
-            r3=flat_bottom_distances["r3"],
-            r4=flat_bottom_distances["r4"],
-            rk2=flat_bottom_distances["rk2"],
-            rk3=flat_bottom_distances["rk3"],
-        )
-
-        string_template += restraint_template
-    return string_template
-
-
 def conformational_restraints_template(
     solute_conformational_restraint, num_receptor_atoms=0
 ):
@@ -653,49 +901,6 @@ def write_empty_restraint(job):
     with open("empty.restraint", "w") as fn:
         fn.write("")
     return job.fileStore.writeGlobalFile("empty.restraint")
-
-
-def get_flat_bottom_restraints(
-    job, complex_prmtop, complex_coordinate, flat_well_parabola
-):
-
-    tempDir = job.fileStore.getLocalTempDir()
-    complex_prmtop_ID = job.fileStore.readGlobalFile(
-        complex_prmtop, userPath=os.path.join(tempDir, os.path.basename(complex_prmtop))
-    )
-    complex_coordinate_ID = job.fileStore.readGlobalFile(
-        complex_coordinate,
-        userPath=os.path.join(tempDir, os.path.basename(complex_coordinate[0])),
-    )
-
-    complex_parmed_traj = pmd.load_file(complex_prmtop_ID, complex_coordinate_ID)
-    host_atom_numbers = ",".join(
-        [
-            str(atom)
-            for atom in range(
-                1, int(complex_parmed_traj.parm_data["RESIDUE_POINTER"][1])
-            )
-        ]
-    )
-    guest_atom_numbers = ",".join(
-        [
-            str(i)
-            for i in range(
-                int(complex_parmed_traj.parm_data["RESIDUE_POINTER"][1]),
-                int(complex_parmed_traj.parm_data["POINTERS"][0] + 1),
-            )
-        ]
-    )
-    flat_bottom_string = flat_bottom_restraints_template(
-        host_atom_numbers, guest_atom_numbers, flat_well_parabola
-    )
-
-    temp_file = job.fileStore.getLocalTempFile()
-    with open(temp_file, "w") as fH:
-        fH.write(flat_bottom_string)
-
-    return job.fileStore.writeGlobalFile(temp_file)
-
 
 
 def create_atom_neighbor_array(atom_coordinates):
