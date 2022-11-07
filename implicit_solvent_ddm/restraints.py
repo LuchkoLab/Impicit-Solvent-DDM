@@ -174,7 +174,6 @@ class FlatBottom(Job):
                 "templates/restraints/COM.restraint",
             )
         )
-        restraint_path = "/nas0/ayoub/Impicit-Solvent-DDM/implicit_solvent_ddm/templates/restraints/COM.restraint"
         string_template = ""
         
         
