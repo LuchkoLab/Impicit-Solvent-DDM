@@ -15,6 +15,7 @@ import yaml
 from toil.common import FileID, Toil
 from toil.job import Job
 
+WORKDIR = os.getcwd()
 
 @dataclass
 class Workflow:
@@ -106,10 +107,17 @@ class NumberOfCoresPerSystem:
 class SystemSettings:
     executable: str
     mpi_command: str
-    working_directory: str = "no set"
+    working_directory: str = WORKDIR
+    top_directory_name: str = "mdgb"
     CUDA: bool = field(default=False)
     memory: Optional[Union[int, str]] = field(default="5G")
     disk: Optional[Union[int, str]] = field(default="5G")
+
+    
+    @property
+    def top_directory_path(self):
+        
+        return os.path.join(self.working_directory, self.top_directory_name)
 
     @classmethod
     def from_config(cls: Type["SystemSettings"], obj: dict):
@@ -153,14 +161,12 @@ class ParameterFiles:
         return cls(**obj)
 
     def get_inital_coordinate(self):
+        
         solu_complex = re.sub(
             r"\..*", "", os.path.basename(self.complex_coordinate_filename)
         )
         solu_receptor = re.sub(r"\..*", "", os.path.basename(self.receptor_coordinate_filename))  # type: ignore
         solu_ligand = re.sub(r"\..*", "", os.path.basename(self.ligand_coordinate_filename))  # type: ignore
-        path = "mdgb/structs"
-        if not os.path.exists(path):
-            os.makedirs(path)
 
         complex_traj = pt.iterload(
             self.complex_coordinate_filename, self.complex_parameter_filename
@@ -174,15 +180,15 @@ class ParameterFiles:
             self.ligand_coordinate_filename, self.ligand_parameter_filename
         )
 
-        pt.write_traj(f"{path}/{solu_complex}.ncrst", complex_traj, frame_indices=[0])
+        pt.write_traj(f"{self.tempdir.name}/{solu_complex}.ncrst", complex_traj, frame_indices=[-1])
         pt.write_traj(
-            f"{path}/{solu_receptor}_.ncrst", receptor_traj, frame_indices=[0]
+            f"{self.tempdir.name}/{solu_receptor}_.ncrst", receptor_traj, frame_indices=[-1]
         )
-        pt.write_traj(f"{path}/{solu_ligand}_.ncrst", ligand_traj, frame_indices=[0])
+        pt.write_traj(f"{self.tempdir.name}/{solu_ligand}_.ncrst", ligand_traj, frame_indices=[-1])
 
-        self.complex_initial_coordinate = f"{path}/{solu_complex}.ncrst.1"
-        self.receptor_initial_coordinate = f"{path}/{solu_receptor}_.ncrst.1"
-        self.ligand_initial_coordinate = f"{path}/{solu_ligand}_.ncrst.1"
+        self.complex_initial_coordinate = f"{self.tempdir.name}/{solu_complex}.ncrst.1"
+        self.receptor_initial_coordinate = f"{self.tempdir.name}/{solu_receptor}_.ncrst.1"
+        self.ligand_initial_coordinate = f"{self.tempdir.name}/{solu_ligand}_.ncrst.1"
 
     def _create_unique_receptor_id(self):
         """
@@ -682,7 +688,7 @@ if __name__ == "__main__":
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "OFF"
     options.clean = "always"
-    with open("/nas0/ayoub/Impicit-Solvent-DDM/implicit_solvent_ddm/tests/input_files/config.yaml") as fH:
+    with open("/nas0/ayoub/runningWP6/mdgb_WP6_G1.yaml") as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:
@@ -697,10 +703,12 @@ if __name__ == "__main__":
             config.intermidate_args.toil_import_user_restriants(toil=toil)
 
         config.endstate_files.toil_import_parmeters(toil=toil)
-
+        print(config.ignore_receptor)
         print(config.endstate_method)
         print(config.amber_masks)
         print(config.endstate_files)
+        print(config.system_settings)
+        config.system_settings.top_directory_path
         # config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
         # boresch_p = list(config.boresch_parameters.__dict__.values())
 
