@@ -3,8 +3,10 @@
 {
 	"dirstruct": [
 	{
-		"static": "mdgb",
-		"format" : "s"
+		"variable" : "topdir",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
 	},
 	{
 		"variable" : "runtype",
@@ -21,8 +23,10 @@
 	],
 	"dirstruct_apo" : [ 
 	{
-	    "static" : "mdgb",
-	    "format" : "s"
+		"variable" : "topdir",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
 	},
 	{
 	    "variable" : "topology",
@@ -46,8 +50,10 @@
 
     "dirstruct_halo" : [ 
 	{
-	    "static" : "mdgb",
-	    "format" : "s"
+		"variable" : "topdir",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
 	},
 	{
 	    "variable" : "topology",
@@ -77,8 +83,10 @@
 	
 	"post_process_apo" : [ 
 	{
-	    "static" : "mdgb",
-	    "format" : "s"
+		"variable" : "topdir",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
 	},
 	{
 		"static" : "post_processing",
@@ -130,8 +138,10 @@
     ],
 	"post_process_halo" : [
 	{
-	    "static" : "mdgb",
-	    "format" : "s"
+		"variable" : "topdir",
+		"format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
 	},
 	{
 		"static" : "post_processing",
