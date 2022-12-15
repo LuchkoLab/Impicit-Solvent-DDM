@@ -15,9 +15,13 @@ import yaml
 from toil.common import FileID, Toil
 from toil.job import Job
 
+WORKDIR = os.getcwd()
+
 
 @dataclass
 class Workflow:
+    """Base workflow procedure."""
+
     setup_workflow: bool = True
     post_treatment: bool = True
     run_endstate_method: bool = True
@@ -87,8 +91,15 @@ class Workflow:
         else:
             raise Exception(f"system not valid: {system}")
 
+
 @dataclass
 class NumberOfCoresPerSystem:
+    """Number of cores specified for respected
+    host, guest and complex simulation.
+    User can specify the number of cores required to
+    run each system simulation.
+    """
+
     complex_ncores: int
     ligand_ncores: int
     receptor_ncores: int
@@ -104,12 +115,39 @@ class NumberOfCoresPerSystem:
 
 @dataclass
 class SystemSettings:
-    executable: str
+    """System required parameters.
+    Paramters to denoted whether to run
+    CPU or GPU jobs. Support HPC schedular
+    SLURM.
+
+    Attributes:
+    ----------
     mpi_command: str
-    working_directory: str = "no set"
+        HPC schedular command [srun]
+    working_directory: str
+        User working directory.
+    executable: str
+        AMBER executable [sander, pmemd]
+    CUDA: bool
+        Run on GPU
+    memory: Optional[Union[int, str]]
+        Required memory to run individual MD simulation.
+    disk: Optional[Union[int, str]]
+        Required disk space needed for individual MD simulation input/output
+    """
+
+    mpi_command: str
+    working_directory: str = WORKDIR
+    executable: str = "sander"
+    top_directory_name: str = "mdgb"
     CUDA: bool = field(default=False)
     memory: Optional[Union[int, str]] = field(default="5G")
     disk: Optional[Union[int, str]] = field(default="5G")
+
+    @property
+    def top_directory_path(self):
+
+        return os.path.join(self.working_directory, self.top_directory_name)
 
     @classmethod
     def from_config(cls: Type["SystemSettings"], obj: dict):
@@ -118,6 +156,12 @@ class SystemSettings:
 
 @dataclass
 class ParameterFiles:
+    """
+    AMBER parameter files for workflow.
+    Requires a complex parameter file (.parm7) and complex coordinate files (AMBER)
+    trajectories (.nc, .ncrst, .rst7 ect)
+    """
+
     complex_parameter_filename: Union[str, FileID]
     complex_coordinate_filename: Union[str, FileID]
     ligand_parameter_filename: Optional[Union[str, FileID]] = field(default=None)
@@ -129,9 +173,7 @@ class ParameterFiles:
     ligand_initial_coordinate: Optional[Union[str, FileID]] = field(default=None)
     receptor_initial_coordinate: Optional[Union[str, FileID]] = field(default=None)
 
-    ignore_unique_naming: bool = False 
-       
-    
+    ignore_unique_naming: bool = False
 
     def __post_init__(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -153,14 +195,12 @@ class ParameterFiles:
         return cls(**obj)
 
     def get_inital_coordinate(self):
+
         solu_complex = re.sub(
             r"\..*", "", os.path.basename(self.complex_coordinate_filename)
         )
         solu_receptor = re.sub(r"\..*", "", os.path.basename(self.receptor_coordinate_filename))  # type: ignore
         solu_ligand = re.sub(r"\..*", "", os.path.basename(self.ligand_coordinate_filename))  # type: ignore
-        path = "mdgb/structs"
-        if not os.path.exists(path):
-            os.makedirs(path)
 
         complex_traj = pt.iterload(
             self.complex_coordinate_filename, self.complex_parameter_filename
@@ -174,15 +214,25 @@ class ParameterFiles:
             self.ligand_coordinate_filename, self.ligand_parameter_filename
         )
 
-        pt.write_traj(f"{path}/{solu_complex}.ncrst", complex_traj, frame_indices=[0])
         pt.write_traj(
-            f"{path}/{solu_receptor}_.ncrst", receptor_traj, frame_indices=[0]
+            f"{self.tempdir.name}/{solu_complex}.ncrst",
+            complex_traj,
+            frame_indices=[-1],
         )
-        pt.write_traj(f"{path}/{solu_ligand}_.ncrst", ligand_traj, frame_indices=[0])
+        pt.write_traj(
+            f"{self.tempdir.name}/{solu_receptor}_.ncrst",
+            receptor_traj,
+            frame_indices=[-1],
+        )
+        pt.write_traj(
+            f"{self.tempdir.name}/{solu_ligand}_.ncrst", ligand_traj, frame_indices=[-1]
+        )
 
-        self.complex_initial_coordinate = f"{path}/{solu_complex}.ncrst.1"
-        self.receptor_initial_coordinate = f"{path}/{solu_receptor}_.ncrst.1"
-        self.ligand_initial_coordinate = f"{path}/{solu_ligand}_.ncrst.1"
+        self.complex_initial_coordinate = f"{self.tempdir.name}/{solu_complex}.ncrst.1"
+        self.receptor_initial_coordinate = (
+            f"{self.tempdir.name}/{solu_receptor}_.ncrst.1"
+        )
+        self.ligand_initial_coordinate = f"{self.tempdir.name}/{solu_ligand}_.ncrst.1"
 
     def _create_unique_receptor_id(self):
         """
@@ -268,6 +318,8 @@ class ParameterFiles:
 
 @dataclass
 class AmberMasks:
+    """AMBER masks to denote receptor/host and guest atoms"""
+
     receptor_mask: str
     ligand_mask: str
 
@@ -278,63 +330,122 @@ class AmberMasks:
 
 @dataclass
 class REMD:
+    """Parameter to run Replica Exchange Molecular Dynamics.
+
+    Attributes:
+    -----------
+    remd_template_mdin: str
+        A template to run REMD simulation.
+    equil_template_mdin: str
+        A template to run equilibration/relaxtion simulation prior to REMD run.
+    temperatures: list[int]
+        A list of replica temperatures for REMD runs.
+    ngroups: int
+        Number of individual simulations
+    nthreads_complex: int
+        Number of processors will be evenly divided among (number of groups) individual simulation
+        for the complex simulations
+    nthreads_receptor: int
+        Number of processors will be evenly divided among (number of groups) individual simulation
+        for the receptor/host simulations
+    nthreads_ligand: int
+        Number of processors will be evenly divided among (number of groups) individual simulation
+        for the ligand/guest simulations
+    """
+
+    remd_template_mdin: Union[FileID, str] = "remd.template"
+    equil_template_mdin: Union[FileID, str] = "equil.template"
+    temperatures: list[int] = field(default_factory=list)
     ngroups: int = 0
-    target_temperature: float = 0.0
-    equilibration_replica_mdins: List[Union[FileID, str]] = field(default_factory=list)
-    remd_mdins: List[str] = field(default_factory=list)
+    target_temperature: float = 300.0
     nthreads_complex: int = 0
     nthreads_receptor: int = 0
     nthreads_ligand: int = 0
     # nthreads: int = 0
 
-    def __post_init__(self):
-
-        if len(self.equilibration_replica_mdins) != len(self.remd_mdins):
-            raise RuntimeError(
-                f"The size of {self.equilibration_replica_mdins} and {self.remd_mdins} do not match: {len(self.equilibration_replica_mdins)} | {len(self.remd_mdins)}"
-            )
-
     @classmethod
     def from_config(cls: Type["REMD"], obj: dict):
         return cls(
+            remd_template_mdin=obj["endstate_arguments"]["remd_template_mdin"],
+            equil_template_mdin=obj["endstate_arguments"]["equilibrate_mdin_template"],
+            temperatures=obj["endstate_arguments"]["temperatures"],
             ngroups=obj["endstate_arguments"]["ngroups"],
             target_temperature=obj["endstate_arguments"]["target_temperature"],
-            equilibration_replica_mdins=obj["endstate_arguments"][
-                "equilibration_replica_mdins"
-            ],
-            remd_mdins=obj["endstate_arguments"]["remd_mdins"],
             nthreads_complex=obj["endstate_arguments"]["nthreads_complex"],
             nthreads_receptor=obj["endstate_arguments"]["nthreads_receptor"],
             nthreads_ligand=obj["endstate_arguments"]["nthreads_ligand"],
         )
 
-    def toil_import_replica_mdins(self, toil: Toil):
-        for index, (equil_mdin, remd_mdin) in enumerate(
-            zip(
-                self.equilibration_replica_mdins,
-                self.remd_mdins,
-            )
-        ):
-            self.equilibration_replica_mdins[index] = toil.import_file("file://" + os.path.abspath(equil_mdin))  # type: ignore
+    def toil_import_replica_mdin(self, toil: Toil):
 
-            self.remd_mdins[index] = toil.import_file("file://" + os.path.abspath(remd_mdin))  # type: ignore
+        self.remd_template_mdin = toil.import_file(
+            "file://" + os.path.abspath(self.remd_template_mdin)
+        )
+        self.equil_template_mdin = toil.import_file(
+            "file://" + os.path.abspath(self.equil_template_mdin)
+        )
+
+        # for index, (equil_mdin, remd_mdin) in enumerate(
+        #     zip(
+        #         self.equilibration_replica_mdins,
+        #         self.remd_mdins,
+        #     )
+        # ):
+        #     self.equilibration_replica_mdins[index] = toil.import_file("file://" + os.path.abspath(equil_mdin))  # type: ignore
+
+        #     self.remd_mdins[index] = toil.import_file("file://" + os.path.abspath(remd_mdin))  # type: ignore
+
 
 @dataclass
 class FlatBottomRestraints:
+    """Paramters for flat bottom restraints
+
+      Attributes
+    ----------
+    restrained_receptor_atoms : iterable of int, int, or str, optional
+        The indices of the receptor atoms to restrain, an
+        This can temporarily be left undefined, but ``_missing_parameters()``
+        will be called which will define receptor atoms by the provided AMBER masks.
+    restrained_ligand_atoms : iterable of int, int, or str, optional
+        The indices of the ligand atoms to restrain.
+        This can temporarily be left undefined, but ``_missing_parameters()``
+        will be called which will define ligand atoms by the provided AMBER masks.
+    flat_bottom_width: float, optional
+        The distance r0  at which the harmonic restraint is imposed.
+        The well with a square bottom between r2 and r3, with parabolic sides out
+        to a defined distance. This has an default value of 5 Å if not provided.
+    harmonic_distance: float, optional
+        The upper bound parabolic sides out to define distance
+        (r1 and r4 for lower and upper bounds, respectively),
+        and linear sides beyond that distance. This has an default
+        value of 10 Å, if not provided.
+    spring_constant: float
+        The spring constant K in units compatible
+        with kJ/mol*nm^2 f (default is 1 kJ/mol*nm^2).
+    flat_bottom_restraints: dict, optional
+        User provided {r1, r2, r3, r4, rk2, rk3} restraint
+        parameters. This can be temporily left undefined, but
+        ``_missing_parameters()`` will be called which which would
+        define all the restraint parameters. See example down below.
+    """
+
     flat_bottom_width: float = 5.0
     harmonic_distance: float = 10.0
-    spring_constant: float = 1.0 
-    restrained_receptor_atoms: Optional[List[int]] = None 
-    restrained_ligand_atoms: Optional[List[int]] = None 
-    flat_bottom_restraints: Optional[dict[str,float]] = None # {r1: 0, r2: 0, r3: 10, r4: 20, rk2: 0.1, rk3: 0.1}
-        
+    spring_constant: float = 1.0
+    restrained_receptor_atoms: Optional[List[int]] = None
+    restrained_ligand_atoms: Optional[List[int]] = None
+    flat_bottom_restraints: Optional[
+        dict[str, float]
+    ] = None  # {r1: 0, r2: 0, r3: 10, r4: 20, rk2: 0.1, rk3: 0.1}
+
     @classmethod
-    def from_config(cls: Type["FlatBottomRestraints"], obj:dict):
+    def from_config(cls: Type["FlatBottomRestraints"], obj: dict):
         if "restraints" in obj.keys():
             return cls(**obj["restraints"])
         else:
             return cls()
-  
+
+
 @dataclass
 class EndStateMethod:
     endstate_method_type: str
@@ -354,16 +465,24 @@ class EndStateMethod:
             return cls(
                 endstate_method_type=obj["endstate_method"],
                 remd_args=REMD(),
-                flat_bottom=FlatBottomRestraints.from_config(obj=obj["endstate_arguments"]),
+                flat_bottom=FlatBottomRestraints.from_config(
+                    obj=obj["endstate_arguments"]
+                ),
             )
         elif obj["endstate_method"].lower() == "remd":
             return cls(
                 endstate_method_type=str(obj["endstate_method"]).lower(),
                 remd_args=REMD.from_config(obj=obj),
-                flat_bottom=FlatBottomRestraints.from_config(obj=obj["endstate_arguments"])
+                flat_bottom=FlatBottomRestraints.from_config(
+                    obj=obj["endstate_arguments"]
+                ),
             )
         else:
-            return cls(endstate_method_type=obj["endstate_method"], remd_args=REMD(), flat_bottom=FlatBottomRestraints.from_config(obj=obj))
+            return cls(
+                endstate_method_type=obj["endstate_method"],
+                remd_args=REMD(),
+                flat_bottom=FlatBottomRestraints.from_config(obj=obj),
+            )
 
 
 @dataclass
@@ -550,7 +669,7 @@ class Config:
                 raise ValueError(
                     f"user specified to not run an endstate simulation but did not provided ligand_parameter_filename/coordinate endstate files"
                 )
-                
+
         self._check_missing_flatbottom_parameters()
 
     def _config_sanitity_check(self):
@@ -573,7 +692,7 @@ class Config:
             )
 
     @classmethod
-    def from_config(cls: Type["Config"], user_config: dict, ignore_unique_naming = False):
+    def from_config(cls: Type["Config"], user_config: dict, ignore_unique_naming=False):
         return cls(
             workflow=Workflow.from_config(user_config),
             system_settings=SystemSettings.from_config(
@@ -596,8 +715,7 @@ class Config:
 
     def _check_missing_flatbottom_parameters(self):
         pass
-    
-        
+
     @property
     def complex_pytraj_trajectory(self) -> pt.Trajectory:
         traj = pt.iterload(
@@ -658,7 +776,6 @@ class Config:
             f"{receptor_filename}.ncrst.1"
         )
 
- 
         self.endstate_files._create_unique_receptor_id()
 
 
@@ -682,7 +799,7 @@ if __name__ == "__main__":
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "OFF"
     options.clean = "always"
-    with open("/nas0/ayoub/Impicit-Solvent-DDM/implicit_solvent_ddm/tests/input_files/config.yaml") as fH:
+    with open("/nas0/ayoub/Impicit-Solvent-DDM/no_restraints.yaml") as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:
@@ -697,12 +814,17 @@ if __name__ == "__main__":
             config.intermidate_args.toil_import_user_restriants(toil=toil)
 
         config.endstate_files.toil_import_parmeters(toil=toil)
+        config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
 
+        print(config.ignore_receptor)
         print(config.endstate_method)
         print(config.amber_masks)
         print(config.endstate_files)
+        print(config.system_settings)
+        config.system_settings.top_directory_path
+        config.endstate_method.remd_args.temperatures
         # config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
         # boresch_p = list(config.boresch_parameters.__dict__.values())
 
-        #toil.start(Job.wrapJobFn(workflow, config))
+        # toil.start(Job.wrapJobFn(workflow, config))
         # print(config.intermidate_args)
