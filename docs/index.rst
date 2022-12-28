@@ -4,6 +4,9 @@
    contain the root `toctree` directive.
 
 Welcome to Implicit_Solvent_DDM's documentation!
+Implicit_Solvent_DDM is simple a command line interface to perform
+absolute binding free energy calculations. Current only support AMBER 
+force fields and file formats '.parm7' and 'mol2'. 
 =========================================================
 
 .. toctree::
@@ -12,6 +15,7 @@ Welcome to Implicit_Solvent_DDM's documentation!
 
    getting_started
    api
+   about 
 
 
 
