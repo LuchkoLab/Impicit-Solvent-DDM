@@ -266,7 +266,10 @@ class FlatBottom(Job):
 
 
 class BoreschRestraints(Job):
-    def __init__(self, restrained_receptor_atoms=None, restrained_ligand_atoms=None,
+    def __init__(self,
+                 complex_prmtop, complex_coordinate,  
+                 restraint_type,
+                 restrained_receptor_atoms=None, restrained_ligand_atoms=None,
                  K_r=None, r_aA0=None,
                  K_thetaA=None, theta_A0=None,
                  K_thetaB=None, theta_B0=None,
@@ -277,6 +280,11 @@ class BoreschRestraints(Job):
                  disk: Optional[Union[int, str]] = None, preemptable: Optional[Union[bool, int, str]] = None, 
                  unitName: Optional[str] = "", checkpoint: Optional[bool] = False, displayName: Optional[str] = "", descriptionClass: Optional[str] = None) -> None:
         super().__init__(memory, cores, disk, preemptable, unitName, checkpoint, displayName, descriptionClass)  
+        self.complex_prmtop = complex_prmtop
+        self.complex_coordinate = complex_coordinate 
+        self.restraint_type = restraint_type
+        self.restrained_receptor_atoms = restrained_receptor_atoms
+        self.restrained_ligand_atoms = restrained_ligand_atoms
         self.k_r = K_r
         self.r_aA0 = r_aA0
         self.K_thetaA = K_thetaA
@@ -292,6 +300,112 @@ class BoreschRestraints(Job):
     
     def _determine_missing_atoms(self):
         pass
+    
+    def _determine_atoms_specified_restraints(self, receptor, ligand):
+        
+        if self.restraint_type == 3:
+            
+            return shortest_distance_between_molecules(receptor, ligand)
+        
+        ligand_atom, ligand_atom_coord, remove = screen_for_distance_restraints(ligand.n_atoms, 
+                                                                        pt.center_of_mass(ligand),
+                                                                        ligand) 
+        if self.restraint_type == 2:
+            receptor_a1, rec_a1_coords, dist_rest = screen_for_distance_restraints(receptor.n_atoms,
+            ligand_atom_coord, receptor)
+            
+            return ligand_atom, ligand_atom_coord, receptor_a1, rec_a1_coords, dist_rest
+        
+        # else default restraint type = 1 
+        receptor_a1, rec_a1_coords, dist_reca1_com = screen_for_distance_restraints(receptor.n_atoms,
+             receptor_com, receptor
+        )
+        dist_rest = distance_calculator(ligand_atom_coord, rec_a1_coords)
+        
+        return ligand_atom, ligand_atom_coord, receptor_a1, rec_a1_coords, dist_rest
+    
+    def _determine_restraint_parameters(self):
+        min_angle = 80
+        max_angle = 100
+        num_atoms = mol.n_atoms
+        atom_coords = mol.xyz[0]
+        atom2_position = []
+        atom3_position = []
+        # ignore protons return a list of heavy atoms
+        no_protons = list(
+            itertools.filterfalse(
+                lambda atom: atom.name.startswith("H"), mol.topology.atoms
+            )
+        )
+
+        # now pair heavy atoms
+        no_proton_pairs = list(itertools.permutations(no_protons, r=2))
+
+        # get parmed infomation of the second atom
+        parmed_atoms = [parmed_traj.atoms[atom[1].index] for atom in no_proton_pairs]
+
+        # if the atom have more than 1 heavy atom bond
+        heavy_atoms = list(map(refactor_find_heavy_bonds, parmed_atoms))
+
+        only_heavy_pairs = [x for x, y in zip(no_proton_pairs, heavy_atoms) if y]
+
+        saved_average_distance_value = 0
+        self.check_suitable_restraints()
+    
+    
+    def check_suitable_restraints(self, atom_combination, atom1_position,atomx_position):
+        
+        atom2_position = atom_combination[0].index
+        atom3_position = atom_combination[1].index 
+        angle_a1a2 = find_angle(atom2_position, atom1_position, atomx_position)
+        angle_a2a3 = find_angle(atom3_position, atom2_position, atom1_position)
+
+        new_distance_a1a2 = distance_calculator(atom1_position, atom2_position)
+        new_distance_a2a3 = distance_calculator(atom2_position, atom3_position)
+        new_distance_a3_norm_a1a2 = norm_distance(
+            atom1_position, atom2_position, atom3_position
+        ) 
+        
+        if  (
+            angle_a1a2 > min_angle
+            and angle_a1a2 < max_angle
+            and angle_a2a3 > min_angle
+            and angle_a2a3 < max_angle
+            and (new_distance_a1a2 + new_distance_a3_norm_a1a2) / 2 > saved_average_distance_value
+        ):
+        
+            torsion_angle = wikicalculate_dihedral_angle(
+            atomx_position, atom1_position, atom2_position, atom3_position
+            )
+            
+            if (new_distance_a1a2 + new_distance_a3_norm_a1a2) / 2 > saved_average_distance_value:
+                saved_distance_a1a2_value = new_distance_a1a2
+                saved_distance_a2a3_value = new_distance_a2a3
+
+                saved_average_distance_value = (
+                    new_distance_a1a2 + new_distance_a3_norm_a1a2
+                ) / 2
+                saved_angle_a2a3 = angle_a2a3
+                saved_angle_a1a2 = angle_a1a2
+                saved_torsion_angle = torsion_angle
+                saved_atom2_position = atom2_position
+                saved_atom3_position = atom3_position
+                selected_atom2 = atom[0].index + 1
+                selected_atom3 = atom[1].index + 1
+                selected_atom2_name = atom[0]
+                selected_atom3_name = atom[1]
+                suitable_restraint = True
+        
+        return      
+        
+    def run(self, fileStore):
+        
+        
+        tempdir = fileStore.getLocalTempDir()
+
+        atom = self._find_best_match_atoms()
+    class SetupBoreschRestraints:
+        pass 
     
 class RestraintMaker(Job):
     def __init__(self,  config: Config, conformational_template=None, orientational_template=None) -> None:
