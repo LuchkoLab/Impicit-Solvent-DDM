@@ -63,6 +63,7 @@ class IntermidateRunner(Job):
                         post_dirstruct = self.get_system_dirs(post_simulation.system_type)
                         fileStore.logToMaster(f"get_system_dirs {post_simulation.system_type}")
                         fileStore.logToMaster(f"current dirstruct {post_dirstruct}")
+                        fileStore.logToMaster(f"inptraj ERROR {job.rv(1)}")
                         post_process_job = Simulation(executable=post_simulation.executable, 
                                                     mpi_command=post_simulation.mpi_command, 
                                                     num_cores=post_simulation.num_cores, 
@@ -95,6 +96,7 @@ class IntermidateRunner(Job):
                 "trajectory_restraint_conrest": run_time_args["conformational_restraint"],
                 "trajectory_restraint_orenrest": run_time_args["orientational_restraints"],
                 "traj_igb": run_time_args["igb"],
+                "traj_charge": run_time_args["charge"], 
                 "filename": f"{run_time_args['filename']}_postprocess",
                 "runtype": f"Running post process with trajectory: {inptaj}",       
             }
@@ -103,6 +105,7 @@ class IntermidateRunner(Job):
                 "traj_state_label": run_time_args["state_label"],
                 "trajectory_restraint_conrest": run_time_args["conformational_restraint"],
                 "traj_igb": run_time_args["igb"],
+                "traj_charge": run_time_args["charge"],
                 "filename": f"{run_time_args['filename']}_postprocess",
                 "runtype": f"Running post process with trajectory: {inptaj}",
                 
