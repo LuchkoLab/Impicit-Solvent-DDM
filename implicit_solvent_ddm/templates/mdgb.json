@@ -41,6 +41,12 @@
         "replace"  : "\\1"
     },
 	{
+		"variable" : "charge",
+        "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
 		"variable" : "conformational_restraint",
 		"format"   : "s",
 		"search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
@@ -67,6 +73,12 @@
 	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
         "replace"  : "\\1"
     },
+	{
+		"variable" : "charge",
+        "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
 	{
 		"variable" : "conformational_restraint",
 		"format"   : "s",
@@ -105,6 +117,12 @@
         "replace"  : "\\1"
 	},
 	{
+		"variable" : "traj_charge",
+        "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
 		"variable" : "trajectory_restraint_conrest",
 		"format"   : "s",
 	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
@@ -123,6 +141,12 @@
 	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
         "replace"  : "\\1"
     },
+	{
+		"variable" : "charge",
+        "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
 	{
 		"variable" : "conformational_restraint",
 		"format"   : "s",
@@ -160,6 +184,12 @@
         "replace"  : "\\1"
     },
 	{
+		"variable" : "traj_charge",
+        "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
 		"variable" : "trajectory_restraint_conrest",
         "format"   : "s",
 	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
@@ -179,6 +209,12 @@
 	},
 	{
 		"variable" : "state_label",
+        "format"   : "s",
+	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
+        "replace"  : "\\1"
+	},
+	{
+		"variable" : "charge",
         "format"   : "s",
 	    "search"   :  ".*/([^/.]*)(\\.[^.]*)?$",
         "replace"  : "\\1"
