@@ -56,7 +56,7 @@ def run_workflow():
             toil.restart()
     # cleanup
     yield
-    # shutil.rmtree("mdgb/")
+    shutil.rmtree("mdgb/")
 
 
 #     yield mdout_files
