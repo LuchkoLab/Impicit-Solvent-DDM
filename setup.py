@@ -3,7 +3,9 @@
 Development of python command-line interface to simplify an absolute binding free energy cycle 
 """
 import sys
-from setuptools import setup, find_packages
+
+from setuptools import find_packages, setup
+
 import versioneer
 
 short_description = __doc__.split("\n")
@@ -50,7 +52,7 @@ setup(
 
     # Additional entries you may want simply uncomment the lines you want and fill in the data
     # url='http://www.my_package.com',  # Website
-    install_requires=['toil[cwl]'],              # Required packages, pulls from pip if needed; do not use for Conda deployment
+    install_requires=['toil[cwl]<=5.7.1'],              # Required packages, pulls from pip if needed; do not use for Conda deployment
     # platforms=['Linux',
     #            'Mac OS-X',
     #            'Unix',
