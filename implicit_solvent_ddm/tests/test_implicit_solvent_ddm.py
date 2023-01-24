@@ -8,11 +8,12 @@ import time
 import parmed as pmd
 import pytest
 import yaml
-from implicit_solvent_ddm.config import Config
-from implicit_solvent_ddm.implicit_ddm_workflow import ddm_workflow
 from matplotlib.pyplot import get
 from toil.common import Toil
 from toil.job import Job
+
+from implicit_solvent_ddm.config import Config
+from implicit_solvent_ddm.implicit_ddm_workflow import ddm_workflow
 
 working_directory = os.getcwd()
 
@@ -22,45 +23,22 @@ def run_workflow():
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "INFO"
     options.clean = "always"
+
     yaml_file = os.path.join("implicit_solvent_ddm/tests/input_files/config.yaml")
     with open(yaml_file) as yml:
         config_file = yaml.safe_load(yml)
 
     config = Config.from_config(config_file)
 
-    if options.workDir:
-        config.system_settings.working_directory = os.path.abspath(options.workDir)
-    else:
-        config.system_settings.working_directory = os.getcwd()
-
-    config.ignore_receptor = False
-
-    if not os.path.exists(
-        os.path.join(config.system_settings.working_directory, "mdgb/structs/ligand")
-    ):
-        os.makedirs(
-            os.path.join(
-                config.system_settings.working_directory, "mdgb/structs/ligand"
-            )
-        )
-    if not os.path.exists(
-        os.path.join(config.system_settings.working_directory, "mdgb/structs/receptor")
-    ):
-        os.makedirs(
-            os.path.join(
-                config.system_settings.working_directory, "mdgb/structs/receptor"
-            )
-        )
-
-    # config.get_receptor_ligand_topologies()
-
+    # create top level directory to write output files
+    if not os.path.exists(config.system_settings.top_directory_path):
+        os.makedirs(config.system_settings.top_directory_path)
+        
     with Toil(options) as toil:
+        config.workflow.ignore_receptor_endstate = False
+
         if not toil.options.restart:
-            if config.endstate_method.endstate_method_type == 0:
-                config.endstate_files.get_inital_coordinate()
-
             config.endstate_files.toil_import_parmeters(toil=toil)
-
             config.inputs["min_mdin"] = str(
                 toil.import_file(
                     "file://"
@@ -71,10 +49,6 @@ def run_workflow():
                 )
             )
 
-            # if not config.ignore_receptor:
-            #     config.endstate_files.receptor_parameter_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/CB7.parm7")))
-            #     config.endstate_files.receptor_coordinate_filename = str(toil.import_file("file://" + os.path.abspath("implicit_solvent_ddm/tests/structs/CB7.ncrst.1")))
-
             toil.start(Job.wrapJobFn(ddm_workflow, config))
             # postprocess analysis
 
@@ -82,7 +56,7 @@ def run_workflow():
             toil.restart()
     # cleanup
     yield
-    shutil.rmtree('mdgb/')
+    shutil.rmtree("mdgb/")
 
 
 #     yield mdout_files
@@ -121,17 +95,20 @@ def get_mdouts(request, run_workflow):
     yield mdout_files
 
 
-@pytest.mark.parametrize("test_input, expected", [("mdgb/M01/", 5), ("mdgb/CB7/", 4), ("mdgb/cb7-mol01/", 6)])
+@pytest.mark.parametrize(
+    "test_input, expected", [("mdgb/M01/", 6), ("mdgb/CB7/", 4), ("mdgb/cb7-mol01/", 7)]
+)
 def test_completed_workflow(test_input, expected, run_workflow):
-    print('test input:', test_input)
+    print("test input:", test_input)
     mdout_files = []
     for root, dirs, files in os.walk(test_input, topdown=False):
         for name in files:
             if "mdout" == name:
                 mdout_files.append(os.path.join(root, name))
-    
+
     assert len(mdout_files) == expected
-                
+
+
 # read in all mdout files and check if run was completed
 def test_successful_simulations(get_mdouts):
     """
@@ -148,28 +125,49 @@ def test_successful_simulations(get_mdouts):
             assert complete
 
 
+@pytest.fixture(scope="module", params=[0, 0.5, 1])
+def test_ligand_charges(request, load_topology):
+
+    filepath = f"mdgb/M01/electrostatics/{request.param}"
+
+    parm = load_parm7(filepath)
+    reduce_charge = [
+        request.param * charge for charge in load_topology[":M01"].parm_data["CHARGE"]
+    ]
+
+    assert parm[":M01"].parm_data["CHARGE"] == reduce_charge
+
+
+@pytest.fixture(scope="module", params=[0, 0.5, 1])
+def test_complex_ligand_charges(request, load_topology):
+
+    filepath = f"mdgb/cb7-mol01/electrostatics/{request.param}"
+    parm = load_parm7(filepath)
+
+    reduce_charge = [
+        request.param * charge for charge in load_topology[":M01"].parm_data["CHARGE"]
+    ]
+    assert parm[":M01"].parm_data["CHARGE"] == reduce_charge
+
+
 # check complex parameter potential that host and guest have no interactions and ligand charge = 0
-def test_complex_exclusions_no_charge(load_exclusions_no_charge):
+def test_complex_exclusions(load_exclusions_no_charge):
 
-    output_solute_traj = get_output_file("mdgb/cb7-mol01/no_interactions/")
-    assert_exclusions_charges(output_solute_traj, load_exclusions_no_charge)
+    output_solute_traj = load_parm7("mdgb/cb7-mol01/no_interactions/0.0/2.0/2.0/")
 
-
-def test_complex_no_charge_no_gb(load_no_charge_topology):
-
-    output_solute_traj = get_output_file("mdgb/cb7-mol01/interactions/")
-    assert_exclusions_charges(output_solute_traj, load_no_charge_topology)
+    assert (
+        output_solute_traj.parm_data["NUMBER_EXCLUDED_ATOMS"]
+        == load_exclusions_no_charge.parm_data["NUMBER_EXCLUDED_ATOMS"]
+    )
 
 
 @pytest.mark.parametrize(
     "no_igb_path",
     [
-        "mdgb/M01/no_charges/",
-        "mdgb/M01/no_gb/",
+        "mdgb/M01/electrostatics/",
         "mdgb/CB7/no_gb/",
         "mdgb/cb7-mol01/no_interactions/",
-        "mdgb/cb7-mol01/interactions/",
-        "mdgb/cb7-mol01/electrostatics/",
+        "mdgb/cb7-mol01/interactions/"
     ],
 )
 def test_no_solvent_complex(no_igb_path):
@@ -197,12 +195,10 @@ def assert_exclusions_charges(output, correct_output):
     )
 
 
-def get_output_file(output_path):
+def load_parm7(output_path):
     for root, dirs, files in os.walk(output_path):
         for file in files:
             if bool(re.match(r".*\.parm7", file)):
                 solute = os.path.join(root, file)
-            if bool(re.match(r".*\.rst7", file)):
-                coordinate = os.path.join(root, file)
 
-    return pmd.load_file(solute, xyz=coordinate)
+    return pmd.load_file(solute)

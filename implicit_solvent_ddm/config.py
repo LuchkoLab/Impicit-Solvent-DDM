@@ -25,7 +25,7 @@ class Workflow:
     setup_workflow: bool = True
     post_treatment: bool = True
     run_endstate_method: bool = True
-    end_state_postprocess: bool = False
+    end_state_postprocess: bool = True
     add_ligand_conformational_restraints: bool = True
     remove_GB_solvent_ligand: bool = True
     remove_ligand_charges: bool = True
@@ -35,8 +35,9 @@ class Workflow:
     complex_ligand_exclusions: bool = True
     complex_turn_off_exclusions: bool = True
     complex_turn_on_ligand_charges: bool = True
+    complex_turn_on_GB_enviroment: bool  = True 
     complex_remove_restraint: bool = True
-
+    vina_dock: bool = False
     @classmethod
     def from_config(cls: Type["Workflow"], obj: dict):
         if "workflow_jobs" in obj.keys():
@@ -182,13 +183,11 @@ class ParameterFiles:
         complex_traj = pt.iterload(
             self.complex_coordinate_filename, self.complex_parameter_filename
         )
+       # print(self.complex_traj)
         pt.check_structure(traj=complex_traj)
 
-        if (
-            self.receptor_parameter_filename is not None
-            and self.ignore_unique_naming == False
-        ):
-            self._create_unique_receptor_id()
+        # if self.ignore_unique_naming == False:
+        #     self._create_unqiue_fileID()
 
     @classmethod
     def from_config(cls: Type["ParameterFiles"], obj: dict):
@@ -217,15 +216,15 @@ class ParameterFiles:
         pt.write_traj(
             f"{self.tempdir.name}/{solu_complex}.ncrst",
             complex_traj,
-            frame_indices=[-1],
+            frame_indices=[0],
         )
         pt.write_traj(
             f"{self.tempdir.name}/{solu_receptor}_.ncrst",
             receptor_traj,
-            frame_indices=[-1],
+            frame_indices=[0],
         )
         pt.write_traj(
-            f"{self.tempdir.name}/{solu_ligand}_.ncrst", ligand_traj, frame_indices=[-1]
+            f"{self.tempdir.name}/{solu_ligand}_.ncrst", ligand_traj, frame_indices=[0]
         )
 
         self.complex_initial_coordinate = f"{self.tempdir.name}/{solu_complex}.ncrst.1"
@@ -234,30 +233,34 @@ class ParameterFiles:
         )
         self.ligand_initial_coordinate = f"{self.tempdir.name}/{solu_ligand}_.ncrst.1"
 
-    def _create_unique_receptor_id(self):
+    def _create_unqiue_fileID(self):
         """
-        Splits the complex into the ligand and receptor individual files.
+        Creates unique 3-letter Ascii filename for ligand and receptor filenames. 
         """
         unique_id = "".join(random.choice(string.ascii_letters) for x in range(3))
-
-        ligand_basename = re.sub(r"\..*", "", os.path.basename(self.ligand_parameter_filename))  # type: ignore
+        
+        ligand_basename = re.sub(r"\..*", "", os.path.basename(self.ligand_parameter_filename))  # type: ignore    
         receptor_basename = re.sub(r"\..*", "", os.path.basename(self.receptor_parameter_filename))  # type: ignore
-        unique_receptor_ID = os.path.join(
-            self.tempdir.name,
-            f"{receptor_basename}-{ligand_basename}_{unique_id}.parm7",
-        )
-
-        unique_ligand_ID = os.path.join(
+        
+        if self.ligand_parameter_filename is not None:
+            unique_ligand_ID = os.path.join(
             self.tempdir.name, f"{ligand_basename}_{unique_id}.parm7"
         )
+            shutil.copyfile(self.ligand_parameter_filename, unique_ligand_ID)  # type: ignore
+            self.ligand_parameter_filename = unique_ligand_ID
 
-        shutil.copyfile(self.receptor_parameter_filename, unique_receptor_ID)  # type: ignore
-        shutil.copyfile(self.ligand_parameter_filename, unique_ligand_ID)  # type: ignore
+        
+        if self.receptor_parameter_filename is not None:
+            
+            unique_receptor_ID = os.path.join(
+                self.tempdir.name,
+                f"{receptor_basename}-{ligand_basename}_{unique_id}.parm7",
+            )
+            
+            shutil.copyfile(self.receptor_parameter_filename, unique_receptor_ID)  # type: ignore
 
-        self.receptor_parameter_filename = unique_receptor_ID
-        self.ligand_parameter_filename = unique_ligand_ID
+            self.receptor_parameter_filename = unique_receptor_ID
 
-        print("test", os.path.exists(self.receptor_parameter_filename))
 
     def toil_import_parmeters(self, toil):
 
@@ -466,7 +469,7 @@ class EndStateMethod:
                 endstate_method_type=obj["endstate_method"],
                 remd_args=REMD(),
                 flat_bottom=FlatBottomRestraints.from_config(
-                    obj=obj["endstate_arguments"]
+                    obj=obj
                 ),
             )
         elif obj["endstate_method"].lower() == "remd":
@@ -474,7 +477,7 @@ class EndStateMethod:
                 endstate_method_type=str(obj["endstate_method"]).lower(),
                 remd_args=REMD.from_config(obj=obj),
                 flat_bottom=FlatBottomRestraints.from_config(
-                    obj=obj["endstate_arguments"]
+                    obj=obj
                 ),
             )
         else:
@@ -493,7 +496,8 @@ class IntermidateStatesArgs:
     igb_solvent: int
     mdin_intermidate_config: str
     temperature: float
-
+    charges_lambda_window: List[float] = field(default_factory=list)
+    
     guest_restraint_template: Optional[str] = None
     receptor_restraint_template: Optional[str] = None
     complex_conformational_template: Optional[str] = None
@@ -509,7 +513,18 @@ class IntermidateStatesArgs:
     max_orientational_restraint: float = field(init=False)
 
     def __post_init__(self):
-
+        
+        #check charges lambda windows have a min value of 0 
+        if min(self.charges_lambda_window) != 0:
+            self.charges_lambda_window.insert(0, 0.0)
+       
+        #check charges have a max value of 1
+        if max(self.charges_lambda_window) != 1:
+            self.charges_lambda_window.append(1.0)
+        
+        #charges convert to float 
+        self.charges_lambda_window = [float(charge) for charge in self.charges_lambda_window]
+        
         self.conformational_restraints_forces = np.exp2(
             self.exponent_conformational_forces
         )
@@ -545,6 +560,7 @@ class IntermidateStatesArgs:
                 self.write_complex_restraints(
                     conformational_force=con_force, orientational_force=orient_force
                 )
+        
 
     @classmethod
     def from_config(cls: Type["IntermidateStatesArgs"], obj: dict):
@@ -635,8 +651,8 @@ class IntermidateStatesArgs:
             self.complex_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(complex_rest)))  # type: ignore
 
         # self.tempdir.cleanup()
-
-
+        
+        
 @dataclass
 class Config:
     """Encapsulate a user specified configuration using a data class.
@@ -661,29 +677,36 @@ class Config:
     def __post_init__(self):
         self._config_sanitity_check()
 
-        # if endstate_method_type =0 don't run any endstate calculations
+        if self.endstate_method.endstate_method_type != 0:
+            self.get_receptor_ligand_topologies()
+            
+        else:
+            self.endstate_files.get_inital_coordinate()
+            self.workflow.run_endstate_method = False 
+    def _config_sanitity_check(self):
+        # check if the amber mask are valid
+        self._valid_amber_masks()
+        self._check_endstate_method()
+        self._check_missing_flatbottom_parameters()
+    
+    def _check_endstate_method(self):
+        
         if self.endstate_method.endstate_method_type == 0:
-            #     self.workflow.run_endstate_method = False
-
             if self.endstate_files.ligand_parameter_filename == None:
                 raise ValueError(
                     f"user specified to not run an endstate simulation but did not provided ligand_parameter_filename/coordinate endstate files"
                 )
-
-        self._check_missing_flatbottom_parameters()
-
-    def _config_sanitity_check(self):
-        # check if the amber mask are valid
-
-        traj = pt.iterload(
-            self.endstate_files.complex_coordinate_filename,
-            self.endstate_files.complex_parameter_filename,
-        )
-        ligand_natoms = pt.strip(traj, self.amber_masks.receptor_mask).n_atoms
-        receptor_natoms = pt.strip(traj, self.amber_masks.ligand_mask).n_atoms
+            
+        
+    def _valid_amber_masks(self):
+        """
+        Simple check that the AMBER masks denote recpetor and ligand atoms from the complex file. 
+        """
+        ligand_natoms = pt.strip(self.complex_pytraj_trajectory, self.amber_masks.receptor_mask).n_atoms
+        receptor_natoms = pt.strip(self.complex_pytraj_trajectory, self.amber_masks.ligand_mask).n_atoms
         parm = pmd.amber.AmberFormat(self.endstate_files.complex_parameter_filename)
         # check if sum of ligand & receptor atoms = complex total num of atoms
-        if traj.n_atoms != ligand_natoms + receptor_natoms:
+        if self.complex_pytraj_trajectory.n_atoms != ligand_natoms + receptor_natoms:
             raise RuntimeError(
                 f"""The sum of ligand/guest and receptor/host atoms != number of total complex atoms
                                 number of ligand atoms: {ligand_natoms} + number of receptor atoms {receptor_natoms} != complex total atoms: {traj.n_atoms}
@@ -740,43 +763,42 @@ class Config:
         """
         self.tempdir = tempfile.TemporaryDirectory()
 
-        # don't use strip!!! use masks ligand[mask] instead!!!
-        complex_traj = pt.iterload(
-            self.endstate_files.complex_coordinate_filename,
-            self.endstate_files.complex_parameter_filename,
-        )
-        receptor_traj = complex_traj[self.amber_masks.receptor_mask]
-
-        # get ligand trajectory coordinate from provided complex.parm7
-        ligand_traj = complex_traj[self.amber_masks.ligand_mask]
-        ligand_name = self.amber_masks.ligand_mask.strip(":")
-
-        ligand_filename = os.path.join(self.tempdir.name, ligand_name)
-        receptor_filename = os.path.join(
+        if self.endstate_files.receptor_parameter_filename is None:
+            
+            receptor_traj = self.complex_pytraj_trajectory[self.amber_masks.receptor_mask]
+            receptor_filename = os.path.join(
             self.tempdir.name, f"{self.amber_masks.receptor_mask.strip(':')}"
         )
+            pt.write_parm(f"{receptor_filename}.parm7", receptor_traj.top)
+            pt.write_traj(f"{receptor_filename}.ncrst", receptor_traj)
+            self.endstate_files.receptor_parameter_filename = os.path.abspath(
+                f"{receptor_filename}.parm7"
+            )
+            self.endstate_files.receptor_coordinate_filename = os.path.abspath(
+                f"{receptor_filename}.ncrst.1"
+            )
+            
+        if self.endstate_files.ligand_parameter_filename is None:
+            # get ligand trajectory coordinate from provided complex.parm7
+            ligand_traj = self.complex_pytraj_trajectory[self.amber_masks.ligand_mask]
+            ligand_name = self.amber_masks.ligand_mask.strip(":")
 
-        print("lignad_filename", ligand_filename)
-        pt.write_parm(f"{ligand_filename}.parm7", ligand_traj.top)
-        pt.write_traj(f"{ligand_filename}.ncrst", ligand_traj)
+            ligand_filename = os.path.join(self.tempdir.name, ligand_name)
+        
 
-        self.endstate_files.ligand_parameter_filename = os.path.abspath(
-            f"{ligand_filename}.parm7"
-        )
-        self.endstate_files.ligand_coordinate_filename = os.path.abspath(
-            f"{ligand_filename}.ncrst.1"
-        )
+            print("lignad_filename", ligand_filename)
+            pt.write_parm(f"{ligand_filename}.parm7", ligand_traj.top)
+            pt.write_traj(f"{ligand_filename}.ncrst", ligand_traj)
 
-        pt.write_parm(f"{receptor_filename}.parm7", receptor_traj.top)
-        pt.write_traj(f"{receptor_filename}.ncrst", receptor_traj)
-        self.endstate_files.receptor_parameter_filename = os.path.abspath(
-            f"{receptor_filename}.parm7"
-        )
-        self.endstate_files.receptor_coordinate_filename = os.path.abspath(
-            f"{receptor_filename}.ncrst.1"
-        )
+            self.endstate_files.ligand_parameter_filename = os.path.abspath(
+                f"{ligand_filename}.parm7"
+            )
+            self.endstate_files.ligand_coordinate_filename = os.path.abspath(
+                f"{ligand_filename}.ncrst.1"
+            )
 
-        self.endstate_files._create_unique_receptor_id()
+
+        self.endstate_files._create_unqiue_fileID()
 
 
 def workflow(job, config: Config):
