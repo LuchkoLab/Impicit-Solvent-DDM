@@ -469,7 +469,7 @@ class EndStateMethod:
                 endstate_method_type=obj["endstate_method"],
                 remd_args=REMD(),
                 flat_bottom=FlatBottomRestraints.from_config(
-                    obj=obj["endstate_arguments"]
+                    obj=obj
                 ),
             )
         elif obj["endstate_method"].lower() == "remd":
@@ -477,7 +477,7 @@ class EndStateMethod:
                 endstate_method_type=str(obj["endstate_method"]).lower(),
                 remd_args=REMD.from_config(obj=obj),
                 flat_bottom=FlatBottomRestraints.from_config(
-                    obj=obj["endstate_arguments"]
+                    obj=obj
                 ),
             )
         else:
