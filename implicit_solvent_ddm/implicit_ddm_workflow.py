@@ -741,7 +741,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
         )
         complex_simuations.append(complex_no_electrostatics)
 
-    # interpolate GB external dielectric constant
+    # turn on GB solvent 
     if workflow.gb_extdiel_windows:
         # create complex with ligand electrostatics = 0
         complex_ligand_no_charge = complex_host_jobs.addChildJobFn(
