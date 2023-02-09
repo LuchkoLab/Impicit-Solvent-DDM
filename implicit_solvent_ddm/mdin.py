@@ -23,7 +23,7 @@ DEFAULT_MDIN_ARGS = {
 }
 
 
-def get_mdins(job, user_mdin_args, remd_template=None, temperatures=None):
+def get_mdins(job, user_mdin_args):
     """Writes all mdins for intermidate states
 
     Parameters
@@ -105,6 +105,7 @@ def make_mdin_file(mdin_args, mdin_name, turn_off_solvent=False, post_process=Fa
             dt=temp_mdin_args["dt"],
             igb=6,
             saltcon=0.0,
+            extdiel=0.0,
             rgbmax=temp_mdin_args["rgbmax"],
             gbsa=temp_mdin_args["gbsa"],
             temp0=temp_mdin_args["temp0"],
@@ -120,6 +121,7 @@ def make_mdin_file(mdin_args, mdin_name, turn_off_solvent=False, post_process=Fa
         final_template = template.substitute(
             imin=imin,
             nstlim=temp_mdin_args["nstlim"],
+            extdiel=78.5,
             ntx=1,
             irest=0,
             ioutfm=ioutfm,
@@ -140,6 +142,96 @@ def make_mdin_file(mdin_args, mdin_name, turn_off_solvent=False, post_process=Fa
     with open(mdin_name, "w") as output:
         output.write(final_template)
     return os.path.abspath(mdin_name)
+
+
+def make_mdin(job, mdin_args, extdiel=78.5, turn_off_solvent=False, post_process=False):
+    """Creates an AMBER format input file
+
+    Function will fill a template and write an MD input file
+
+    Parameters
+    ----------
+    mdin_args: dict
+        A user specified yaml file which contains mdin args
+    mdin_name: str
+        A unique mdin filename
+    turn_off_solvent: bool
+        Set igb=6 if turn_off_solvent=True
+    post_process: bool
+        Set imin=5 and ntx=5 if post_process=True
+    Returns
+    -------
+    mdin: str
+        Absolute path where the MD input file was created.
+    """
+    # with open(yaml_args) as fH:
+    #     mdin_args = yaml.safe_load(fH)
+    scratchFile = job.fileStore.getLocalTempFile()
+    
+    mdin_path = os.path.abspath(
+        os.path.dirname(os.path.realpath(__file__)) + "/templates/mdgb.mdin"
+    )
+
+    temp_mdin_args = DEFAULT_MDIN_ARGS.copy()
+    temp_mdin_args.update(mdin_args)
+
+    # general setting
+    imin = 0
+    ioutfm = 0
+    if post_process:
+        imin = 5
+        ioutfm = 1
+    with open(mdin_path) as t:
+        template = Template(t.read())
+    if turn_off_solvent:
+        final_template = template.substitute(
+            imin=imin,
+            extdiel=0.0,
+            nstlim=temp_mdin_args["nstlim"],
+            ntx=1,
+            irest=0,
+            ioutfm=ioutfm,
+            dt=temp_mdin_args["dt"],
+            igb=6,
+            saltcon=0.0,
+            rgbmax=temp_mdin_args["rgbmax"],
+            gbsa=temp_mdin_args["gbsa"],
+            temp0=temp_mdin_args["temp0"],
+            ntpr=temp_mdin_args["ntpr"],
+            ntwx=temp_mdin_args["ntwx"],
+            cut=temp_mdin_args["cut"],
+            ntc=temp_mdin_args["ntc"],
+            nmropt=1,
+            restraint="$restraint",
+        )
+
+    else:
+        final_template = template.substitute(
+            imin=imin,
+            extdiel=extdiel,
+            nstlim=temp_mdin_args["nstlim"],
+            ntx=1,
+            irest=0,
+            ioutfm=ioutfm,
+            dt=temp_mdin_args["dt"],
+            igb=temp_mdin_args["igb"],
+            saltcon=temp_mdin_args["saltcon"],
+            rgbmax=temp_mdin_args["rgbmax"],
+            gbsa=temp_mdin_args["gbsa"],
+            temp0=temp_mdin_args["temp0"],
+            ntpr=temp_mdin_args["ntpr"],
+            ntwx=temp_mdin_args["ntwx"],
+            cut=temp_mdin_args["cut"],
+            ntc=temp_mdin_args["ntc"],
+            nmropt=1,
+            restraint="$restraint",
+        )
+
+    with open(scratchFile, "w") as output:
+        output.write(final_template)
+    
+    return job.fileStore.writeGlobalFile(scratchFile)
+
 
 
 def generate_replica_mdin(
