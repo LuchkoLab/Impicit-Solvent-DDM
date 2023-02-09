@@ -25,6 +25,7 @@ class Workflow:
     setup_workflow: bool = True
     post_treatment: bool = True
     run_endstate_method: bool = True
+    gb_extdiel_windows: bool = True
     end_state_postprocess: bool = True
     add_ligand_conformational_restraints: bool = True
     remove_GB_solvent_ligand: bool = True
@@ -35,62 +36,17 @@ class Workflow:
     complex_ligand_exclusions: bool = True
     complex_turn_off_exclusions: bool = True
     complex_turn_on_ligand_charges: bool = True
-    complex_turn_on_GB_enviroment: bool  = True 
+    complex_turn_on_GB_enviroment: bool = True
     complex_remove_restraint: bool = True
+    post_analysis_only: bool = False
     vina_dock: bool = False
+
     @classmethod
     def from_config(cls: Type["Workflow"], obj: dict):
         if "workflow_jobs" in obj.keys():
             return cls(**obj["workflow_jobs"])
         else:
             return cls()
-
-    @classmethod
-    def update_workflow(cls: Type["Workflow"], system: str, run_endstate: bool):
-
-        if system == "ligand":
-            return cls(
-                setup_workflow=False,
-                post_treatment=False,
-                end_state_postprocess=True,
-                run_endstate_method=True,
-                ignore_receptor_endstate=True,
-                add_receptor_conformational_restraints=False,
-                remove_GB_solvent_receptor=False,
-                complex_ligand_exclusions=False,
-                complex_turn_off_exclusions=False,
-                complex_turn_on_ligand_charges=False,
-                complex_remove_restraint=False,
-            )
-        elif system == "receptor":
-            return cls(
-                setup_workflow=False,
-                post_treatment=False,
-                end_state_postprocess=True,
-                run_endstate_method=False,
-                add_ligand_conformational_restraints=False,
-                remove_GB_solvent_ligand=False,
-                remove_ligand_charges=False,
-                complex_ligand_exclusions=False,
-                complex_turn_off_exclusions=False,
-                complex_turn_on_ligand_charges=False,
-                complex_remove_restraint=False,
-            )
-        elif system == "complex":
-            return cls(
-                setup_workflow=False,
-                post_treatment=False,
-                end_state_postprocess=True,
-                run_endstate_method=False,
-                add_ligand_conformational_restraints=False,
-                remove_GB_solvent_ligand=False,
-                remove_ligand_charges=False,
-                ignore_receptor_endstate=True,
-                add_receptor_conformational_restraints=False,
-                remove_GB_solvent_receptor=False,
-            )
-        else:
-            raise Exception(f"system not valid: {system}")
 
 
 @dataclass
@@ -183,7 +139,7 @@ class ParameterFiles:
         complex_traj = pt.iterload(
             self.complex_coordinate_filename, self.complex_parameter_filename
         )
-       # print(self.complex_traj)
+        # print(self.complex_traj)
         pt.check_structure(traj=complex_traj)
 
         # if self.ignore_unique_naming == False:
@@ -235,32 +191,30 @@ class ParameterFiles:
 
     def _create_unqiue_fileID(self):
         """
-        Creates unique 3-letter Ascii filename for ligand and receptor filenames. 
+        Creates unique 3-letter Ascii filename for ligand and receptor filenames.
         """
         unique_id = "".join(random.choice(string.ascii_letters) for x in range(3))
-        
-        ligand_basename = re.sub(r"\..*", "", os.path.basename(self.ligand_parameter_filename))  # type: ignore    
+
+        ligand_basename = re.sub(r"\..*", "", os.path.basename(self.ligand_parameter_filename))  # type: ignore
         receptor_basename = re.sub(r"\..*", "", os.path.basename(self.receptor_parameter_filename))  # type: ignore
-        
+
         if self.ligand_parameter_filename is not None:
             unique_ligand_ID = os.path.join(
-            self.tempdir.name, f"{ligand_basename}_{unique_id}.parm7"
-        )
+                self.tempdir.name, f"{ligand_basename}_{unique_id}.parm7"
+            )
             shutil.copyfile(self.ligand_parameter_filename, unique_ligand_ID)  # type: ignore
             self.ligand_parameter_filename = unique_ligand_ID
 
-        
         if self.receptor_parameter_filename is not None:
-            
+
             unique_receptor_ID = os.path.join(
                 self.tempdir.name,
                 f"{receptor_basename}-{ligand_basename}_{unique_id}.parm7",
             )
-            
+
             shutil.copyfile(self.receptor_parameter_filename, unique_receptor_ID)  # type: ignore
 
             self.receptor_parameter_filename = unique_receptor_ID
-
 
     def toil_import_parmeters(self, toil):
 
@@ -388,16 +342,6 @@ class REMD:
             "file://" + os.path.abspath(self.equil_template_mdin)
         )
 
-        # for index, (equil_mdin, remd_mdin) in enumerate(
-        #     zip(
-        #         self.equilibration_replica_mdins,
-        #         self.remd_mdins,
-        #     )
-        # ):
-        #     self.equilibration_replica_mdins[index] = toil.import_file("file://" + os.path.abspath(equil_mdin))  # type: ignore
-
-        #     self.remd_mdins[index] = toil.import_file("file://" + os.path.abspath(remd_mdin))  # type: ignore
-
 
 @dataclass
 class FlatBottomRestraints:
@@ -468,17 +412,13 @@ class EndStateMethod:
             return cls(
                 endstate_method_type=obj["endstate_method"],
                 remd_args=REMD(),
-                flat_bottom=FlatBottomRestraints.from_config(
-                    obj=obj
-                ),
+                flat_bottom=FlatBottomRestraints.from_config(obj=obj),
             )
         elif obj["endstate_method"].lower() == "remd":
             return cls(
                 endstate_method_type=str(obj["endstate_method"]).lower(),
                 remd_args=REMD.from_config(obj=obj),
-                flat_bottom=FlatBottomRestraints.from_config(
-                    obj=obj
-                ),
+                flat_bottom=FlatBottomRestraints.from_config(obj=obj),
             )
         else:
             return cls(
@@ -497,7 +437,8 @@ class IntermidateStatesArgs:
     mdin_intermidate_config: str
     temperature: float
     charges_lambda_window: List[float] = field(default_factory=list)
-    
+    gb_extdiel_windows: List[float] = field(default_factory=list)
+
     guest_restraint_template: Optional[str] = None
     receptor_restraint_template: Optional[str] = None
     complex_conformational_template: Optional[str] = None
@@ -513,18 +454,31 @@ class IntermidateStatesArgs:
     max_orientational_restraint: float = field(init=False)
 
     def __post_init__(self):
+
+        # check charges lambda windows have a min value of 0
+        if len(self.charges_lambda_window) == 0:
+            self.charges_lambda_window = [1.0]
+        else:
+            lower_upper_bound = [0.0, 1.0]
+            self.charges_lambda_window = list(
+                set(self.charges_lambda_window + lower_upper_bound)
+            )
+
+        # charges convert to float
+        self.charges_lambda_window = [
+            float(charge) for charge in self.charges_lambda_window
+        ]
+
+        if len(self.gb_extdiel_windows) == 0:
+            self.gb_extdiel_windows = [1]
+
+        if 0 in self.gb_extdiel_windows:
+            self.gb_extdiel_windows.remove(0)
         
-        #check charges lambda windows have a min value of 0 
-        if min(self.charges_lambda_window) != 0:
-            self.charges_lambda_window.insert(0, 0.0)
-       
-        #check charges have a max value of 1
-        if max(self.charges_lambda_window) != 1:
-            self.charges_lambda_window.append(1.0)
-        
-        #charges convert to float 
-        self.charges_lambda_window = [float(charge) for charge in self.charges_lambda_window]
-        
+        self.gb_extdiel_windows = [
+            float(78.5 * extdiel) for extdiel in self.gb_extdiel_windows
+        ]
+
         self.conformational_restraints_forces = np.exp2(
             self.exponent_conformational_forces
         )
@@ -560,7 +514,6 @@ class IntermidateStatesArgs:
                 self.write_complex_restraints(
                     conformational_force=con_force, orientational_force=orient_force
                 )
-        
 
     @classmethod
     def from_config(cls: Type["IntermidateStatesArgs"], obj: dict):
@@ -651,8 +604,8 @@ class IntermidateStatesArgs:
             self.complex_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(complex_rest)))  # type: ignore
 
         # self.tempdir.cleanup()
-        
-        
+
+
 @dataclass
 class Config:
     """Encapsulate a user specified configuration using a data class.
@@ -679,37 +632,41 @@ class Config:
 
         if self.endstate_method.endstate_method_type != 0:
             self.get_receptor_ligand_topologies()
-            
+
         else:
             self.endstate_files.get_inital_coordinate()
-            self.workflow.run_endstate_method = False 
+            self.workflow.run_endstate_method = False
+
     def _config_sanitity_check(self):
         # check if the amber mask are valid
         self._valid_amber_masks()
         self._check_endstate_method()
         self._check_missing_flatbottom_parameters()
-    
+
     def _check_endstate_method(self):
-        
+
         if self.endstate_method.endstate_method_type == 0:
             if self.endstate_files.ligand_parameter_filename == None:
                 raise ValueError(
                     f"user specified to not run an endstate simulation but did not provided ligand_parameter_filename/coordinate endstate files"
                 )
-            
-        
+
     def _valid_amber_masks(self):
         """
-        Simple check that the AMBER masks denote recpetor and ligand atoms from the complex file. 
+        Simple check that the AMBER masks denote recpetor and ligand atoms from the complex file.
         """
-        ligand_natoms = pt.strip(self.complex_pytraj_trajectory, self.amber_masks.receptor_mask).n_atoms
-        receptor_natoms = pt.strip(self.complex_pytraj_trajectory, self.amber_masks.ligand_mask).n_atoms
+        ligand_natoms = pt.strip(
+            self.complex_pytraj_trajectory, self.amber_masks.receptor_mask
+        ).n_atoms
+        receptor_natoms = pt.strip(
+            self.complex_pytraj_trajectory, self.amber_masks.ligand_mask
+        ).n_atoms
         parm = pmd.amber.AmberFormat(self.endstate_files.complex_parameter_filename)
         # check if sum of ligand & receptor atoms = complex total num of atoms
         if self.complex_pytraj_trajectory.n_atoms != ligand_natoms + receptor_natoms:
             raise RuntimeError(
                 f"""The sum of ligand/guest and receptor/host atoms != number of total complex atoms
-                                number of ligand atoms: {ligand_natoms} + number of receptor atoms {receptor_natoms} != complex total atoms: {traj.n_atoms}
+                                number of ligand atoms: {ligand_natoms} + number of receptor atoms {receptor_natoms} != complex total atoms: {self.complex_pytraj_trajectory.n_atoms}
                                 Please check if AMBER masks are correct ligand_mask: "{self.amber_masks.ligand_mask}" receptor_mask: "{self.amber_masks.receptor_mask}"
                                 {self.endstate_files.complex_parameter_filename} residue lables are: {parm.parm_data['RESIDUE_LABEL']}"""
             )
@@ -764,11 +721,13 @@ class Config:
         self.tempdir = tempfile.TemporaryDirectory()
 
         if self.endstate_files.receptor_parameter_filename is None:
-            
-            receptor_traj = self.complex_pytraj_trajectory[self.amber_masks.receptor_mask]
+
+            receptor_traj = self.complex_pytraj_trajectory[
+                self.amber_masks.receptor_mask
+            ]
             receptor_filename = os.path.join(
-            self.tempdir.name, f"{self.amber_masks.receptor_mask.strip(':')}"
-        )
+                self.tempdir.name, f"{self.amber_masks.receptor_mask.strip(':')}"
+            )
             pt.write_parm(f"{receptor_filename}.parm7", receptor_traj.top)
             pt.write_traj(f"{receptor_filename}.ncrst", receptor_traj)
             self.endstate_files.receptor_parameter_filename = os.path.abspath(
@@ -777,14 +736,13 @@ class Config:
             self.endstate_files.receptor_coordinate_filename = os.path.abspath(
                 f"{receptor_filename}.ncrst.1"
             )
-            
+
         if self.endstate_files.ligand_parameter_filename is None:
             # get ligand trajectory coordinate from provided complex.parm7
             ligand_traj = self.complex_pytraj_trajectory[self.amber_masks.ligand_mask]
             ligand_name = self.amber_masks.ligand_mask.strip(":")
 
             ligand_filename = os.path.join(self.tempdir.name, ligand_name)
-        
 
             print("lignad_filename", ligand_filename)
             pt.write_parm(f"{ligand_filename}.parm7", ligand_traj.top)
@@ -796,7 +754,6 @@ class Config:
             self.endstate_files.ligand_coordinate_filename = os.path.abspath(
                 f"{ligand_filename}.ncrst.1"
             )
-
 
         self.endstate_files._create_unqiue_fileID()
 
@@ -827,24 +784,18 @@ if __name__ == "__main__":
     with Toil(options) as toil:
 
         config = Config.from_config(yaml_config)
-        # print(config)
-        # config.endstate_files.get_inital_coordinate()
-        if config.endstate_method.endstate_method_type != 0:
-            config.get_receptor_ligand_topologies()
-        else:
-            config.endstate_files.get_inital_coordinate()
-            config.intermidate_args.toil_import_user_restriants(toil=toil)
+        # # print(config)
+        # # config.endstate_files.get_inital_coordinate()
+        # if config.endstate_method.endstate_method_type != 0:
+        #     config.get_receptor_ligand_topologies()
+        # else:
+        #     config.endstate_files.get_inital_coordinate()
+        #     config.intermidate_args.toil_import_user_restriants(toil=toil)
 
-        config.endstate_files.toil_import_parmeters(toil=toil)
-        config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
+        # config.endstate_files.toil_import_parmeters(toil=toil)
+        # config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
 
-        print(config.ignore_receptor)
-        print(config.endstate_method)
-        print(config.amber_masks)
-        print(config.endstate_files)
-        print(config.system_settings)
-        config.system_settings.top_directory_path
-        config.endstate_method.remd_args.temperatures
+        print(config.intermidate_args)
         # config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
         # boresch_p = list(config.boresch_parameters.__dict__.values())
 
