@@ -25,7 +25,6 @@ AVAGADRO = 6.0221367e23
 BOLTZMAN = 1.380658e-23
 JOULES_PER_KCAL = 4184
 
-
 class PostTreatment(Job):
     def __init__(
         self,
@@ -58,25 +57,29 @@ class PostTreatment(Job):
             [
                 "solute",
                 "parm_state",
+                "extdiel",
                 "charge",
                 "parm_restraints",
                 "traj_state",
+                "traj_extdiel",
                 "traj_charge",
                 "traj_restraints",
                 "Frames",
             ],
             drop=True,
         )
+            
         self.df = self.df[["ENERGY"]]
-        self.df = self.df.unstack(["parm_state", "charge", "parm_restraints"])  # type: ignore
+        self.df = self.df.unstack(["parm_state", "extdiel",  "charge", "parm_restraints"])  # type: ignore
         self.df = self.df.reset_index(["Frames", "solute"], drop=True)
         states = [_ for _ in zip(*self.df.columns)][1]
-        charges = [_ for _ in zip(*self.df.columns)][2]
-        restraints = [_ for _ in zip(*self.df.columns)][3]
+        extdiels = [_ for _ in zip(*self.df.columns)][2]
+        charges = [_ for _ in zip(*self.df.columns)][3]
+        restraints = [_ for _ in zip(*self.df.columns)][4]
 
         column_names = [
-            (state, charge, restraint)
-            for state, charge, restraint in zip(states, charges, restraints)
+            (state, extdiel, charge, restraint)
+            for state, extdiel, charge, restraint in zip(states, extdiels, charges, restraints)
         ]
 
         self.df.columns = column_names  # type: ignore
@@ -106,14 +109,14 @@ class PostTreatment(Job):
         error = error * self.kcals_per_Kt
 
         if self.system == "ligand":
-            self.deltaG = fe.loc[("endstate", "1.0", "0.0"), [("electrostatics", "0.0", self.max_con_force)]].values[0]  # type: ignore
+            self.deltaG = fe.loc[("endstate", "78.5", "1.0", "0.0"), [("electrostatics", "0.0", "0.0", self.max_con_force)]].values[0]  # type: ignore
 
         elif self.system == "receptor":
-            self.deltaG = fe.loc[("endstate", "1.0", "0.0"), [("no_gb", "1.0", self.max_con_force)]].values[0]  # type: ignore
+            self.deltaG = fe.loc[("endstate", "78.5", "1.0", "0.0"), [("no_gb", "0.0", "1.0", self.max_con_force)]].values[0]  # type: ignore
 
         # system is complex
         else:
-            self.deltaG = fe.loc[("no_interactions", "0.0", f"{self.max_con_force}_{self.max_orien_force}"), [("endstate", "1.0", "0.0_0.0")]].values[0]  # type: ignore
+            self.deltaG = fe.loc[("no_interactions", "0.0", "0.0", f"{self.max_con_force}_{self.max_orien_force}"), [("endstate", "78.5", "1.0", "0.0_0.0")]].values[0]  # type: ignore
 
         self.fe = fe
         self.error = error
@@ -213,6 +216,8 @@ def create_mdout_dataframe(
     data["traj_charge"] = run_args["traj_charge"]
     data["parm_restraints"] = run_args["conformational_restraint"]
     data["traj_restraints"] = run_args["trajectory_restraint_conrest"]
+    data["extdiel"] = run_args["extdiel"]
+    data["traj_extdiel"] = run_args["traj_extdiel"]
     # complex datastructure
     if "trajectory_restraint_orenrest" in run_args.keys():
         data[
@@ -225,193 +230,3 @@ def create_mdout_dataframe(
     data.to_hdf(f"{output_dir}/simulation_mdout.h5", key="df")
 
     return data
-
-
-class PostProcess:
-    def __init__(
-        self,
-        df: pd.DataFrame,
-        system: str,
-        temp: float,
-        max_conformation_force: float,
-        max_orientational_force=None,
-    ) -> None:
-        self.df = df
-        self.temp = temp
-        self.system = system
-        self.max_con_force = str(max_conformation_force)
-        self.max_orien_force = str(max_orientational_force)
-        self.fe = None
-        self.error = None
-        self._kt_conversion()
-        self._create_MBAR_format()
-
-    def _kt_conversion(self):
-        self.kt_conversion = 1 / (
-            ((BOLTZMAN * (AVAGADRO)) / JOULES_PER_KCAL) * self.temp
-        )
-
-    def _create_MBAR_format(self):
-
-        self.df = self.df.set_index(
-            [
-                "solute",
-                "parm_state",
-                "parm_restraints",
-                "traj_state",
-                "traj_restraints",
-                "Frames",
-            ],
-            drop=True,
-        )
-        self.df = self.df[["ENERGY"]]
-        self.df = self.df.unstack(["parm_state", "parm_restraints"])  # type: ignore
-        self.df = self.df.reset_index(["Frames", "solute"], drop=True)
-        states = [_ for _ in zip(*self.df.columns)][1]
-        restraints = [_ for _ in zip(*self.df.columns)][2]
-        column_names = [
-            (state, restraint) for state, restraint in zip(states, restraints)
-        ]
-
-        self.df.columns = column_names  # type: ignore
-
-    def run(self):
-
-        equil_info = pdmbar.detectEquilibration(self.df)
-
-        df_subsampled = pdmbar.subsampleCorrelatedData(self.df, equil_info=equil_info)
-
-        fe, error, mbar = pdmbar.mbar(df_subsampled)
-
-        fe = fe / self.kt_conversion
-
-        error = error / self.kt_conversion
-
-        if self.system == "ligand":
-            self.deltaG = fe.loc[("endstate", "0.0"), [("no_charges", self.max_con_force)]].values[0]  # type: ignore
-
-        elif self.system == "receptor":
-            self.deltaG = fe.loc[("endstate", "0.0"), [("no_gb", self.max_con_force)]].values[0]  # type: ignore
-
-        # system is complex
-        else:
-            self.deltaG = fe.loc[("no_interactions", f"{self.max_con_force}_{self.max_orien_force}"), [("endstate", "0.0_0.0")]].values[0]  # type: ignore
-
-        self.fe = fe
-        self.error = error
-
-    def compute_binding_deltaG(self, system1: float, system2: float, borech_dG=0.0):
-
-        return self.deltaG + system1 + system2 + borech_dG
-
-
-def main(complex_file, receptor_file, ligand_file, boresch_file):
-
-    import re
-
-    complex_df = pd.read_hdf(complex_file)
-    receptor_df = pd.read_hdf(receptor_file)
-    ligand_df = pd.read_hdf(ligand_file)
-    boresch_df = pd.read_hdf(boresch_file)
-    complex_obj = PostProcess(
-        complex_df,
-        system="complex",
-        temp=298,
-        max_conformation_force=4.0,
-        max_orientational_force=8.0,
-    )
-    receptor_obj = PostProcess(
-        receptor_df, system="receptor", temp=298, max_conformation_force=4.0
-    )
-    ligand_obj = PostProcess(
-        ligand_df, system="ligand", temp=298, max_conformation_force=4.0
-    )
-    complex_obj.run()
-    receptor_obj.run()
-    ligand_obj.run()
-
-    complex_name = re.sub(r"\..*", "", os.path.basename(complex_file))
-    ligand_name = re.sub(r"\..*", "", os.path.basename(ligand_file))
-    receptor_name = re.sub(r"\..*", "", os.path.basename(receptor_file))
-
-    # parse out mbar_formate dataframe
-    complex_obj.df.to_hdf(
-        f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/complex/{complex_name}_mbar_format.h5",
-        key="df",
-        mode="w",
-    )
-    receptor_obj.df.to_hdf(
-        f"output_path/receptor_{complex_name}_mbar_format.h5", key="df", mode="w"
-    )
-    ligand_obj.df.to_hdf(
-        f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/ligand/ligand_{complex_name}_mbar_format.h5",
-        key="df",
-        mode="w",
-    )
-
-    # parse out free energies
-    complex_obj.fe.to_hdf(
-        f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/complex/{complex_name}_fe.h5",
-        key="df",
-        mode="w",
-    )
-    receptor_obj.fe.to_hdf(
-        f"output_path/receptor_{complex_name}_fe.h5", key="df", mode="w"
-    )
-    ligand_obj.fe.to_hdf(
-        f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/ligand/ligand_{complex_name}_fe.h5",
-        key="df",
-        mode="w",
-    )
-
-    # parse out errors of mbar
-    complex_obj.error.to_hdf(
-        f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/complex/{complex_name}_error.h5",
-        key="df",
-        mode="w",
-    )
-    receptor_obj.error.to_hdf(
-        f"output_path/receptor_{complex_name}_error.h5", key="df", mode="w"
-    )
-    ligand_obj.error.to_hdf(
-        f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/ligand/ligand_{complex_name}_error.h5",
-        key="df",
-        mode="w",
-    )
-
-    # parse out boresch restraints
-
-    borech_dG = boresch_df["DeltaG"].values[0]
-    # compute total deltaG
-    deltaG_tot = complex_obj.compute_binding_deltaG(
-        system1=ligand_obj.deltaG, system2=receptor_obj.deltaG
-    )
-
-    deltaG_df = pd.DataFrame()
-
-    deltaG_df[f"{ligand_name}_endstate->no_charges"] = [ligand_obj.deltaG]
-    deltaG_df[f"{receptor_name}_endstate->no_gb"] = [receptor_obj.deltaG]
-    deltaG_df["boresch_restraints"] = [borech_dG]
-    deltaG_df[f"{complex_name}_no-interactions->endstate"] = [complex_obj.deltaG]
-    deltaG_df["deltaG"] = [deltaG_tot]
-
-    deltaG_df.to_hdf(
-        f"/nas0/ayoub/Impicit-Solvent-DDM/barton_cache/deltaG/deltaG_{complex_name}.h5",
-        key="df",
-        mode="w",
-    )
-
-
-if __name__ == "__main__":
-    import argparse
-
-    # create an ArgumentParser object
-    parser = argparse.ArgumentParser(description="Compute the detlaG of each system")
-    # declare arguments
-    parser.add_argument("--complex", type=str, help="mdout.h5 file", required=True)
-    parser.add_argument("--receptor", type=str, help="mdout.h5 file", required=True)
-    parser.add_argument("--ligand", type=str, help="mdout.h5 file", required=True)
-    parser.add_argument("--boresch", type=str, help="mdout.h5 file", required=True)
-
-    args = parser.parse_args()
-    main(args.complex, args.receptor, args.ligand, args.boresch)
