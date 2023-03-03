@@ -68,7 +68,7 @@ workflow:
 ```yaml
 #mdin required input parameters for intermidates 
 nstlim: 1000
-dt: 0.001
+dt: 0.002
 igb: 2
 saltcon: 0.3
 rgbmax: 999.0
@@ -80,28 +80,52 @@ cut: 999
 ntc: 2  
 ```
   
-## Equilibration & REMD MDIN requirment 
-Running Replica Exchange (endstate) insert an $restraint string for flatbottom restraints to placed during run
+## Equilibration example Template  
+The number of input files(len(temperatures)) will be generated automatically for the user. Only requirment is an template for equil and remd-production. 
+User must  placed a $ig and $restraint key within both template as shown below. 
+The number of temperature specify within the config file will generate the number of corresponding input files. 
 ```text 
-  Equilibration
+ Equilibration (example)
  &cntrl
    irest=0, ntx=1, 
-   nstlim=100, dt=0.002,
-   irest=0, ntt=3, gamma_ln=1.0,
-   temp0=260.0, ig=5714,
-   ntc=2, ntf=2, nscm=10,
-   ntb=0, igb=5,
+   nstlim=25000, dt=0.004,
+   ntt=3, gamma_ln=1.0,
+   temp0=$temp, ig=$ig,
+   ntc=2, ntf=2, nscm=1000,
+   ntb=0, igb=2,
    cut=999.0, rgbmax=999.0,
-   ntpr=50, ntwx=50, ntwr=50,
-   nmropt=1
+   ntpr=1, ntwx=1,
+   nmropt=1, ioutfm=1,
+   saltcon=0.025, gbsa = 0
  /
  &wt TYPE='END'
  /
 DISANG=$restraint
+
+```
+```text 
+TREMD (example)
+ &cntrl
+   irest=1, ntx=5, 
+   nstlim = 1, dt=0.004, 
+   numexchg = 2500000,
+   ntt=3, gamma_ln=1.0,
+   temp0=$temp, ig=$ig,
+   ntc=2, ntf=2, nscm=0,
+   ntb=0, igb=2,
+   cut=999.0, rgbmax=999.0,
+   ntpr=250, ntwx=250,
+   ioutfm=1, nmropt=1,
+   saltcon=0.15, gbsa = 0
+ /
+ &wt TYPE='END'
+ /
+DISANG=$restraint
+
 ```
 ## Quick Start (running locally) 
 
-   `run_implicit_ddm.py --config_file config.yml --workDir working_directory`
+   `run_implicit_ddm.py file:jobstore --config_file config.yml --workDir working_directory`
 
 ## SLURM batch file (preferred) submission 
 ```bash
