@@ -12,10 +12,11 @@ Implicit solvent ddm project is a python tool for performing fully automated bin
 [![codecov](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/Implicit_Solvent_DDM/branch/master/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/Implicit_Solvent_DDM/branch/master)
 
 ## Setup/Install
-  1. `conda create name mol_ddm_env python=3.8`
   1. `git pull git@github.com:LuchkoLab/Impicit-Solvent-DDM.git`
-  2.  `python setup.py sdist`
-  3.  `pip install dist/*`
+  2.  `conda env create -f devtools/conda-envs/test_env.yaml`
+  3.  `conda activate mol_ddm_env`
+  4.  `python setup.py sdist`
+  5.  `pip install dist/*`
  
 ## YAML config file format
    The yaml config file is required to be able to run the program. The YAML config file specifies input parameters needed from the user, such as endstate `.parm7, .ncsrst` files of the complex system. As well system parameters, which program supports AMBER engines such as Sander, PMEMD & .MPI
