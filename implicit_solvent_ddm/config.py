@@ -457,7 +457,7 @@ class IntermidateStatesArgs:
 
         # check charges lambda windows have a min value of 0
         if len(self.charges_lambda_window) == 0:
-            self.charges_lambda_window = [1.0]
+            self.charges_lambda_window = [0.0, 1.0]
         else:
             lower_upper_bound = [0.0, 1.0]
             self.charges_lambda_window = list(
@@ -469,19 +469,21 @@ class IntermidateStatesArgs:
             float(charge) for charge in self.charges_lambda_window
         ]
 
-        if len(self.gb_extdiel_windows) == 0:
-            self.gb_extdiel_windows = [1]
+        if len(self.gb_extdiel_windows) > 0:
 
-        if 0 in self.gb_extdiel_windows:
-            self.gb_extdiel_windows.remove(0)
-        
-        self.gb_extdiel_windows = [
-            float(78.5 * extdiel) for extdiel in self.gb_extdiel_windows
-        ]
+            if 0 in self.gb_extdiel_windows:
+                self.gb_extdiel_windows.remove(0)
+            if 1 in self.gb_extdiel_windows:
+                self.gb_extdiel_windows.remove(1)
+
+            self.gb_extdiel_windows = [
+                float(78.5 * extdiel) for extdiel in self.gb_extdiel_windows
+            ]
 
         self.conformational_restraints_forces = np.exp2(
             self.exponent_conformational_forces
         )
+
         self.orientational_restriant_forces = np.exp2(
             self.exponent_orientational_forces
         )
@@ -637,6 +639,12 @@ class Config:
             self.endstate_files.get_inital_coordinate()
             self.workflow.run_endstate_method = False
 
+        if len(self.intermidate_args.gb_extdiel_windows) == 0:
+            self.workflow.gb_extdiel_windows = False
+
+        if self.endstate_files.receptor_coordinate_filename is not None:
+            self.ignore_receptor = True 
+        
     def _config_sanitity_check(self):
         # check if the amber mask are valid
         self._valid_amber_masks()
