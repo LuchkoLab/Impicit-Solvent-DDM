@@ -195,7 +195,7 @@ def consolidate_output(
 
 
 def create_mdout_dataframe(
-    job, directory_args: dict, dirstruct: str, output_dir: str
+    job, directory_args: dict, dirstruct: str, output_dir: str, compress:bool=True,
 ) -> pd.DataFrame:
 
     sim = Dirstruct("mdgb", directory_args, dirstruct=dirstruct)
@@ -226,7 +226,11 @@ def create_mdout_dataframe(
         data[
             "traj_restraints"
         ] = f"{run_args['trajectory_restraint_conrest']}_{run_args['trajectory_restraint_orenrest']}"
-
-    data.to_hdf(f"{output_dir}/simulation_mdout.h5", key="df")
-
+    
+    if compress:
+        data.to_parquet(f"{output_dir}/simulation_mdout.parquet.gzip", compression='gzip') 
+        #data.to_parquet(f"{output_dir}/simulation_mdout.zip",  compression="gzip")
+    
+    os.remove(mdout)
+    
     return data
