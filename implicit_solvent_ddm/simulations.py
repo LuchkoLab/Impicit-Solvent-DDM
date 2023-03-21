@@ -42,7 +42,8 @@ class Calculation(Job):
         restraint_file: Union[RestraintMaker, str],
         directory_args: TypedDict,
         dirstruct="dirstruct",
-        inptraj=None,
+        inptraj: Union[FileID, None] = None,
+        post_analysis: bool = False 
     ):
         self.executable = executable
         self.mpi_command = mpi_command
@@ -52,17 +53,26 @@ class Calculation(Job):
         self.input_file = input_file
         self.working_directory = work_dir
         self.restraint_file = restraint_file
-        self.inptraj = inptraj
+        self._inptraj = inptraj
         self.dirstruct = dirstruct
         self.directory_args = directory_args.copy()
         self.calc_setup = False  # This means that the setup has run successfully
+        self.post_analysis = post_analysis
         self.exec_list = [self.mpi_command]
         # self.exec_list = []
         self.read_files = {}
         self._output_directory()
 
-    def _output_directory(self):
+    @property
+    def inptraj(self):
+        return self._inptraj
 
+    @inptraj.setter
+    def inptraj(self, value):
+        self._inptraj = value
+
+    def _output_directory(self):
+        print(self.dirstruct)
         dirs = Dirstruct("mdgb", self.directory_args, dirstruct=self.dirstruct)
 
         output_dir = os.path.join(
@@ -229,17 +239,37 @@ class Calculation(Job):
 
         fileStore.logToMaster(f"amber_stdout: {amber_stdout}")
         fileStore.logToMaster(f"amber_stderr: {amber_stderr}")
-
-        restart_ID, trajectory_ID = self.export_files(
-            fileStore, self.output_dir, files_in_current_directory
-        )
-        self.logger.info(
-            f"Completed simulation datetime {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
-        )
-        self.logger.info(
-            f"Performance runtime for current simulation Run: {time.perf_counter() - start} seconds\n"
-        )
-        return (restart_ID, trajectory_ID)
+        
+        # if post analysis simulation just export the mdout file
+        if self.post_analysis:
+            
+            #for not don't export any data 
+            #return fileStore.writeGlobalFile("mdout", cleanup=True),
+                    
+            fileStore.export_file(
+                    fileStore.writeGlobalFile("mdout", cleanup=True),
+                    "file://"
+                    + os.path.abspath(
+                        os.path.join(self.output_dir, os.path.basename("mdout"))
+                    ),
+                )
+            # Don't need the trajectories from post analysis
+            return 
+        
+        else:
+            # Export all ouput files from MD simulation 
+            restart_ID, trajectory_ID = self.export_files(
+                fileStore, self.output_dir, files_in_current_directory
+            )
+            # log MD simulation performance 
+            self.logger.info(
+                f"Completed simulation datetime {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+            )
+            self.logger.info(
+                f"Performance runtime for current simulation Run: {time.perf_counter() - start} seconds\n"
+            )
+            # return trajecories from MD simulation
+            return (restart_ID, trajectory_ID)
 
 
 class Simulation(Calculation):
@@ -260,11 +290,12 @@ class Simulation(Calculation):
         restraint_file: Union[RestraintMaker, str],
         working_directory,
         directory_args,
-        system_type: Optional[str]=None, 
-        conformational_force=None, 
-        orientational_force=None, 
+        system_type: Optional[str] = None,
+        conformational_force=None,
+        orientational_force=None,
         dirstruct="dirstruct",
         inptraj=None,
+        post_analysis = False, 
         restraint_key=None,
         memory: Optional[Union[int, str]] = None,
         disk: Optional[Union[int, str]] = None,
@@ -288,9 +319,11 @@ class Simulation(Calculation):
             directory_args,
             dirstruct=dirstruct,
             inptraj=inptraj,
+            post_analysis=post_analysis,
         )
-        self.restraint_key = restraint_key 
+        self.restraint_key = restraint_key
         self.system_type = system_type
+
     def setup(self):
         """
         Sets up the command-line arguments. Sander requires a unique restrt file
@@ -316,7 +349,7 @@ class Simulation(Calculation):
         self.exec_list.extend(("-r", f"{restart_filename}.rst7"))
         self.exec_list.extend(("-x", f"{trajector_filename}.nc"))
         self.exec_list.extend(("-o", "mdout"))  # output file flag
-        if self.inptraj is not None:
+        if self._inptraj is not None:
             self.exec_list.extend(
                 ("-y", self.read_files["inptraj"])
             )  # input trajectory flag
@@ -341,11 +374,16 @@ class Simulation(Calculation):
             self.input_file,
             userPath=os.path.join(tempDir, os.path.basename(self.input_file)),
         )
-        if self.inptraj is not None:
-            self.read_files["inptraj"] = fileStore.readGlobalFile(
-                self.inptraj[0],
-                userPath=os.path.join(tempDir, os.path.basename(self.inptraj[0])),
-            )
+        if self._inptraj is not None:
+            fileStore.logToMaster(f"READING inputraj: {self._inptraj}")
+            try:
+                self.read_files["inptraj"] = fileStore.readGlobalFile(
+                    self._inptraj[0],
+                    userPath=os.path.join(tempDir, os.path.basename(self._inptraj[0])),
+                )
+            except:
+                fileStore.logToMaster(f"FAILED inptraj: {self._inptraj}")
+                sys.exit(1)
         if isinstance(self.restraint_file, RestraintMaker):
             # fileStore.logToMaster(f"RESTRAINT {self.restraint_file}")
             # fileStore.logToMaster(f"RESTRAINT {self.restraint_file.restraints}")
@@ -428,7 +466,7 @@ class REMDSimulation(Calculation):
         Sets up the REMD calculation. All it has to do is fill in the
         necessary command-line arguments
         """
-
+    
         self.exec_list.extend(("-n", str(self.num_cores)))
         self.exec_list.append(self.executable)
         self.exec_list.extend(("-ng", str(self.ng)))
@@ -518,10 +556,10 @@ class REMDSimulation(Calculation):
                 self.incrd[0],
                 userPath=os.path.join(tempDir, os.path.basename(self.incrd[0])),
             )
-        if self.inptraj is not None:
+        if self._inptraj is not None:
             self.read_files["inptraj"] = fileStore.readGlobalFile(
-                self.inptraj,
-                userPath=os.path.join(tempDir, os.path.basename(self.inptraj)),
+                self._inptraj,
+                userPath=os.path.join(tempDir, os.path.basename(self._inptraj)),
             )
 
         self._groupfile(fileStore)

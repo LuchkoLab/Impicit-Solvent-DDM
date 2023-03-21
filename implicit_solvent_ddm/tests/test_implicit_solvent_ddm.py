@@ -8,12 +8,11 @@ import time
 import parmed as pmd
 import pytest
 import yaml
+from implicit_solvent_ddm.config import Config
+from implicit_solvent_ddm.implicit_ddm_workflow import ddm_workflow
 from matplotlib.pyplot import get
 from toil.common import Toil
 from toil.job import Job
-
-from implicit_solvent_ddm.config import Config
-from implicit_solvent_ddm.implicit_ddm_workflow import ddm_workflow
 
 working_directory = os.getcwd()
 
@@ -153,7 +152,7 @@ def test_complex_ligand_charges(request, load_topology):
 # check complex parameter potential that host and guest have no interactions and ligand charge = 0
 def test_complex_exclusions(load_exclusions_no_charge):
 
-    output_solute_traj = load_parm7("mdgb/cb7-mol01/no_interactions/0.0/2.0/2.0/")
+    output_solute_traj = load_parm7("mdgb/cb7-mol01/no_interactions/0.0/0.0/2.0/2.0/")
 
     assert (
         output_solute_traj.parm_data["NUMBER_EXCLUDED_ATOMS"]

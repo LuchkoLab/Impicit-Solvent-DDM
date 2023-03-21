@@ -10,7 +10,7 @@
   ioutfm = $ioutfm
   ntb = 0
   
-
+  extdiel = $extdiel
   
   igb = $igb
   saltcon = $saltcon

@@ -6,6 +6,7 @@ import time
 from string import Template
 from typing import Optional, Union
 
+#import mdtraj as md
 import numpy as np
 import pandas as pd
 import parmed as pmd
@@ -16,157 +17,185 @@ from implicit_solvent_ddm.config import Config
 
 
 class FlatBottom(Job):
-    def __init__(self, config: Config, memory: Optional[Union[int, str]] = None, 
-                 cores: Optional[Union[int, float, str]] = None, 
-                 disk: Optional[Union[int, str]] = None, 
-                 preemptable: Optional[Union[bool, int, str]] = None, 
-                 unitName: Optional[str] = "", checkpoint: Optional[bool] = False, 
-                 displayName: Optional[str] = "", 
-                 descriptionClass: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        config: Config,
+        memory: Optional[Union[int, str]] = None,
+        cores: Optional[Union[int, float, str]] = None,
+        disk: Optional[Union[int, str]] = None,
+        preemptable: Optional[Union[bool, int, str]] = None,
+        unitName: Optional[str] = "",
+        checkpoint: Optional[bool] = False,
+        displayName: Optional[str] = "",
+        descriptionClass: Optional[str] = None,
+    ) -> None:
         """A receptor-ligand restraint using a flat potential well with harmonic walls.
 
-    A receptor-ligand restraint that uses flat potential inside the 
-    host/protein volume with harmonic restrainting walls. It will 
-    prevent the ligand drifting too far from the receptor during 
-    implicit solvent calculations. The ligand will be allow
-    for free movement in the “bound” region and sample still different 
-    binding modes. The restriant will be applied between the groups of 
-    atoms that belong to the receptor and ligand respectively. 
+        A receptor-ligand restraint that uses flat potential inside the
+        host/protein volume with harmonic restrainting walls. It will
+        prevent the ligand drifting too far from the receptor during
+        implicit solvent calculations. The ligand will be allow
+        for free movement in the “bound” region and sample still different
+        binding modes. The restriant will be applied between the groups of
+        atoms that belong to the receptor and ligand respectively.
 
-    Parameters
-    ----------
-    config : Config 
-        The config is an configuration file containing 
-        user input values 
-    
-    Attributes
-    ----------
-    well_radius : simtk.unit.Quantity, optional
-        The distance r0 (see energy expression above) at which the harmonic
-        restraint is imposed in units of distance (default is None).
-    restrained_receptor_atoms : iterable of int, int, or str, optional
-        The indices of the receptor atoms to restrain, an 
-        This can temporarily be left undefined, but ``_missing_parameters()``
-        will be called which will define receptor atoms by the provided AMBER masks.
-    restrained_ligand_atoms : iterable of int, int, or str, optional
-        The indices of the ligand atoms to restrain.
-        This can temporarily be left undefined, but ``_missing_parameters()``
-        will be called which will define ligand atoms by the provided AMBER masks.
-    flat_bottom_width: float, optional 
-        The distance r0  at which the harmonic restraint is imposed. 
-        The well with a square bottom between r2 and r3, with parabolic sides out 
-        to a defined distance. This has an default value of 5 Å if not provided. 
-    harmonic_restraint: float, optional 
-        The upper bound parabolic sides out to define distance 
-        (r1 and r4 for lower and upper bounds, respectively), 
-        and linear sides beyond that distance. This has an default 
-        value of 10 Å, if not provided. 
-    spring_constant: float 
-        The spring constant K in units compatible
-        with kJ/mol*nm^2 f (default is 1 kJ/mol*nm^2).
-    flat_bottom_restraints: dict, optional
-        User provided {r1, r2, r3, r4, rk2, rk3} restraint 
-        parameters. This can be temporily left undefined, but 
-        ``_missing_parameters()`` will be called which which would 
-        define all the restraint parameters. See example down below.
-    receptor_mask: str 
-        An AMBER mask which denotes all receptor atoms. 
-    ligand_mask: str 
-        An AMBER mask which denotes all ligand atoms.     
-    complex_topology: toil.fileStores.FileID
-        The complex paramter (.parm7) filepath. 
-    complex_coordinate: toil.fileStores.FileID
-        The complex coordinate (.ncrst, rst7, ect) filepath. 
-    """
-        super().__init__(memory, cores, disk, preemptable, unitName, checkpoint, displayName, descriptionClass)
-        #restraint parameters 
-        self.restrained_receptor_atoms = config.endstate_method.flat_bottom.restrained_receptor_atoms
-        self.restrained_ligand_atoms = config.endstate_method.flat_bottom.restrained_ligand_atoms
+        Parameters
+        ----------
+        config : Config
+            The config is an configuration file containing
+            user input values
+
+        Attributes
+        ----------
+        well_radius : simtk.unit.Quantity, optional
+            The distance r0 (see energy expression above) at which the harmonic
+            restraint is imposed in units of distance (default is None).
+        restrained_receptor_atoms : iterable of int, int, or str, optional
+            The indices of the receptor atoms to restrain, an
+            This can temporarily be left undefined, but ``_missing_parameters()``
+            will be called which will define receptor atoms by the provided AMBER masks.
+        restrained_ligand_atoms : iterable of int, int, or str, optional
+            The indices of the ligand atoms to restrain.
+            This can temporarily be left undefined, but ``_missing_parameters()``
+            will be called which will define ligand atoms by the provided AMBER masks.
+        flat_bottom_width: float, optional
+            The distance r0  at which the harmonic restraint is imposed.
+            The well with a square bottom between r2 and r3, with parabolic sides out
+            to a defined distance. This has an default value of 5 Å if not provided.
+        harmonic_restraint: float, optional
+            The upper bound parabolic sides out to define distance
+            (r1 and r4 for lower and upper bounds, respectively),
+            and linear sides beyond that distance. This has an default
+            value of 10 Å, if not provided.
+        spring_constant: float
+            The spring constant K in units compatible
+            with kJ/mol*nm^2 f (default is 1 kJ/mol*nm^2).
+        flat_bottom_restraints: dict, optional
+            User provided {r1, r2, r3, r4, rk2, rk3} restraint
+            parameters. This can be temporily left undefined, but
+            ``_missing_parameters()`` will be called which which would
+            define all the restraint parameters. See example down below.
+        receptor_mask: str
+            An AMBER mask which denotes all receptor atoms.
+        ligand_mask: str
+            An AMBER mask which denotes all ligand atoms.
+        complex_topology: toil.fileStores.FileID
+            The complex paramter (.parm7) filepath.
+        complex_coordinate: toil.fileStores.FileID
+            The complex coordinate (.ncrst, rst7, ect) filepath.
+        """
+        super().__init__(
+            memory,
+            cores,
+            disk,
+            preemptable,
+            unitName,
+            checkpoint,
+            displayName,
+            descriptionClass,
+        )
+        # restraint parameters
+        self.restrained_receptor_atoms = (
+            config.endstate_method.flat_bottom.restrained_receptor_atoms
+        )
+        self.restrained_ligand_atoms = (
+            config.endstate_method.flat_bottom.restrained_ligand_atoms
+        )
         self.flat_bottom_width = config.endstate_method.flat_bottom.flat_bottom_width
         self.harmonic_restraint = config.endstate_method.flat_bottom.harmonic_distance
         self.spring_constant = config.endstate_method.flat_bottom.spring_constant
-        self.flat_bottom_restraints = config.endstate_method.flat_bottom.flat_bottom_restraints
-        #amber masks
+        self.flat_bottom_restraints = (
+            config.endstate_method.flat_bottom.flat_bottom_restraints
+        )
+        # amber masks
         self.receptor_mask = config.amber_masks.receptor_mask
         self.ligand_mask = config.amber_masks.ligand_mask
-        #topology parameters 
+        # topology parameters
         self.complex_topology = config.endstate_files.complex_parameter_filename
         self.complex_coordinate = config.endstate_files.complex_coordinate_filename
-        
+
         self.readfiles = {}
-    
-    @property 
+
+    @property
     def _restrained_atoms_given(self) -> bool:
         """Check if the atoms were defined for ligand and receptor"""
-        
+
         for atoms in [self.restrained_receptor_atoms, self.restrained_ligand_atoms]:
             if atoms is None or not (isinstance(atoms, list)) and len(atoms) > 0:
-                return False 
-        return True 
-    
-    @property 
+                return False
+        return True
+
+    @property
     def _restraints_parameters_given(self) -> bool:
         """Check if the AMBER restraint parameters were given"""
         for parameters in [self.flat_bottom_restraints]:
-            if parameters is None or not (isinstance(parameters, dict)) and len(parameters) > 0:
-                return False 
+            if (
+                parameters is None
+                or not (isinstance(parameters, dict))
+                and len(parameters) > 0
+            ):
+                return False
         return True
-      
-    @property 
+
+    @property
     def _com_ligand(self) -> np.ndarray:
-        """ Compute ligand center of mass """
-        
+        """Compute ligand center of mass"""
+
         return pt.center_of_mass(self.complex_traj, mask=self.restrained_ligand_atoms)[-1]  # type: ignore
-    
-    @property 
+
+    @property
     def _com_receptor(self) -> np.ndarray:
-        """ Compute receptor center of mass """
-        
+        """Compute receptor center of mass"""
+
         return pt.center_of_mass(self.complex_traj, mask=self.restrained_receptor_atoms)[-1]  # type: ignore
-    
-    @property 
-    def _center_of_mass_difference(self)->float:
-        """ The center of mass difference between the receptor and ligand 
+
+    @property
+    def _center_of_mass_difference(self) -> float:
+        """The center of mass difference between the receptor and ligand
 
         Returns:
-            float: 
+            float:
         """
-        return float(abs(np.linalg.norm(np.subtract(self._com_receptor, self._com_ligand))))
-    
+        return float(
+            abs(np.linalg.norm(np.subtract(self._com_receptor, self._com_ligand)))
+        )
 
     @property
     def _r1(self):
         """Compute lower bound linear response region"""
-        
+
         return max(0, self._r2 - self.harmonic_restraint)
-    
+
     @property
     def _r2(self):
         """Compute lower bounds of the flat well"""
 
-        return max(0, self._center_of_mass_difference - self.flat_bottom_width)          
-    
-    @property 
+        return max(0, self._center_of_mass_difference - self.flat_bottom_width)
+
+    @property
     def _r3(self):
         """Compute the upper bound of the flat well"""
-        
-        return self._r2 + min(self._center_of_mass_difference + self.flat_bottom_width, 2 * self.flat_bottom_width)
-    
-    @property 
+
+        return self._r2 + min(
+            self._center_of_mass_difference + self.flat_bottom_width,
+            2 * self.flat_bottom_width,
+        )
+
+    @property
     def _r4(self):
-        """Compute upper bound linear response region """
-        
+        """Compute upper bound linear response region"""
+
         return self._r3 + self.harmonic_restraint
-    
+
     @property
     def _flat_bottom_restraints_template(self):
-        """Parse in flat bottom restraint template. 
-        
+        """Parse in flat bottom restraint template.
+
 
         Returns:
             _type_: str
-            return an string template with specified restraint 
-            parameters for AMBER (center of mass) flatbottom restraint file. 
+            return an string template with specified restraint
+            parameters for AMBER (center of mass) flatbottom restraint file.
         """
         restraint_path = os.path.abspath(
             os.path.join(
@@ -175,79 +204,79 @@ class FlatBottom(Job):
             )
         )
         string_template = ""
-        
-        
+
         with open(restraint_path) as f:
             template = Template(f.read())
 
             restraint_template = template.substitute(
-                host_atom_numbers = ','.join(
+                host_atom_numbers=",".join(
                     [str(atom_index + 1) for atom_index in self.restrained_receptor_atoms]  # type: ignore
                 ),
-                guest_atom_numbers=','.join(
+                guest_atom_numbers=",".join(
                     [str(atom_index + 1) for atom_index in self.restrained_ligand_atoms]  # type: ignore
                 ),
-                r1=self.flat_bottom_restraints["r1"], # type: ignore
-                r2=self.flat_bottom_restraints["r2"], # type: ignore
-                r3=self.flat_bottom_restraints["r3"], # type: ignore
-                r4=self.flat_bottom_restraints["r4"], # type: ignore
-                rk2=self.flat_bottom_restraints["rk2"], # type: ignore
-                rk3=self.flat_bottom_restraints["rk3"], # type: ignore
+                r1=self.flat_bottom_restraints["r1"],  # type: ignore
+                r2=self.flat_bottom_restraints["r2"],  # type: ignore
+                r3=self.flat_bottom_restraints["r3"],  # type: ignore
+                r4=self.flat_bottom_restraints["r4"],  # type: ignore
+                rk2=self.flat_bottom_restraints["rk2"],  # type: ignore
+                rk3=self.flat_bottom_restraints["rk3"],  # type: ignore
             )
 
             string_template += restraint_template
-       
+
         return string_template
-    
-    
+
     def _missing_parameters(self):
-        """"Automatically determine missing parameters"""
-        
+        """ "Automatically determine missing parameters"""
+
         if not self._restrained_atoms_given:
-            self._determine_restraint_atoms() 
-        
+            self._determine_restraint_atoms()
+
         if not self._restraints_parameters_given:
             self._determine_restraint_parameters()
-    
+
     def _determine_restraint_atoms(self):
         """Define receptor and ligand atoms by there respected AMBER masks"""
-        
-        self.restrained_receptor_atoms = self.topology.select(self.receptor_mask)  
+
+        self.restrained_receptor_atoms = self.topology.select(self.receptor_mask)
         self.restrained_ligand_atoms = self.topology.select(self.ligand_mask)
-        
+
     def _determine_restraint_parameters(self):
         """Define distance, harmonic and linear restraint values."""
-        
+
         self.flat_bottom_restraints = {}
         self.flat_bottom_restraints["r1"] = self._r1  # type: ignore
-        self.flat_bottom_restraints["r2"] = self._r2 # type: ignore
-        self.flat_bottom_restraints["r3"] = self._r3 # type: ignore
-        self.flat_bottom_restraints["r4"] = self._r4 # type: ignore
+        self.flat_bottom_restraints["r2"] = self._r2  # type: ignore
+        self.flat_bottom_restraints["r3"] = self._r3  # type: ignore
+        self.flat_bottom_restraints["r4"] = self._r4  # type: ignore
 
-        self.flat_bottom_restraints["rk2"] = self.spring_constant # type: ignore
-        self.flat_bottom_restraints["rk3"] = self.spring_constant # type: ignore
+        self.flat_bottom_restraints["rk2"] = self.spring_constant  # type: ignore
+        self.flat_bottom_restraints["rk3"] = self.spring_constant  # type: ignore
 
-    
-    def run(self,fileStore):
-        
+    def run(self, fileStore):
+
         fileStore.logToMaster("Creating FlatBottom Harmonic Restraints")
-        
+
         self.filestore = fileStore
         tempDir = fileStore.getLocalTempDir()
-        
+
         self.readfiles["prmtop"] = fileStore.readGlobalFile(
-            self.complex_topology, userPath=os.path.join(tempDir, os.path.basename(self.complex_topology))
+            self.complex_topology,
+            userPath=os.path.join(tempDir, os.path.basename(self.complex_topology)),
         )
         self.readfiles["incrd"] = fileStore.readGlobalFile(
-            self.complex_coordinate, userPath=os.path.join(tempDir, os.path.basename(self.complex_coordinate))
+            self.complex_coordinate,
+            userPath=os.path.join(tempDir, os.path.basename(self.complex_coordinate)),
         )
-        
-        
-        #load pytraj object 
-        self.complex_traj = pt.iterload(self.readfiles["incrd"],  self.readfiles["prmtop"])
-        
+
+        # load pytraj object
+        self.complex_traj = pt.iterload(
+            self.readfiles["incrd"], self.readfiles["prmtop"]
+        )
+
         self.topology = self.complex_traj.top
-        
+
         self._missing_parameters()
         fileStore.logToMaster("Setting restraint parameters:")
         fileStore.logToMaster(f"self.r1: {self._r1}")
@@ -256,85 +285,126 @@ class FlatBottom(Job):
         fileStore.logToMaster(f"self.r4: {self._r4}")
         fileStore.logToMaster(f"receptor atoms: {self.restrained_receptor_atoms}")
         fileStore.logToMaster(f"ligand atoms: {self.restrained_ligand_atoms}")
-        
+
         temp_file = fileStore.getLocalTempFile()
         with open(temp_file, "w") as fH:
             fH.write(self._flat_bottom_restraints_template)
 
         return fileStore.writeGlobalFile(temp_file)
-    
 
 
 class BoreschRestraints(Job):
-    def __init__(self,
-                 complex_prmtop, complex_coordinate,  
-                 restraint_type,
-                 restrained_receptor_atoms=None, restrained_ligand_atoms=None,
-                 K_r=None, r_aA0=None,
-                 K_thetaA=None, theta_A0=None,
-                 K_thetaB=None, theta_B0=None,
-                 K_phiA=None, phi_A0=None,
-                 K_phiB=None, phi_B0=None,
-                 K_phiC=None, phi_C0=None,
-                 memory: Optional[Union[int, str]] = None, cores: Optional[Union[int, float, str]] = None, 
-                 disk: Optional[Union[int, str]] = None, preemptable: Optional[Union[bool, int, str]] = None, 
-                 unitName: Optional[str] = "", checkpoint: Optional[bool] = False, displayName: Optional[str] = "", descriptionClass: Optional[str] = None) -> None:
-        super().__init__(memory, cores, disk, preemptable, unitName, checkpoint, displayName, descriptionClass)  
+    def __init__(
+        self,
+        complex_prmtop,
+        complex_coordinate,
+        restraint_type,
+        ligand_mask,
+        receptor_mask,
+        restrained_receptor_atoms: Optional[list] = None,
+        restrained_ligand_atoms=None,
+        K_r=None,
+        r_aA0=None,
+        K_thetaA=None,
+        theta_A0=None,
+        K_thetaB=None,
+        theta_B0=None,
+        K_phiA=None,
+        phi_A0=None,
+        K_phiB=None,
+        phi_B0=None,
+        K_phiC=None,
+        phi_C0=None,
+        memory: Optional[Union[int, str]] = None,
+        cores: Optional[Union[int, float, str]] = None,
+        disk: Optional[Union[int, str]] = None,
+        preemptable: Optional[Union[bool, int, str]] = None,
+        unitName: Optional[str] = "",
+        checkpoint: Optional[bool] = False,
+        displayName: Optional[str] = "",
+        descriptionClass: Optional[str] = None,
+    ) -> None:
+        super().__init__(
+            memory,
+            cores,
+            disk,
+            preemptable,
+            unitName,
+            checkpoint,
+            displayName,
+            descriptionClass,
+        )
         self.complex_prmtop = complex_prmtop
-        self.complex_coordinate = complex_coordinate 
+        self.complex_coordinate = complex_coordinate
         self.restraint_type = restraint_type
+        self.ligand_mask = ligand_mask
+        self.receptor_mask = receptor_mask
         self.restrained_receptor_atoms = restrained_receptor_atoms
         self.restrained_ligand_atoms = restrained_ligand_atoms
-        self.k_r = K_r
         self.r_aA0 = r_aA0
         self.K_thetaA = K_thetaA
-        self.theta_A0 = theta_A0
         self.K_thetaB = K_thetaB
-        self.theta_B0 = theta_B0
         self.K_phiA = K_phiA
-        self.phi_A0 = phi_A0
         self.K_phiB = K_phiB
-        self.phi_B0 = phi_B0
         self.K_phiC = K_phiC
-        self.phi_C0 = phi_C0
-    
-    def _determine_missing_atoms(self):
-        pass
-    
+
+
+    @property
+    def receptor_heavy_atoms(self):
+        return self._determine_heavy_atoms(self.traj[self.receptor_mask])
+
+    @property
+    def ligand_heavy_atoms(self):
+        return self._determine_heavy_atoms(self.traj[self.ligand_mask])
+
+        # We determine automatically only the parameters that have been left undefined.
+
+    def _assign_if_undefined(self, attr_name, attr_value):
+        """Assign value to self.name only if it is None."""
+        if getattr(self, attr_name) is None:
+            setattr(self, attr_name, attr_value)
+
     def _determine_atoms_specified_restraints(self, receptor, ligand):
-        
+        """Determines the ligand and receptor atom for distance restraints
+
+        Depending on user type of restraint selected:
+        restraint_type=1 Determine the heavy atoms closest between
+            receptor and ligand center of mass (COM)
+        restraint_type=2: Using ligand-COM heavy atom searches the shortest distance for
+            any receptor heavy atom
+        restraint_type=3: Selects the shortest distance between any receptor and ligand atoms
+
+        Returns:
+            _type_: _description_
+        """
         if self.restraint_type == 3:
-            
+
             return shortest_distance_between_molecules(receptor, ligand)
-        
-        ligand_atom, ligand_atom_coord, remove = screen_for_distance_restraints(ligand.n_atoms, 
-                                                                        pt.center_of_mass(ligand),
-                                                                        ligand) 
+
+        ligand_atom, ligand_atom_coord, remove = screen_for_distance_restraints(
+            ligand.n_atoms, pt.center_of_mass(ligand), ligand
+        )
         if self.restraint_type == 2:
-            receptor_a1, rec_a1_coords, dist_rest = screen_for_distance_restraints(receptor.n_atoms,
-            ligand_atom_coord, receptor)
-            
+            receptor_a1, rec_a1_coords, dist_rest = screen_for_distance_restraints(
+                receptor.n_atoms, ligand_atom_coord, receptor
+            )
+
             return ligand_atom, ligand_atom_coord, receptor_a1, rec_a1_coords, dist_rest
-        
-        # else default restraint type = 1 
-        receptor_a1, rec_a1_coords, dist_reca1_com = screen_for_distance_restraints(receptor.n_atoms,
-             receptor_com, receptor
+
+        # else default restraint type = 1
+        receptor_a1, rec_a1_coords, dist_reca1_com = screen_for_distance_restraints(
+            receptor.n_atoms, receptor_com, receptor
         )
         dist_rest = distance_calculator(ligand_atom_coord, rec_a1_coords)
-        
+
         return ligand_atom, ligand_atom_coord, receptor_a1, rec_a1_coords, dist_rest
-    
-    def _determine_restraint_parameters(self):
-        min_angle = 80
-        max_angle = 100
-        num_atoms = mol.n_atoms
-        atom_coords = mol.xyz[0]
-        atom2_position = []
-        atom3_position = []
+
+    def _determine_heavy_atoms(self, molecule):
+
         # ignore protons return a list of heavy atoms
         no_protons = list(
             itertools.filterfalse(
-                lambda atom: atom.name.startswith("H"), mol.topology.atoms
+                lambda atom: atom.name.startswith("H"), molecule.topology.atoms
             )
         )
 
@@ -342,21 +412,23 @@ class BoreschRestraints(Job):
         no_proton_pairs = list(itertools.permutations(no_protons, r=2))
 
         # get parmed infomation of the second atom
-        parmed_atoms = [parmed_traj.atoms[atom[1].index] for atom in no_proton_pairs]
+        parmed_atoms = [self.parm.atoms[atom[1].index] for atom in no_proton_pairs]
 
         # if the atom have more than 1 heavy atom bond
         heavy_atoms = list(map(refactor_find_heavy_bonds, parmed_atoms))
 
         only_heavy_pairs = [x for x, y in zip(no_proton_pairs, heavy_atoms) if y]
 
-        saved_average_distance_value = 0
-        self.check_suitable_restraints()
+        return only_heavy_pairs
+
     
-    
-    def check_suitable_restraints(self, atom_combination, atom1_position,atomx_position):
-        
+
+    def check_suitable_restraints(
+        self, atom_combination, atom1_position, atomx_position
+    ):
+
         atom2_position = atom_combination[0].index
-        atom3_position = atom_combination[1].index 
+        atom3_position = atom_combination[1].index
         angle_a1a2 = find_angle(atom2_position, atom1_position, atomx_position)
         angle_a2a3 = find_angle(atom3_position, atom2_position, atom1_position)
 
@@ -364,21 +436,24 @@ class BoreschRestraints(Job):
         new_distance_a2a3 = distance_calculator(atom2_position, atom3_position)
         new_distance_a3_norm_a1a2 = norm_distance(
             atom1_position, atom2_position, atom3_position
-        ) 
-        
-        if  (
+        )
+
+        if (
             angle_a1a2 > min_angle
             and angle_a1a2 < max_angle
             and angle_a2a3 > min_angle
             and angle_a2a3 < max_angle
-            and (new_distance_a1a2 + new_distance_a3_norm_a1a2) / 2 > saved_average_distance_value
+            and (new_distance_a1a2 + new_distance_a3_norm_a1a2) / 2
+            > saved_average_distance_value
         ):
-        
+
             torsion_angle = wikicalculate_dihedral_angle(
-            atomx_position, atom1_position, atom2_position, atom3_position
+                atomx_position, atom1_position, atom2_position, atom3_position
             )
-            
-            if (new_distance_a1a2 + new_distance_a3_norm_a1a2) / 2 > saved_average_distance_value:
+
+            if (
+                new_distance_a1a2 + new_distance_a3_norm_a1a2
+            ) / 2 > saved_average_distance_value:
                 saved_distance_a1a2_value = new_distance_a1a2
                 saved_distance_a2a3_value = new_distance_a2a3
 
@@ -395,148 +470,194 @@ class BoreschRestraints(Job):
                 selected_atom2_name = atom[0]
                 selected_atom3_name = atom[1]
                 suitable_restraint = True
-        
-        return      
-        
-    def run(self, fileStore):
-        
-        
-        tempdir = fileStore.getLocalTempDir()
 
-        atom = self._find_best_match_atoms()
+        return
+
+    def _determine_angles(self):
+
+        pass
+
+    def run(self, fileStore):
+
+        temp_dir = fileStore.getLocalTempDir()
+        complex_prmtop_ID = fileStore.readGlobalFile(
+            self.complex_prmtop,
+            userPath=os.path.join(temp_dir, os.path.basename(self.complex_prmtop)),
+        )
+        complex_coordinate_ID = fileStore.readGlobalFile(
+            self.complex_coordinate,
+            userPath=os.path.join(
+                temp_dir, os.path.basename(self.complex_coordinate[0])
+            ),
+        )
+
+        self.traj = pt.load(complex_coordinate_ID, complex_prmtop_ID)
+        self.parm = pmd.load_file(complex_prmtop_ID)
+        
+        self._determine_angles()
+        self._determine_atoms_specified_restraints(receptor=receptor, ligand=ligand)
+        
     class SetupBoreschRestraints:
-        pass 
-    
+        pass
+
+
 class RestraintMaker(Job):
-    def __init__(self,  config: Config, conformational_template=None, orientational_template=None) -> None:
+    def __init__(
+        self, config: Config, conformational_template=None, orientational_template=None
+    ) -> None:
         super().__init__()
         self.complex_restraint_file = config.intermidate_args.complex_restraint_files
         self.ligand_restraint_file = config.intermidate_args.guest_restraint_files
         self.receptor_restraint_file = config.intermidate_args.receptor_restraint_files
-        self.conformational_forces = config.intermidate_args.conformational_restraints_forces
-        self.orientational_forces = config.intermidate_args.orientational_restriant_forces
-        self.config = config 
+        self.conformational_forces = (
+            config.intermidate_args.conformational_restraints_forces
+        )
+        self.orientational_forces = (
+            config.intermidate_args.orientational_restriant_forces
+        )
+        self.config = config
         self.restraints = {}
-    
-    
-    def run(self,fileStore):
-        
-        for index, (conformational_force, orientational_force) in enumerate(zip(
+
+    def run(self, fileStore):
+
+        for index, (conformational_force, orientational_force) in enumerate(
+            zip(
                 self.config.intermidate_args.conformational_restraints_forces,
-                self.config.intermidate_args.orientational_restriant_forces)):
-            
+                self.config.intermidate_args.orientational_restriant_forces,
+            )
+        ):
+
             if len(self.ligand_restraint_file) == 0:
-                    
-                conformational_restraints = self.addChildJobFn(get_conformational_restraints, 
-                            self.config.endstate_files.complex_parameter_filename,
-                            self.config.inputs["endstate_complex_lastframe"],
-                            self.config.amber_masks.receptor_mask,
-                            self.config.amber_masks.ligand_mask)
-                
+
+                conformational_restraints = self.addChildJobFn(
+                    get_conformational_restraints,
+                    self.config.endstate_files.complex_parameter_filename,
+                    self.config.inputs["endstate_complex_lastframe"],
+                    self.config.amber_masks.receptor_mask,
+                    self.config.amber_masks.ligand_mask,
+                )
+
                 self.conformational_restraints = conformational_restraints
-                
-                orientational_restraints = self.addChildJobFn(get_orientational_restraints,
-                self.config.endstate_files.complex_parameter_filename,
-                self.config.inputs["endstate_complex_lastframe"],
-                self.config.amber_masks.receptor_mask,
-                self.config.amber_masks.ligand_mask,
-                self.config.intermidate_args.restraint_type,
-                self.config.intermidate_args.max_orientational_restraint,
-                self.config.intermidate_args.max_conformational_restraint)
-                
+
+                orientational_restraints = self.addChildJobFn(
+                    get_orientational_restraints,
+                    self.config.endstate_files.complex_parameter_filename,
+                    self.config.inputs["endstate_complex_lastframe"],
+                    self.config.amber_masks.receptor_mask,
+                    self.config.amber_masks.ligand_mask,
+                    self.config.intermidate_args.restraint_type,
+                    self.config.intermidate_args.max_orientational_restraint,
+                    self.config.intermidate_args.max_conformational_restraint,
+                )
+
                 self.boresch_deltaG = orientational_restraints.rv(1)
-                
+
                 self.restraints[
-                f"ligand_{conformational_force}_rst"] = self.addFollowOnJobFn(
-                write_restraint_forces,
-                conformational_restraints.rv(1),
-                conformational_force=conformational_force).rv()
-                    
+                    f"ligand_{conformational_force}_rst"
+                ] = self.addFollowOnJobFn(
+                    write_restraint_forces,
+                    conformational_restraints.rv(1),
+                    conformational_force=conformational_force,
+                ).rv()
+
                 self.restraints[
-                    f"receptor_{conformational_force}_rst"] =  self.addFollowOnJobFn(
+                    f"receptor_{conformational_force}_rst"
+                ] = self.addFollowOnJobFn(
                     write_restraint_forces,
                     conformational_restraints.rv(2),
-                    conformational_force=conformational_force).rv()
-                
+                    conformational_force=conformational_force,
+                ).rv()
+
                 self.restraints[
-                    f"complex_{conformational_force}_{orientational_force}_rst"] = self.addFollowOnJobFn(
+                    f"complex_{conformational_force}_{orientational_force}_rst"
+                ] = self.addFollowOnJobFn(
                     write_restraint_forces,
                     conformational_restraints.rv(0),
                     orientational_restraints.rv(0),
                     conformational_force=conformational_force,
-                    orientational_force=orientational_force).rv()
+                    orientational_force=orientational_force,
+                ).rv()
             else:
-                self.restraints[f"ligand_{conformational_force}_rst"] = self.ligand_restraint_file[index]
-                    
                 self.restraints[
-                    f"receptor_{conformational_force}_rst"] = self.receptor_restraint_file[index]
-                
+                    f"ligand_{conformational_force}_rst"
+                ] = self.ligand_restraint_file[index]
+
                 self.restraints[
-                    f"complex_{conformational_force}_{orientational_force}_rst"] = self.complex_restraint_file[index]
-        
+                    f"receptor_{conformational_force}_rst"
+                ] = self.receptor_restraint_file[index]
+
+                self.restraints[
+                    f"complex_{conformational_force}_{orientational_force}_rst"
+                ] = self.complex_restraint_file[index]
+
         if self.complex_restraint_file:
-            self.boresch_deltaG = self._get_boresch_parameters(fileStore.readGlobalFile(
-                self.complex_restraint_file[-1], 
-                userPath=os.path.join(self.tempDir, os.path.basename(self.complex_restraint_file[-1])))
+            self.boresch_deltaG = self._get_boresch_parameters(
+                fileStore.readGlobalFile(
+                    self.complex_restraint_file[-1],
+                    userPath=os.path.join(
+                        self.tempDir, os.path.basename(self.complex_restraint_file[-1])
+                    ),
+                )
             )
-            
+
         return self
-    
-    
+
     def add_complex_window(self, conformational_force, orientational_force):
-        
+
         return self.addChildJobFn(
-                write_restraint_forces,
-                self.conformational_restraints.rv(0),
-                self.orientational_restraints.rv(0),
-                conformational_force=conformational_force,
-                orientational_force=orientational_force).rv()
-    
-    def add_ligand_window(self, system,  conformational_force):
-        
+            write_restraint_forces,
+            self.conformational_restraints.rv(0),
+            self.orientational_restraints.rv(0),
+            conformational_force=conformational_force,
+            orientational_force=orientational_force,
+        ).rv()
+
+    def add_ligand_window(self, system, conformational_force):
+
         return self.addChildJobFn(
             write_restraint_forces,
             self.conformational_restraints.rv(1),
-            conformational_force=conformational_force).rv()
-        
+            conformational_force=conformational_force,
+        ).rv()
+
     def add_receptor_window(self, conformational_force):
-            
+
         return self.addFollowOnJobFn(
             write_restraint_forces,
             self.conformational_restraints.rv(2),
-            conformational_force=conformational_force).rv()
+            conformational_force=conformational_force,
+        ).rv()
 
     def _get_boresch_parameters(self, restraint_filename):
-        '''
-            Get the Boresch parameter from user provided restraint files.
-            
-            The purpose is to read an .RST file. This script assumes the user 
-            formated the .RST file correctly with the 6 orientational restraints
-            at the top of the file. The method will scan each line and find a 
-            floating point number ignoring integers (atom numbers).
-            The order list follows:
-            1. The first floating point number should corresponds to distance(r) restraint
-                between the select host/guest atom. 
-            2. The second is the conformational restraint force constant
+        """
+        Get the Boresch parameter from user provided restraint files.
 
-            Returns
-            -------
-            boresch_parameter: pd.DataFrame()
-        '''
-        #read in the orientational file with the MAX restraint forces 
-        
+        The purpose is to read an .RST file. This script assumes the user
+        formated the .RST file correctly with the 6 orientational restraints
+        at the top of the file. The method will scan each line and find a
+        floating point number ignoring integers (atom numbers).
+        The order list follows:
+        1. The first floating point number should corresponds to distance(r) restraint
+            between the select host/guest atom.
+        2. The second is the conformational restraint force constant
+
+        Returns
+        -------
+        boresch_parameter: pd.DataFrame()
+        """
+        # read in the orientational file with the MAX restraint forces
+
         with open(restraint_filename) as f:
             restraints = f.readlines()
-        
+
         values = []
         for line in restraints:
-            #if number is floating point number
+            # if number is floating point number
             current_line = re.search(r"\d*\.\d*", line)
             if current_line is not None:
-               values.append(float(current_line[0]))
-        
-        
-        return(compute_boresch_restraints(
+                values.append(float(current_line[0]))
+
+        return compute_boresch_restraints(
             dist_restraint_r=values[0],
             angle1_rest_val=values[2],
             angle2_rest_val=values[4],
@@ -545,19 +666,23 @@ class RestraintMaker(Job):
             angle2_rest_Ktheta2=values[3],
             torsion1_rest_Kphi1=values[3],
             torsion2_rest_Kphi2=values[3],
-            torsion3_rest_Kphi3=values[3]            
-        ))
-        
+            torsion3_rest_Kphi3=values[3],
+        )
+
     @staticmethod
-    def get_restraint_file(restraint_obj, system, conformational_force, orientational_force=None):
-        
-        if system == 'ligand':
+    def get_restraint_file(
+        restraint_obj, system, conformational_force, orientational_force=None
+    ):
+
+        if system == "ligand":
             return restraint_obj[f"ligand_{conformational_force}_rst"]
-        
+
         elif system == "receptor":
             return restraint_obj[f"receptor_{conformational_force}_rst"]
         else:
-            return restraint_obj[f"complex_{conformational_force}_{orientational_force}_rst"]
+            return restraint_obj[
+                f"complex_{conformational_force}_{orientational_force}_rst"
+            ]
 
 
 def get_conformational_restraints(
@@ -677,24 +802,24 @@ def get_orientational_restraints(
 
     if restraint_type == 1:
         # find atom closest to ligand's CoM and relevand information
-        ligand_suba1, lig_a1_coords, dist_liga1_com = screen_for_distance_restraints(ligand.n_atoms, 
-            ligand_com, ligand
+        ligand_suba1, lig_a1_coords, dist_liga1_com = screen_for_distance_restraints(
+            ligand.n_atoms, ligand_com, ligand
         )
         ligand_a1 = receptor.n_atoms + ligand_suba1
         dist_liga1_com = distance_calculator(lig_a1_coords, ligand_com)
-        receptor_a1, rec_a1_coords, dist_reca1_com = screen_for_distance_restraints(receptor.n_atoms,
-             receptor_com, receptor
+        receptor_a1, rec_a1_coords, dist_reca1_com = screen_for_distance_restraints(
+            receptor.n_atoms, receptor_com, receptor
         )
         dist_rest = distance_calculator(lig_a1_coords, rec_a1_coords)
 
     elif restraint_type == 2:
         # find atom closest to ligand's CoM and relevand information
-        ligand_suba1, lig_a1_coords, dist_liga1_com = screen_for_distance_restraints(ligand.n_atoms,
-            ligand_com, ligand
+        ligand_suba1, lig_a1_coords, dist_liga1_com = screen_for_distance_restraints(
+            ligand.n_atoms, ligand_com, ligand
         )
         ligand_a1 = receptor.n_atoms + ligand_suba1
-        receptor_a1, rec_a1_coords, dist_rest = screen_for_distance_restraints(receptor.n_atoms,
-            lig_a1_coords, receptor
+        receptor_a1, rec_a1_coords, dist_rest = screen_for_distance_restraints(
+            receptor.n_atoms, lig_a1_coords, receptor
         )
 
     elif restraint_type == 3:
@@ -711,8 +836,8 @@ def get_orientational_restraints(
         raise RuntimeError(
             "Invalid --r1 type input, must be 1,2 or 3 to choose type of restraint"
         )
-    
-    '''
+
+    """
     return (
         selected_atom2,
         saved_atom2_position,
@@ -725,7 +850,7 @@ def get_orientational_restraints(
         saved_atom3_position,
     )
     )
-    '''
+    """
     (
         ligand_suba2,
         lig_a2_coords,
@@ -739,7 +864,7 @@ def get_orientational_restraints(
     ) = refactor_screen_arrays_for_angle_restraints(
         lig_a1_coords, rec_a1_coords, ligand, parmed_traj
     )
-    ''' (
+    """ (
         ligand_suba2,
         ligand_atom2_name,
         lig_a2_coords,
@@ -754,7 +879,7 @@ def get_orientational_restraints(
     ) = screen_arrays_for_angle_restraints(
         lig_a1_coords, rec_a1_coords, ligand, parmed_traj, traj_complex
     )
-    '''
+    """
     ligand_a2 = receptor.n_atoms + ligand_suba2
     ligand_a3 = receptor.n_atoms + ligand_suba3
 
@@ -771,10 +896,11 @@ def get_orientational_restraints(
     ) = refactor_screen_arrays_for_angle_restraints(
         rec_a1_coords, lig_a1_coords, receptor, parmed_traj
     )
-   
+
     central_torsion = wikicalculate_dihedral_angle(
-        rec_a2_coords, rec_a1_coords, lig_a1_coords, lig_a2_coords)
-    
+        rec_a2_coords, rec_a1_coords, lig_a1_coords, lig_a2_coords
+    )
+
     orientaional_conformational_template = orientational_restraints_template(
         receptor_a3,
         receptor_a2,
@@ -809,7 +935,8 @@ def get_orientational_restraints(
             max_torisonal_rest,
         ),
     )
-    
+
+
 def write_restraint_forces(
     job,
     conformational_template,
@@ -853,17 +980,17 @@ def write_restraint_forces(
 
     return job.fileStore.writeGlobalFile("restraint.RST")
 
-  
+
 def compute_boresch_restraints(
-    dist_restraint_r:float,
-    angle1_rest_val:float,
-    angle2_rest_val:float,
-    dist_rest_Kr:float,
-    angle1_rest_Ktheta1:float,
-    angle2_rest_Ktheta2:float,
-    torsion1_rest_Kphi1:float,
-    torsion2_rest_Kphi2:float,
-    torsion3_rest_Kphi3:float,
+    dist_restraint_r: float,
+    angle1_rest_val: float,
+    angle2_rest_val: float,
+    dist_rest_Kr: float,
+    angle1_rest_Ktheta1: float,
+    angle2_rest_Ktheta2: float,
+    torsion1_rest_Kphi1: float,
+    torsion2_rest_Kphi2: float,
+    torsion3_rest_Kphi3: float,
 ):
     """
     Analytically calculate the DeltaG of Boresch restraints contribution
@@ -873,7 +1000,7 @@ def compute_boresch_restraints(
 
     """
 
-    Rgas = 8.31446261815324 #Ideal Gas constant (J)/(mol*K)
+    Rgas = 8.31446261815324  # Ideal Gas constant (J)/(mol*K)
     kB = (
         Rgas / 4184
     )  # Converting from Joules to kcal units (kB = Rgas when using molar units)
@@ -910,7 +1037,7 @@ def compute_boresch_restraints(
     df["Kphi2"] = [torsion2_rest_Kphi2]
     df["Kphi3"] = [torsion3_rest_Kphi3]
     df["DeltaG"] = [result]
-    
+
     return df
 
 
@@ -1087,9 +1214,9 @@ def distance_btw_center_of_mass(com, mol):
     num_atoms: int
         Total number of atoms in specified system
     com: numpy.ndarry
-        Center of mass of Host or Guest system 
+        Center of mass of Host or Guest system
     mol: pytraj.trajectory.trajectory.Trajectory
-        Pytraj trajectory file of HOST or guest system 
+        Pytraj trajectory file of HOST or guest system
 
     Returns
     -------
@@ -1121,7 +1248,7 @@ def distance_btw_center_of_mass(com, mol):
     selected_atom_parmindex = atom_chosen.index + 1
     selected_atom_position = all_atom_coords[atom_chosen.index]
     selected_atom_position = np.array([selected_atom_position])
-    
+
     print("--- %s seconds ---" % (time.time() - start_time))
     return selected_atom_parmindex, selected_atom_position, shortest_distance
 
@@ -1139,7 +1266,7 @@ def screen_for_distance_restraints(num_atoms, com, mol):
     com: numpy.ndarry
         Center of mass of complex
     mol: pytraj.trajectory.trajectory.Trajectory
-        Pytraj trajectory file of HOST or guest system 
+        Pytraj trajectory file of HOST or guest system
 
     Returns
     -------
@@ -1211,7 +1338,6 @@ def shortest_distance_between_molecules(receptor_mol, ligand_mol):
             The distance between the atoms chosen
     """
 
-
     start_time = time.time()
 
     mole_a_all_atoms = ligand_mol.xyz[0]
@@ -1273,6 +1399,7 @@ def shortest_distance_between_molecules(receptor_mol, ligand_mol):
         receptor_selected_atom_position,
         shortest_distance,
     )
+
 
 def screen_for_shortest_distant_restraint(receptor_mol, ligand_mol):
     """
@@ -1463,7 +1590,7 @@ def screen_arrays_for_angle_restraints(
                                             new_distance_a1a2
                                             + new_distance_a3_norm_a1a2
                                         ) / 2
-                                        saved_average_distance_value=saved_a3norm_distance_value #update distance 
+                                        saved_average_distance_value = saved_a3norm_distance_value  # update distance
                                         saved_angle_a2a3 = angle_a2a3
                                         saved_angle_a1a2 = angle_a1a2
                                         saved_torsion_angle = torsion_angle
@@ -1473,8 +1600,7 @@ def screen_arrays_for_angle_restraints(
                                         selected_atom3 = j + 1
                                         selected_atom2_name = atom2_name
                                         selected_atom3_name = atom3_name
-                                        
-                                        
+
                                     k += 1
 
                     j += 1
@@ -1530,23 +1656,23 @@ def refactor_screen_arrays_for_angle_restraints(
     atom1_position, atomx_position, mol, parmed_traj
 ):
     """
-    This function screens the arrays of atom coordinate between Host and Guest systems. 
-    
-    Purpose is to find 3 atoms of ligand/Host system which give the best match for Boresch restraints 
+    This function screens the arrays of atom coordinate between Host and Guest systems.
+
+    Purpose is to find 3 atoms of ligand/Host system which give the best match for Boresch restraints
 
     Parameters:
     -----------
-    atom1_position: numpy.ndarray 
-        coordinates of selected atom 
-    atomx_position: numpy.ndarray 
-        coordinate of selected atom  
-    mol: pytraj.Trajectory 
+    atom1_position: numpy.ndarray
+        coordinates of selected atom
+    atomx_position: numpy.ndarray
+        coordinate of selected atom
+    mol: pytraj.Trajectory
         molecule object with multipole attributes, coords, atom names, etc.
     parmed_traj: parmed.amber._amberparm.AmberParm
-        parmed molecule object with atom name attributes 
+        parmed molecule object with atom name attributes
 
     """
-   
+
     min_angle = 80
     max_angle = 100
     num_atoms = mol.n_atoms
@@ -1573,7 +1699,7 @@ def refactor_screen_arrays_for_angle_restraints(
 
     saved_average_distance_value = 0
     suitable_restraint = False
-    
+
     while not suitable_restraint:
         for atom_index, atom in enumerate(only_heavy_pairs):
             atom2_position = atom_coords[
@@ -1619,9 +1745,11 @@ def refactor_screen_arrays_for_angle_restraints(
                     selected_atom2_name = atom[0]
                     selected_atom3_name = atom[1]
                     suitable_restraint = True
-                    print(f"print(saved_average_distance_value) refactor {saved_average_distance_value}")
+                    print(
+                        f"print(saved_average_distance_value) refactor {saved_average_distance_value}"
+                    )
         if not suitable_restraint:
-            
+
             if min_angle > 10:
                 print(min_angle)
                 min_angle -= 1
@@ -1788,9 +1916,7 @@ def norm_distance(point_a, point_b, point_c):
 if __name__ == "__main__":
 
     # traj = pt.load("/home/ayoub/nas0/Impicit-Solvent-DDM/success_postprocess/mdgb/split_complex_folder/ligand/split_M01_000.ncrst.1", "/home/ayoub/nas0/Impicit-Solvent-DDM/success_postprocess/mdgb/M01_000/4/4.0/M01_000.parm7")
-    complex_coord = (
-        "/home/ayoub/nas0/Impicit-Solvent-DDM/barton_source/cb7-mol02_hmass_298K_lastframe.ncrst"
-    )
+    complex_coord = "/home/ayoub/nas0/Impicit-Solvent-DDM/barton_source/cb7-mol02_hmass_298K_lastframe.ncrst"
     complex_parm = (
         "/home/ayoub/nas0/Impicit-Solvent-DDM/barton_source/cb7-mol02_hmass.parm7"
     )
@@ -1802,16 +1928,15 @@ if __name__ == "__main__":
     ligand_com = pt.center_of_mass(ligand)
     receptor_com = pt.center_of_mass(receptor)
 
-    
     # find atom closest to ligand's CoM and relevand information
     # ligand_suba1, lig_a1_coords, dist_liga1_com = distance_btw_center_of_mass(
-    
+
     receptor_atom_neighbor_index = create_atom_neighbor_array(receptor.xyz[0])
     ligand_atom_neighbor_index = create_atom_neighbor_array(ligand.xyz[0])
 
     print("receptor_atom_neighbor_index")
     print(receptor_atom_neighbor_index)
-    print("-"*80)
+    print("-" * 80)
     print("ligand_atom_neighbor_index")
     print(ligand_atom_neighbor_index)
     ligand_template = conformational_restraints_template(ligand_atom_neighbor_index)

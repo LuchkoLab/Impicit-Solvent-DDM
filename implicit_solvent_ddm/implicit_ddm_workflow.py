@@ -6,6 +6,7 @@ import os.path
 import re
 import time
 from pathlib import Path
+from typing import List
 
 import numpy as np
 import yaml
@@ -15,7 +16,8 @@ from toil.job import Job, JobFunctionWrappingJob
 from implicit_solvent_ddm.alchemical import (alter_topology,
                                              split_complex_system)
 from implicit_solvent_ddm.config import Config
-from implicit_solvent_ddm.mdin import generate_replica_mdin, get_mdins
+from implicit_solvent_ddm.mdin import (generate_replica_mdin, get_mdins,
+                                       make_mdin)
 from implicit_solvent_ddm.postTreatment import (PostTreatment,
                                                 consolidate_output)
 from implicit_solvent_ddm.restraints import (FlatBottom, RestraintMaker,
@@ -58,19 +60,6 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
     ligand_receptor_dirstruct = "dirstruct_apo"
     complex_dirstruct = "dirstruct_halo"
 
-    # setup_inputs = job.wrapJobFn(
-    #     get_intermidate_parameter_files,
-    #     config.endstate_files.complex_parameter_filename,
-    #     config.endstate_files.complex_coordinate_filename,
-    #     config.amber_masks.ligand_mask,
-    #     config.amber_masks.receptor_mask,
-    # )
-    # job.addChild(setup_inputs)
-
-    # #set parameter files
-    # config.inputs["ligand_no_charge_parm_ID"] = setup_inputs.rv(0)
-    # config.inputs["complex_ligand_no_charge_ID"] = setup_inputs.rv(1)
-    # config.inputs["complex_no_ligand_interaction_ID"] = setup_inputs.rv(2)
 
     # set intermidate mdin files
     mdins = job.addChildJobFn(
@@ -257,8 +246,6 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                     config.endstate_method.remd_args.target_temperature,
                 )
             )
-            # config.inputs["endstate_ligand_traj"] = extract_ligand_traj.rv(0)
-            # config.inputs["endstate_ligand_lastframe"] = extract_ligand_traj.rv(1)
 
             if not workflow.ignore_receptor_endstate:
                 minimization_receptor = remd_complex.addChild(
@@ -335,7 +322,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                 )
                 config.inputs["endstate_receptor_traj"] = extract_receptor.rv(0)
                 config.inputs["endstate_receptor_lastframe"] = extract_receptor.rv(1)
-            # use loaded receptor completed trajectory
+            #use loaded receptor completed trajectory
             else:
                 extract_receptor = remd_complex.addChild(
                     ExtractTrajectories(
@@ -375,7 +362,9 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                 config.endstate_files.receptor_coordinate_filename,
             )
         )
-        config.inputs["endstate_receptor_traj"] = extract_receptor_traj.rv(0)
+        config.inputs[
+            "endstate_receptor_traj"
+        ] = config.endstate_files.receptor_coordinate_filename
         config.inputs["endstate_receptor_lastframe"] = extract_receptor_traj.rv(1)
 
     if config.workflow.vina_dock:
@@ -417,7 +406,9 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             "topology": config.endstate_files.complex_parameter_filename,
             "state_label": "endstate",
             "traj_charge": 1.0,
+            "extdiel": 78.5,
             "charge": 1.0,
+            "traj_extdiel": 78.5,
             "igb": f"igb_{config.intermidate_args.igb_solvent}",
             "igb_value": config.intermidate_args.igb_solvent,
             "conformational_restraint": 0.0,
@@ -431,7 +422,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             "trajectory_restraint_orenrest": 0.0,
         }
         complex_endstate_postprocess = Simulation(
-            executable=config.system_settings.executable,
+            executable="sander.MPI",
             mpi_command=config.system_settings.mpi_command,
             num_cores=config.num_cores_per_system.complex_ncores,
             prmtop=config.endstate_files.complex_parameter_filename,
@@ -442,6 +433,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             system_type="complex",
             dirstruct="post_process_halo",
             inptraj=[config.inputs["endstate_complex_traj"]],
+            post_analysis=True,
             working_directory=config.system_settings.working_directory,
             memory=config.system_settings.memory,
             disk=config.system_settings.disk,
@@ -457,6 +449,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             "topology": config.endstate_files.ligand_parameter_filename,
             "state_label": "endstate",
             "charge": 1.0,
+            "extdiel": 78.5,
             "igb": f"igb_{config.intermidate_args.igb_solvent}",
             "igb_value": config.intermidate_args.igb_solvent,
             "conformational_restraint": 0.0,
@@ -464,6 +457,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             "runtype": "remd",
             "traj_state_label": "endstate",
             "traj_charge": 1.0,
+            "traj_extdiel": 78.5,
             "topdir": config.system_settings.top_directory_path,
             "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
             "filename": "state_2_endstate_postprocess",
@@ -471,7 +465,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
         }
 
         ligand_endstate_postprocess = Simulation(
-            executable=config.system_settings.executable,
+            executable="sander.MPI",
             mpi_command=config.system_settings.mpi_command,
             num_cores=config.num_cores_per_system.ligand_ncores,
             prmtop=config.endstate_files.ligand_parameter_filename,
@@ -482,6 +476,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             system_type="ligand",
             dirstruct="post_process_apo",
             inptraj=[extract_ligand_traj.rv(0)],
+            post_analysis=True,
             working_directory=config.system_settings.working_directory,
             memory=config.system_settings.memory,
             disk=config.system_settings.disk,
@@ -496,6 +491,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             "topology": config.endstate_files.receptor_parameter_filename,
             "state_label": "endstate",
             "charge": 1.0,
+            "extdiel": 78.5,
             "igb": f"igb_{config.intermidate_args.igb_solvent}",
             "igb_value": config.intermidate_args.igb_solvent,
             "conformational_restraint": 0.0,
@@ -503,13 +499,14 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             "runtype": "remd",
             "traj_state_label": "endstate",
             "traj_charge": 1.0,
+            "traj_extdiel": 78.5,
             "topdir": config.system_settings.top_directory_path,
             "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
             "filename": "state_2_endstate_postprocess",
             "trajectory_restraint_conrest": 0.0,
         }
         receptor_endstate_postprocess = Simulation(
-            executable=config.system_settings.executable,
+            executable="sander.MPI",
             mpi_command=config.system_settings.mpi_command,
             num_cores=config.num_cores_per_system.receptor_ncores,
             prmtop=config.endstate_files.receptor_parameter_filename,
@@ -520,22 +517,30 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             system_type="receptor",
             dirstruct="post_process_apo",
             inptraj=[config.inputs["endstate_receptor_traj"]],
+            post_analysis=True,
             working_directory=config.system_settings.working_directory,
             memory=config.system_settings.memory,
             disk=config.system_settings.disk,
         )
         receptor_simuations.append(receptor_endstate_postprocess)
 
-    # define max conformational and restraint forces
+    #define max conformational and restraint forces
     max_con_force = max(config.intermidate_args.conformational_restraints_forces)
     max_orien_force = max(config.intermidate_args.orientational_restriant_forces)
-
+    ### CB7 round 
     max_con_exponent = float(
-        max(config.intermidate_args.exponent_conformational_forces)
+        round(max(config.intermidate_args.exponent_conformational_forces), 3)
     )
     max_orien_exponent = float(
-        max(config.intermidate_args.exponent_orientational_forces)
+        round(max(config.intermidate_args.exponent_orientational_forces), 3)
     )
+    # max_con_exponent = float(
+    #     max(config.intermidate_args.exponent_conformational_forces)
+    # )
+    # max_orien_exponent = float(
+    #     max(config.intermidate_args.exponent_orientational_forces)
+    # )
+
     # interpolate charges of the ligand
     for index, charge in enumerate(config.intermidate_args.charges_lambda_window):  # type: ignore
         # IGB=6
@@ -545,8 +550,9 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                 "state_label": "electrostatics",
                 "conformational_restraint": max_con_exponent,
                 "igb": "igb_6",
+                "extdiel": 0.0,
                 "charge": charge,
-                "igb_value": 6,
+                "igb_value": f"igb_{config.intermidate_args.igb_solvent}",
                 "filename": "state_4_prod",
                 "runtype": f"Running production Simulation in state 4 (No GB). Max conformational force: {max_con_force} ",
                 "topdir": config.system_settings.top_directory_path,
@@ -582,6 +588,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                 "topology": config.endstate_files.complex_parameter_filename,
                 "state_label": "electrostatics",
                 "charge": charge,
+                "extdiel": 78.5,
                 "igb": f"igb_{config.intermidate_args.igb_solvent}",
                 "igb_value": config.intermidate_args.igb_solvent,
                 "conformational_restraint": max_con_exponent,
@@ -615,37 +622,6 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             )
             complex_simuations.append(complex_turn_on_ligand_charges)
 
-        # if workflow.remove_ligand_charges:
-        #     ligand_no_charge_args = {
-        #         "topology": config.endstate_files.ligand_parameter_filename,
-        #         "state_label": "no_charges",
-        #         "conformational_restraint": max_con_exponent,
-        #         "igb": "igb_6",
-        #         "igb_value": 6,
-        #         "charge": 1.0,
-        #         "filename": "state_5_prod",
-        #         "runtype": "Production Simulation. In vacuum and ligand charges set to 0",
-        #         "topdir": config.system_settings.top_directory_path,
-        #     }
-
-        # ligand_no_charge = Simulation(
-        #     executable=config.system_settings.executable,
-        #     mpi_command=config.system_settings.mpi_command,
-        #     num_cores=config.num_cores_per_system.ligand_ncores,
-        #     prmtop=config.inputs["ligand_no_charge_parm_ID"],
-        #     incrd=config.inputs["ligand_endstate_frame"],
-        #     input_file=mdin_no_solv,
-        #     restraint_file=restraints,
-        #     directory_args=ligand_no_charge_args,
-        #     system_type="ligand",
-        #     dirstruct=ligand_receptor_dirstruct,
-        #     restraint_key=f"ligand_{max_con_force}_rst",
-        #     working_directory=config.system_settings.working_directory,
-        #     memory=config.system_settings.memory,
-        #     disk=config.system_settings.disk,
-        # )
-        # ligand_simulations.append(ligand_no_charge)
-
     # Desolvation of receptor
     if workflow.remove_GB_solvent_receptor:
         no_solv_args_receptor = {
@@ -654,6 +630,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             "conformational_restraint": max_con_exponent,
             "igb": "igb_6",
             "igb_value": 6,
+            "extdiel": 0.0,
             "charge": 1.0,
             "filename": "state_4_prod",
             "runtype": "Running production simulation in state 4: Receptor only",
@@ -682,6 +659,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
         complex_ligand_exclusions_args = {
             "topology": config.endstate_files.complex_parameter_filename,
             "state_label": "no_interactions",
+            "extdiel": 0.0,
             "igb": "igb_6",
             "igb_value": 6,
             "charge": 0.0,
@@ -723,6 +701,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             "topology": config.endstate_files.complex_parameter_filename,
             "state_label": "interactions",
             "igb": "igb_6",
+            "extdiel": 0.0,
             "igb_value": 6,
             "charge": 0,
             "conformational_restraint": max_con_exponent,
@@ -756,66 +735,54 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
         )
         complex_simuations.append(complex_no_electrostatics)
 
-    # # Turn on GB enviroment but ligand charges are off
-    # if workflow.complex_turn_on_GB_enviroment:
-    #     complex_GB_enviroment= {
-    #         "topology": config.endstate_files.complex_parameter_filename,
-    #         "state_label": f"GB_enviroment",
-    #         "igb": f"igb_{config.intermidate_args.igb_solvent}",
-    #         "igb_value": config.intermidate_args.igb_solvent,
-    #         "conformational_restraint": max_con_exponent,
-    #         "orientational_restraints": max_orien_exponent,
-    #         "filename": "state_7b_prod",
-    #         "runtype": "Running production simulation in state 7b: Turning back on GB enviroment",
-    #         "topdir": config.system_settings.top_directory_path,
-    #     }
-    #     complex_turn_on_GB_env = Simulation(
-    #         executable=config.system_settings.executable,
-    #         mpi_command=config.system_settings.mpi_command,
-    #         num_cores=config.num_cores_per_system.complex_ncores,
-    #         prmtop=config.inputs["complex_ligand_no_charge_ID"],
-    #         incrd=config.inputs["endstate_complex_lastframe"],
-    #         input_file=default_mdin,
-    #         restraint_file=restraints,
-    #         directory_args=complex_GB_enviroment,
-    #         system_type="complex",
-    #         dirstruct=complex_dirstruct,
-    #         restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
-    #         working_directory=config.system_settings.working_directory,
-    #         memory=config.system_settings.memory,
-    #         disk=config.system_settings.disk,
-    #     )
-    #     complex_simuations.append(complex_turn_on_GB_env)
+    # turn on GB solvent
+    if workflow.gb_extdiel_windows:
+        # create complex with ligand electrostatics = 0
+        complex_ligand_no_charge = complex_host_jobs.addChildJobFn(
+            alter_topology,
+            solute_amber_parm=config.endstate_files.complex_parameter_filename,
+            solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
+            ligand_mask=config.amber_masks.ligand_mask,
+            receptor_mask=config.amber_masks.receptor_mask,
+            set_charge=0.0,
+        ).rv()
 
-    # if workflow.complex_turn_on_ligand_charges:
-    #     complex_turn_on_ligand_charges_args = {
-    #         "topology": config.endstate_files.complex_parameter_filename,
-    #         "state_label": "electrostatics",
-    #         "igb": "igb_6",
-    #         "igb_value": 6,
-    #         "conformational_restraint": max_con_exponent,
-    #         "orientational_restraints": max_orien_exponent,
-    #         "filename": "state_7b_prod",
-    #         "runtype": "Running production simulation in state 7b: Turning back on ligand charges, still in vacuum",
-    #         "topdir": config.system_settings.top_directory_path,
-    #     }
-    #     complex_turn_on_ligand_charges = Simulation(
-    #         executable=config.system_settings.executable,
-    #         mpi_command=config.system_settings.mpi_command,
-    #         num_cores=config.num_cores_per_system.complex_ncores,
-    #         prmtop=config.endstate_files.complex_parameter_filename,
-    #         incrd=config.inputs["endstate_complex_lastframe"],
-    #         input_file=mdin_no_solv,
-    #         restraint_file=restraints,
-    #         directory_args=complex_turn_on_ligand_charges_args,
-    #         system_type="complex",
-    #         dirstruct=complex_dirstruct,
-    #         restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
-    #         working_directory=config.system_settings.working_directory,
-    #         memory=config.system_settings.memory,
-    #         disk=config.system_settings.disk,
-    #     )
-    #     complex_simuations.append(complex_turn_on_ligand_charges)
+        # interpolate GB external dielectric constant
+        for dielectic in config.intermidate_args.gb_extdiel_windows:
+            complex_gb_windows = {
+                "topology": config.endstate_files.complex_parameter_filename,
+                "state_label": "gb_dielectric",
+                "extdiel": dielectic,
+                "conformational_restraint": max_con_exponent,
+                "orientational_restraints": max_orien_exponent,
+                "igb": f"igb_{config.intermidate_args.igb_solvent}",
+                "charge": 0.0,
+                "igb_value": f"igb_{config.intermidate_args.igb_solvent}",
+                "filename": "state_8_prod",
+                "runtype": f"Running production Simulation in state 8. Changing extdiel to:{dielectic}",
+                "topdir": config.system_settings.top_directory_path,
+            }
+            complex_dielectic = Simulation(
+                executable=config.system_settings.executable,
+                mpi_command=config.system_settings.mpi_command,
+                num_cores=config.num_cores_per_system.complex_ncores,
+                prmtop=complex_ligand_no_charge,
+                incrd=config.inputs["endstate_complex_lastframe"],
+                input_file=complex_host_jobs.addChildJobFn(
+                    make_mdin,
+                    mdin_args=config.intermidate_args.mdin_intermidate_config,
+                    extdiel=dielectic,
+                ).rv(),
+                restraint_file=restraints,
+                directory_args=complex_gb_windows,
+                system_type="complex",
+                dirstruct=complex_dirstruct,
+                restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
+                working_directory=config.system_settings.working_directory,
+                memory=config.system_settings.memory,
+                disk=config.system_settings.disk,
+            )
+            complex_simuations.append(complex_dielectic)
 
     # intermidate_simulationsappend(complex_turn_on_ligand_charges)
     # lambda window interate through conformational and orientational restraint forces
@@ -825,18 +792,23 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
     ):
         # add conformational restraints
         # if config.workflow.add_ligand_conformational_restraints:
-        exponent_conformational = np.log2(con_force)
-        exponent_orientational = np.log2(orien_force)
+        exponent_conformational = round(np.log2(con_force), 3)
+        exponent_orientational = round(np.log2(orien_force), 3)
+        # exponent_conformational = np.log2(con_force)
+        # exponent_orientational = np.log2(orien_force)
+        #exponent_orientational = round(np.log2(orien_force), 4) cyc
+        
         if workflow.add_ligand_conformational_restraints:
             ligand_window_args = {
                 "topology": config.endstate_files.ligand_parameter_filename,
                 "state_label": "lambda_window",
                 "conformational_restraint": exponent_conformational,
                 "igb": f"igb_{config.intermidate_args.igb_solvent}",
+                "extdiel": 78.5,
                 "charge": 1.0,
                 "igb_value": config.intermidate_args.igb_solvent,
-                "filename": f"state_2_{con_force}_prod",
-                "runtype": f"Running restraint window, Conformational restraint: {con_force}",
+                "filename": f"state_2_{exponent_conformational}_prod",
+                "runtype": f"Running restraint window, Conformational restraint: {exponent_conformational}",
                 "topdir": config.system_settings.top_directory_path,
             }
 
@@ -863,12 +835,13 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             receptor_window_args = {
                 "topology": config.endstate_files.receptor_parameter_filename,
                 "state_label": "lambda_window",
+                "extdiel": 78.5,
                 "charge": 1.0,
                 "conformational_restraint": exponent_conformational,
                 "igb": f"igb_{config.intermidate_args.igb_solvent}",
                 "igb_value": config.intermidate_args.igb_solvent,
-                "filename": f"state_2_{con_force}_prod",
-                "runtype": f"Running restraint window, conformational restraint: {con_force}",
+                "filename": f"state_2_{exponent_conformational}_prod",
+                "runtype": f"Running restraint window, conformational restraint: {exponent_conformational}",
                 "topdir": config.system_settings.top_directory_path,
             }
 
@@ -897,13 +870,14 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             remove_restraints_args = {
                 "topology": config.endstate_files.complex_parameter_filename,
                 "state_label": "lambda_window",
+                "extdiel": 78.5,
                 "charge": 1.0,
                 "igb": f"igb_{config.intermidate_args.igb_solvent}",
                 "igb_value": config.intermidate_args.igb_solvent,
                 "conformational_restraint": exponent_conformational,
                 "orientational_restraints": exponent_orientational,
-                "filename": f"state_8_{con_force}_{orien_force}_prod",
-                "runtype": f"Running restraint window. Conformational restraint: {con_force} and orientational restraint: {exponent_orientational}",
+                "filename": f"state_8_{exponent_conformational}_{exponent_orientational}_prod",
+                "runtype": f"Running restraint window. Conformational restraint: {exponent_conformational} and orientational restraint: {exponent_orientational}",
                 "topdir": config.system_settings.top_directory_path,
             }
             remove_restraints = Simulation(
@@ -924,6 +898,17 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             )
             complex_simuations.append(remove_restraints)
 
+    # # test = complex_host_jobs.addFollowOnJobFn(
+    # #     get_outdir, complex_simuations, workflow.post_analysis_only
+    # # )
+    # # ligand_test = ligand_simulation_jobs.addFollowOnJobFn(
+    # #     get_outdir, ligand_simulations, workflow.post_analysis_only
+    # # )
+
+    # # receptor_test = complex_host_jobs.addFollowOnJobFn(
+    # #     get_outdir, receptor_simuations, workflow.post_analysis_only
+    # # )
+
     intermidate_complex = complex_host_jobs.addFollowOn(
         IntermidateRunner(
             complex_simuations,
@@ -931,6 +916,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_halo",
+            post_only=workflow.post_analysis_only,
         )
     )
 
@@ -941,6 +927,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_apo",
+            post_only=workflow.post_analysis_only,
         )
     )
     intermidate_ligand = ligand_simulation_jobs.addFollowOn(
@@ -950,6 +937,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_apo",
+            post_only=workflow.post_analysis_only,
         )
     )
     if config.workflow.post_treatment:
@@ -982,6 +970,55 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             ).rv(),
             restraints,
         )
+
+
+def get_outdir(job, simulations: List[Simulation], post_only):
+
+    for simulation in simulations:
+        # only post analysis
+        if post_only:
+            if simulation.inptraj is None:
+
+                job.log(f"get mdtraj at directory:\n {simulation.output_dir}")
+                try:
+                    simulation.inptraj = os.path.join(
+                        simulation.output_dir,
+                        list(
+                            filter(
+                                lambda file: re.match(r"^.*\.nc$", file),
+                                os.listdir(simulation.output_dir),
+                            )
+                        )[0],
+                    )
+                except:
+                    job.log(f"except clause: ")
+                    job.log(f"old output dir {simulation.output_dir}")
+
+                    if re.search(r"-0.2857142857142864", simulation.output_dir):
+                        simulation.output_dir = re.sub(
+                            r"-0.2857142857142864",
+                            "-0.2857142857142865",
+                            simulation.output_dir,
+                        )
+                    else:
+                        simulation.output_dir = re.sub(
+                            r"-0.2857142857142865",
+                            "-0.2857142857142864",
+                            simulation.output_dir,
+                        )
+
+                job.log(f"new output dir {simulation.output_dir}")
+
+                output = os.path.join(
+                    simulation.output_dir,
+                    list(
+                        filter(
+                            lambda file: re.match(r"^.*\.nc$", file),
+                            os.listdir(simulation.output_dir),
+                        )
+                    )[0],
+                )
+                job.log(output)
 
 
 def initilized_jobs(job):
@@ -1052,7 +1089,7 @@ def main():
         file_handler = logging.FileHandler(
             os.path.join(
                 config.system_settings.top_directory_path,
-                f"{complex_name}_workflow_performance.log",
+                f"{complex_name}_{job_number}_workflow_performance.log",
             ),
             mode="w",
         )
