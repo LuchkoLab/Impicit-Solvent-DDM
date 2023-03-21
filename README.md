@@ -139,7 +139,9 @@ DISANG=$restraint
 
 pwd
 
-run_implicit_ddm.py file:jobstore_test --config_file new_workflow.yaml 
+
+#if you’re on a node that has a large /scratch volume
+run_implicit_ddm.py file:/scratch/my-job-store --config_file new_workflow.yaml --workDir /localhome/working_directory
 ```
 ## Ignore receptor flag
  If running mutiple HOST/Guests system with the same Host system use the `--ignore_receptor` flag to prevent any repeated receptor only simulations 
