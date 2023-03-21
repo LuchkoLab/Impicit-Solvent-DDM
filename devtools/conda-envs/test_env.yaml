@@ -139,4 +139,8 @@ dependencies:
   - yaml=0.2.5
   - zlib=1.2.11
   - zstd=1.5.2
+  - pip:
+    - fastparquet==2023.2.0
+    - pyarrow==11.0.0
+
 prefix: /home/ayoub/.conda/envs/mol_ddm_env
