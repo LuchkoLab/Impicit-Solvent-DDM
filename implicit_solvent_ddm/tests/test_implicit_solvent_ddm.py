@@ -22,7 +22,7 @@ def run_workflow():
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "INFO"
     options.clean = "always"
-
+    options.workDir = working_directory
     yaml_file = os.path.join("implicit_solvent_ddm/tests/input_files/config.yaml")
     with open(yaml_file) as yml:
         config_file = yaml.safe_load(yml)
@@ -35,7 +35,7 @@ def run_workflow():
         
     with Toil(options) as toil:
         config.workflow.ignore_receptor_endstate = False
-
+        
         if not toil.options.restart:
             config.endstate_files.toil_import_parmeters(toil=toil)
             config.inputs["min_mdin"] = str(
