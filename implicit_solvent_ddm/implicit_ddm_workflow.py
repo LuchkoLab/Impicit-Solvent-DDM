@@ -1,5 +1,4 @@
 # from implicit_solvent_ddm.remd import run_remd
-import itertools
 import logging
 import os
 import os.path
@@ -167,10 +166,10 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                 ExtractTrajectories(
                     config.endstate_files.complex_parameter_filename,
                     remd_complex.rv(1),
-                    config.endstate_method.remd_args.target_temperature,
+                     config.intermidate_args.temperature,
                 )
             )
-
+           
             config.inputs["endstate_complex_traj"] = extract_complex.rv(0)
 
             config.inputs["endstate_complex_lastframe"] = extract_complex.rv(1)
@@ -194,12 +193,18 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                 memory=config.system_settings.memory,
                 disk=config.system_settings.disk,
             )
-
+            #check to see if PMEMD is specified 
+            num_ligand_cores = int(config.endstate_method.remd_args.nthreads_ligand)
+            ligand_endstate_exe = config.system_settings.executable
+            if "pmemd.MPI" in config.system_settings.executable:
+                num_ligand_cores = int(config.endstate_method.remd_args.nthreads_ligand/2)
+                ligand_endstate_exe = "sander.MPI"
+                
             equilibrate_ligand = minimization_ligand.addFollowOn(
                 REMDSimulation(
-                    executable=config.system_settings.executable,
+                    executable=ligand_endstate_exe,
                     mpi_command=config.system_settings.mpi_command,
-                    num_cores=config.endstate_method.remd_args.nthreads_ligand,
+                    num_cores=num_ligand_cores,
                     ngroups=config.endstate_method.remd_args.ngroups,
                     prmtop=config.endstate_files.ligand_parameter_filename,
                     incrd=minimization_ligand.rv(0),
@@ -219,9 +224,9 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
 
             remd_ligand = equilibrate_ligand.addFollowOn(
                 REMDSimulation(
-                    executable=config.system_settings.executable,
+                    executable=ligand_endstate_exe,
                     mpi_command=config.system_settings.mpi_command,
-                    num_cores=config.endstate_method.remd_args.nthreads_ligand,
+                    num_cores=num_ligand_cores,
                     prmtop=config.endstate_files.ligand_parameter_filename,
                     incrd=equilibrate_ligand.rv(0),
                     input_file=remd_mdins.rv(),
@@ -243,7 +248,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                 ExtractTrajectories(
                     config.endstate_files.ligand_parameter_filename,
                     remd_ligand.rv(1),
-                    config.endstate_method.remd_args.target_temperature,
+                     config.intermidate_args.temperature,
                 )
             )
 
@@ -305,7 +310,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                         directory_args={
                             "runtype": "remd",
                             "topology": config.endstate_files.receptor_parameter_filename,
-                            "topdir": config.system_settings.top_directory_name,
+                            "topdir": config.system_settings.output_directory_name,
                         },
                         working_directory=config.system_settings.working_directory,
                         memory=config.system_settings.memory,
@@ -317,7 +322,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                     ExtractTrajectories(
                         config.endstate_files.receptor_parameter_filename,
                         remd_receptor.rv(1),
-                        config.endstate_method.remd_args.target_temperature,
+                         config.intermidate_args.temperature,
                     )
                 )
                 config.inputs["endstate_receptor_traj"] = extract_receptor.rv(0)
