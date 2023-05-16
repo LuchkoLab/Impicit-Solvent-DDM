@@ -19,7 +19,8 @@ from implicit_solvent_ddm.mdin import (generate_replica_mdin, get_mdins,
                                        make_mdin)
 from implicit_solvent_ddm.postTreatment import (PostTreatment,
                                                 consolidate_output)
-from implicit_solvent_ddm.restraints import (FlatBottom, RestraintMaker,
+from implicit_solvent_ddm.restraints import (BoreschRestraints, FlatBottom,
+                                             RestraintMaker,
                                              write_empty_restraint)
 from implicit_solvent_ddm.runner import IntermidateRunner
 from implicit_solvent_ddm.simulations import (ExtractTrajectories,
@@ -387,8 +388,15 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
 
     config.inputs["ligand_endstate_frame"] = split_job.rv(1)
     config.inputs["receptor_endstate_frame"] = split_job.rv(0)
-
-    restraints = split_job.addChild(RestraintMaker(config=config)).rv()
+    boresh_restraints = split_job.addChild(BoreschRestraints(complex_prmtop=config.endstate_files.complex_parameter_filename,
+                                                             complex_coordinate=config.inputs["endstate_complex_lastframe"],
+                                                             restraint_type=config.intermidate_args.restraint_type, 
+                                                             ligand_mask=config.amber_masks.ligand_mask, receptor_mask=config.amber_masks.receptor_mask,
+                                                             K_r=config.intermidate_args.max_conformational_restraint, K_thetaA=config.intermidate_args.max_orientational_restraint,
+                                                             K_thetaB=config.intermidate_args.max_orientational_restraint, K_phiA=config.intermidate_args.max_orientational_restraint,
+                                                             K_phiB=config.intermidate_args.max_orientational_restraint, K_phiC=config.intermidate_args.max_orientational_restraint))
+    
+    restraints = boresh_restraints.addChild(RestraintMaker(config=config, boresch_restraints=boresh_restraints.rv())).rv()
 
     # create independent simulation jobs for each system
     complex_host_jobs = split_job.addFollowOnJobFn(initilized_jobs)
