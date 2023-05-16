@@ -1,6 +1,6 @@
 
   
-system_parameters:
+hardware_parameters:
   executable: "sander" # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
   mpi_command:  # system dependent /
   CUDA:  # run on GPU

@@ -5,7 +5,6 @@ import shutil
 import string
 import tempfile
 from dataclasses import dataclass, field
-from enum import unique
 from typing import List, Optional, Type, Union
 
 import numpy as np
@@ -96,7 +95,7 @@ class SystemSettings:
     mpi_command: str
     working_directory: str = WORKDIR
     executable: str = "sander"
-    top_directory_name: str = "mdgb"
+    output_directory_name: str = "mdgb"
     CUDA: bool = field(default=False)
     memory: Optional[Union[int, str]] = field(default="5G")
     disk: Optional[Union[int, str]] = field(default="5G")
@@ -104,7 +103,7 @@ class SystemSettings:
     @property
     def top_directory_path(self):
 
-        return os.path.join(self.working_directory, self.top_directory_name)
+        return os.path.join(self.working_directory, self.output_directory_name)
 
     @classmethod
     def from_config(cls: Type["SystemSettings"], obj: dict):
@@ -313,21 +312,25 @@ class REMD:
     remd_template_mdin: Union[FileID, str] = "remd.template"
     equil_template_mdin: Union[FileID, str] = "equil.template"
     temperatures: list[int] = field(default_factory=list)
-    ngroups: int = 0
-    target_temperature: float = 300.0
+    ngroups: int = field(init=False)
     nthreads_complex: int = 0
     nthreads_receptor: int = 0
     nthreads_ligand: int = 0
     # nthreads: int = 0
 
+    
+    def __post_init__(self):
+        
+        #number of copies should equal to length of temperatures     
+        self.ngroups = len(self.temperatures)
+    
+    
     @classmethod
     def from_config(cls: Type["REMD"], obj: dict):
         return cls(
             remd_template_mdin=obj["endstate_arguments"]["remd_template_mdin"],
             equil_template_mdin=obj["endstate_arguments"]["equilibrate_mdin_template"],
             temperatures=obj["endstate_arguments"]["temperatures"],
-            ngroups=obj["endstate_arguments"]["ngroups"],
-            target_temperature=obj["endstate_arguments"]["target_temperature"],
             nthreads_complex=obj["endstate_arguments"]["nthreads_complex"],
             nthreads_receptor=obj["endstate_arguments"]["nthreads_receptor"],
             nthreads_ligand=obj["endstate_arguments"]["nthreads_ligand"],
@@ -395,7 +398,7 @@ class FlatBottomRestraints:
 
 @dataclass
 class EndStateMethod:
-    endstate_method_type: str
+    endstate_method_type: Union[str,int]
     remd_args: REMD
     flat_bottom: FlatBottomRestraints
 
@@ -650,7 +653,7 @@ class Config:
         self._valid_amber_masks()
         self._check_endstate_method()
         self._check_missing_flatbottom_parameters()
-
+        self._remd_target_temperature()
     def _check_endstate_method(self):
 
         if self.endstate_method.endstate_method_type == 0:
@@ -678,13 +681,24 @@ class Config:
                                 Please check if AMBER masks are correct ligand_mask: "{self.amber_masks.ligand_mask}" receptor_mask: "{self.amber_masks.receptor_mask}"
                                 {self.endstate_files.complex_parameter_filename} residue lables are: {parm.parm_data['RESIDUE_LABEL']}"""
             )
-
+    def _remd_target_temperature(self):
+        if self.endstate_method.endstate_method_type == 'remd':
+            if self.intermidate_args.temperature not in self.endstate_method.remd_args.temperatures:
+               raise RuntimeError(
+                f"""The specified temperature {self.intermidate_args.temperature} is not 
+                in the list of temperatures ({self.endstate_method.remd_args.temperatures}) for running REMD.
+                Note the specified temperature {self.intermidate_args.temperature} will be the target temperature 
+                during REMD trajectory extraction.
+                """
+               )
+     
+        
     @classmethod
     def from_config(cls: Type["Config"], user_config: dict, ignore_unique_naming=False):
         return cls(
             workflow=Workflow.from_config(user_config),
             system_settings=SystemSettings.from_config(
-                user_config["system_parameters"]
+                user_config["hardware_parameters"]
             ),
             endstate_files=ParameterFiles.from_config(
                 user_config["endstate_parameter_files"]
@@ -700,6 +714,7 @@ class Config:
             inputs={},
             restraints={},
         )
+
 
     def _check_missing_flatbottom_parameters(self):
         pass
@@ -786,7 +801,7 @@ if __name__ == "__main__":
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "OFF"
     options.clean = "always"
-    with open("/nas0/ayoub/Impicit-Solvent-DDM/no_restraints.yaml") as fH:
+    with open("/nas0/ayoub/Impicit-Solvent-DDM/config_files/no_restraints.yaml") as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:
@@ -804,6 +819,7 @@ if __name__ == "__main__":
         # config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
 
         print(config.intermidate_args)
+        print(config.endstate_method.remd_args)
         # config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
         # boresch_p = list(config.boresch_parameters.__dict__.values())
 
