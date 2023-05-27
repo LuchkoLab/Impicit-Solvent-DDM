@@ -897,6 +897,9 @@ class RestraintMaker(Job):
         self.complex_restraint_file = config.intermidate_args.complex_restraint_files
         self.ligand_restraint_file = config.intermidate_args.guest_restraint_files
         self.receptor_restraint_file = config.intermidate_args.receptor_restraint_files
+        self.max_con_force = config.intermidate_args.max_conformational_restraint
+        self.max_orient_force = config.intermidate_args.max_orientational_restraint
+        
         self.conformational_forces = (
             config.intermidate_args.conformational_restraints_forces
         )
@@ -906,7 +909,26 @@ class RestraintMaker(Job):
         self.config = config
         self.boresch = boresch_restraints
         self.restraints = {}
-
+    
+    @property
+    def max_ligand_conformational_restraint(self):
+        
+        return self.restraints[
+                    f"ligand_{self.max_con_force}_rst"]
+    @property
+    def max_receptor_conformational_restraint(self):
+        
+        return self.restraints[
+                    f"receptor_{self.max_con_force}_rst"
+                ]
+    
+    @property
+    def max_complex_restraint(self):
+        
+        return self.restraints[
+                    f"complex_{self.max_con_force}_{self.max_orient_force}_rst"
+                ]
+    
     def run(self, fileStore):
         
         
@@ -918,6 +940,12 @@ class RestraintMaker(Job):
                 self.config.amber_masks.ligand_mask,
             )
         self.conformational_restraints = conformational_restraints
+        
+        #just added remove 
+        self.ligand_conformational_restraints = conformational_restraints.rv(1)
+        self.complex_conformational_restraints = conformational_restraints.rv(0)
+        self.receptor_conformational_restraints = conformational_restraints.rv(2)
+        
         self.boresch_deltaG = self.boresch.compute_boresch_restraints
             
         for index, (conformational_force, orientational_force) in enumerate(
@@ -926,7 +954,7 @@ class RestraintMaker(Job):
                 self.config.intermidate_args.orientational_restriant_forces,
             )
         ):
-
+            
             if len(self.ligand_restraint_file) == 0:
                 
                 self.restraints[
@@ -987,9 +1015,9 @@ class RestraintMaker(Job):
             self.boresch.boresch_template,
             conformational_force=conformational_force,
             orientational_force=orientational_force,
-        ).rv()
+        )
 
-    def add_ligand_window(self, system, conformational_force):
+    def add_ligand_window(self, conformational_force):
 
         return self.addChildJobFn(
             write_restraint_forces,
