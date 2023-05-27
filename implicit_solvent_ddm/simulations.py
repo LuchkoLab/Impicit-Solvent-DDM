@@ -323,7 +323,8 @@ class Simulation(Calculation):
         )
         self.restraint_key = restraint_key
         self.system_type = system_type
-
+        self._loaded_dataframe = False 
+        
     def setup(self):
         """
         Sets up the command-line arguments. Sander requires a unique restrt file
