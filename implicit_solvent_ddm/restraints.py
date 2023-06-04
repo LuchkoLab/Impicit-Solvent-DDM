@@ -909,7 +909,17 @@ class RestraintMaker(Job):
         self.config = config
         self.boresch = boresch_restraints
         self.restraints = {}
+        self.ligand_conformational_restraints = None
+        self.receptor_conformational_restraints = None
+        self.complex_conformational_restraints = None
     
+    def _assign_if_undefined(self, attr_name, attr_value):
+        """Assign value to self.name only if it is None."""
+
+        if getattr(self, attr_name) is None:
+            setattr(self, attr_name, attr_value)
+
+
     @property
     def max_ligand_conformational_restraint(self):
         
@@ -942,9 +952,13 @@ class RestraintMaker(Job):
         self.conformational_restraints = conformational_restraints
         
         #just added remove 
-        self.ligand_conformational_restraints = conformational_restraints.rv(1)
-        self.complex_conformational_restraints = conformational_restraints.rv(0)
-        self.receptor_conformational_restraints = conformational_restraints.rv(2)
+        self._assign_if_undefined("complex_conformational_restraints", conformational_restraints.rv(0))
+        self._assign_if_undefined("ligand_conformational_restraints", conformational_restraints.rv(1))
+        self._assign_if_undefined("receptor_conformational_restraints", conformational_restraints.rv(2))
+        
+        # self.ligand_conformational_restraints = conformational_restraints.rv(1)
+        # self.complex_conformational_restraints = conformational_restraints.rv(0)
+        # self.receptor_conformational_restraints = conformational_restraints.rv(2)
         
         self.boresch_deltaG = self.boresch.compute_boresch_restraints
             
