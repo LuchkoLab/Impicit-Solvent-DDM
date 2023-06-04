@@ -28,6 +28,8 @@ class IntermidateRunner(Job):
         post_process_distruct: str,
         post_only: bool,
         config: Config, 
+        adaptive:bool = False, 
+        post_output: Union[list, list[pd.DataFrame]] = [],
         memory: Optional[Union[int, str]] = None,
         cores: Optional[Union[int, float, str]] = None,
         disk: Optional[Union[int, str]] = None,
@@ -55,7 +57,8 @@ class IntermidateRunner(Job):
         self.mdin = post_process_mdin
         self.post_only = post_only
         self.config = config
-        self.post_output = []
+        self.adaptive = adaptive
+        self.post_output = post_output
         self.ligand_output = []
         self.receptor_output = []
         self.complex_output = []
@@ -143,8 +146,6 @@ class IntermidateRunner(Job):
             fileStore.logToMaster(f"simulations args {simulation.directory_args}\n")
             if self.post_only:
                 
-                if simulation._loaded_dataframe:
-                    continue
                 
                 if self._check_mdout(simulation=simulation) or simulation.inptraj != None:
                     fileStore.logToMaster("simulation mdout may exisit?")
@@ -184,7 +185,9 @@ class IntermidateRunner(Job):
         
         fileStore.logToMaster("RUNNING POST only\n")
         fileStore.logToMaster(f"loaded dataframe: {completed_sim._loaded_dataframe}")
+        
         for post_simulation in self.simulations:
+            
             directory_args = post_simulation.directory_args.copy()
             fileStore.logToMaster(f"directory args before update: {directory_args}\n")
             # fileStore.logToMaster(f"args {completed_sim.directory_args} & {md_traj}")
@@ -213,9 +216,24 @@ class IntermidateRunner(Job):
                 post_analysis=True,
                 restraint_key=post_simulation.restraint_key,
             )
-            fileStore.logToMaster(f"Created simulation object>>??")
             
+            if completed_sim.directory_args["runtype"] == "lambda_window":
+                fileStore.logToMaster(f"COMPLETED MD simulation of lambda window")
+                fileStore.logToMaster(f"Using trajectory from {completed_sim.output_dir}\n")
+                
+            mdout_parse  = not "simulation_mdout.parquet.gzip" in os.listdir(post_process_job.output_dir)
+            fileStore.logToMaster(f"mdout_parse: {mdout_parse}\n")
+            fileStore.logToMaster(
+                    f"ADAPTIVE {self.adaptive}"
+                )
+            
+                     
             if not "simulation_mdout.parquet.gzip" in os.listdir(post_process_job.output_dir):
+                
+                fileStore.logToMaster(
+                    f"Simulations_mdout.parquet is not found in  {post_process_job.output_dir}\n"
+                )
+                
                 fileStore.logToMaster(
                     f"RUNNING post analysis with inptraj trajecory: {md_traj}"
                 )
@@ -237,7 +255,21 @@ class IntermidateRunner(Job):
                 )
 
                 self.post_output.append(data_frame.rv())
+                
+            elif self.adaptive:
+                if post_process_job.directory_args["state_label"] == "lambda_window":
+                    fileStore.logToMaster(f"ADAPTIVE lambda window set")  
+                    fileStore.logToMaster(
+                        f"Adapative restraints Is TRUE therefore {post_process_job.output_dir} is already loaded\n"
+                    )
+                continue
+                   
             else:
+                if post_simulation.directory_args["state_label"] == "lambda_window":
+                    fileStore.logToMaster(f"Retrieving ADAPTIVE lambda window set") 
+                    fileStore.logToMaster(
+                        f"Adapative restraints Is TRUE therefore {post_process_job.output_dir} is being loaded\n"
+                    )
                 fileStore.logToMaster("Retrieving completed post-analysis data")
                 self.post_output.append(
                     pd.read_parquet(
@@ -245,11 +277,10 @@ class IntermidateRunner(Job):
                     )
                 )
             
-            completed_sim._loaded_dataframe = True 
             
     def _add_complex_simulation(self, conformational, orientational, mdin, restraint_file):
-        con_force = round(conformational, 3)
-        orient_force = round(orientational, 3)
+        con_force = float(round(conformational, 3))
+        orient_force = float(round(orientational, 3))
         
         new_job = Simulation(
             executable=self.config.system_settings.executable,
@@ -282,15 +313,15 @@ class IntermidateRunner(Job):
     def _add_ligand_simulation(self, conformational, mdin, restraint_file):
         
 
-        con_force = round(conformational, 3)
+        con_force = float(round(conformational, 3))
         new_job = Simulation(
             executable=self.config.system_settings.executable,
             mpi_command=self.config.system_settings.mpi_command,
             num_cores=self.config.num_cores_per_system.ligand_ncores,
             prmtop=self.config.endstate_files.ligand_parameter_filename,
-            incrd=self.config.endstate_files.ligand_coordinate_filename,
+            incrd=self.config.inputs["ligand_endstate_frame"],
             input_file=mdin,
-            restraint_file=restraint_file,
+            restraint_file=restraint_file.rv(),
             working_directory=self.config.system_settings.working_directory,
             system_type="ligand",
             directory_args={
@@ -313,15 +344,15 @@ class IntermidateRunner(Job):
     
     def _add_receptor_simulation(self, conformational, mdin, restraint_file):
         
-        con_force = round(conformational, 3)
+        con_force = float(round(conformational, 3))
         new_job = Simulation(
             executable=self.config.system_settings.executable,
             mpi_command=self.config.system_settings.mpi_command,
             num_cores=self.config.num_cores_per_system.receptor_ncores,
             prmtop=self.config.endstate_files.receptor_parameter_filename,
-            incrd=self.config.endstate_files.receptor_coordinate_filename,
+            incrd=self.config.inputs["receptor_endstate_frame"],
             input_file=mdin,
-            restraint_file=restraint_file,
+            restraint_file=restraint_file.rv(),
             working_directory=self.config.system_settings.working_directory,
             system_type="receptor",
             directory_args={
@@ -348,7 +379,9 @@ class IntermidateRunner(Job):
             simulations=obj["simulations"], restraints=obj["restraints"], 
             config=config, post_process_distruct= obj["post_process_distruct"], 
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"], post_process_mdin=config.inputs["post_mdin"],
-            post_only=True
+            adaptive=True, 
+            post_only=True,
+            post_output=obj["post_output"]
         )
           
     @staticmethod
