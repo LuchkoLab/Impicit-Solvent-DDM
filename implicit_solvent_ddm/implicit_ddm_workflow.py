@@ -12,12 +12,13 @@ import yaml
 from toil.common import Toil
 from toil.job import Job, JobFunctionWrappingJob
 
+from implicit_solvent_ddm.adaptive_restraints import adpative
 from implicit_solvent_ddm.alchemical import (alter_topology,
                                              split_complex_system)
 from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.mdin import (generate_replica_mdin, get_mdins,
                                        make_mdin)
-from implicit_solvent_ddm.postTreatment import (PostTreatment,
+from implicit_solvent_ddm.postTreatment import (ConsolidateData, PostTreatment,
                                                 consolidate_output)
 from implicit_solvent_ddm.restraints import (BoreschRestraints, FlatBottom,
                                              RestraintMaker,
@@ -29,7 +30,7 @@ from implicit_solvent_ddm.simulations import (ExtractTrajectories,
 working_directory = os.getcwd()
 
 
-def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
+def ddm_workflow(job: JobFunctionWrappingJob, config: Config)->Config:
 
     """
     Double decoupling workflow
@@ -930,6 +931,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_halo",
             post_only=workflow.post_analysis_only,
+            config=config
         )
     )
 
@@ -941,6 +943,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_apo",
             post_only=workflow.post_analysis_only,
+            config=config
         )
     )
     intermidate_ligand = ligand_simulation_jobs.addFollowOn(
@@ -951,88 +954,64 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_apo",
             post_only=workflow.post_analysis_only,
+            config=config
         )
     )
-    if config.workflow.post_treatment:
-        job.addFollowOnJobFn(
-            consolidate_output,
-            intermidate_ligand.addFollowOn(
-                PostTreatment(
-                    intermidate_ligand.rv(),
-                    config.intermidate_args.temperature,
-                    system="ligand",
-                    max_conformation_force=max_con_exponent,
-                )
-            ).rv(),
-            intermidate_receptor.addFollowOn(
-                PostTreatment(
-                    intermidate_receptor.rv(),
-                    config.intermidate_args.temperature,
-                    system="receptor",
-                    max_conformation_force=max_con_exponent,
-                )
-            ).rv(),
-            intermidate_complex.addFollowOn(
-                PostTreatment(
-                    intermidate_complex.rv(),
-                    config.intermidate_args.temperature,
-                    system="complex",
-                    max_conformation_force=max_con_exponent,
-                    max_orientational_force=max_orien_exponent,
-                )
-            ).rv(),
-            restraints,
-        )
+    # intermidate_complex.addChildJobFn(initilized_jobs)
+    
+    adpative_job = job.addFollowOnJobFn(adpative,
+                             intermidate_complex.rv(),
+                             intermidate_ligand.rv(),
+                             intermidate_receptor.rv(),
+                             config
+                             )
+    
 
+    adpative_job.addFollowOn(ConsolidateData(complex_adative_run=adpative_job.rv(0),
+                                             ligand_adaptive_run=adpative_job.rv(1),
+                                             receptor_adaptive_run=adpative_job.rv(2),
+                                             temperature=config.intermidate_args.temperature,
+                                             max_conformation_force=max_con_exponent,
+                                             max_orientational_force=max_orien_exponent,
+                                             boresch_df=restraints, 
+                                             complex_filename=config.endstate_files.complex_parameter_filename,
+                                             ligand_filename=config.endstate_files.ligand_parameter_filename,
+                                             receptor_filename=config.endstate_files.receptor_parameter_filename,
+                                             working_path=config.system_settings.working_directory
+                                             ))
 
-def get_outdir(job, simulations: List[Simulation], post_only):
-
-    for simulation in simulations:
-        # only post analysis
-        if post_only:
-            if simulation.inptraj is None:
-
-                job.log(f"get mdtraj at directory:\n {simulation.output_dir}")
-                try:
-                    simulation.inptraj = os.path.join(
-                        simulation.output_dir,
-                        list(
-                            filter(
-                                lambda file: re.match(r"^.*\.nc$", file),
-                                os.listdir(simulation.output_dir),
-                            )
-                        )[0],
-                    )
-                except:
-                    job.log(f"except clause: ")
-                    job.log(f"old output dir {simulation.output_dir}")
-
-                    if re.search(r"-0.2857142857142864", simulation.output_dir):
-                        simulation.output_dir = re.sub(
-                            r"-0.2857142857142864",
-                            "-0.2857142857142865",
-                            simulation.output_dir,
-                        )
-                    else:
-                        simulation.output_dir = re.sub(
-                            r"-0.2857142857142865",
-                            "-0.2857142857142864",
-                            simulation.output_dir,
-                        )
-
-                job.log(f"new output dir {simulation.output_dir}")
-
-                output = os.path.join(
-                    simulation.output_dir,
-                    list(
-                        filter(
-                            lambda file: re.match(r"^.*\.nc$", file),
-                            os.listdir(simulation.output_dir),
-                        )
-                    )[0],
-                )
-                job.log(output)
-
+    return adpative_job.rv(4)
+    
+        
+        # job.addFollowOnJobFn(
+        #     consolidate_output,
+        #     intermidate_ligand.addFollowOn(
+        #         PostTreatment(
+        #             intermidate_ligand.rv(),
+        #             config.intermidate_args.temperature,
+        #             system="ligand",
+        #             max_conformation_force=max_con_exponent,
+        #         )
+        #     ).rv(),
+        #     intermidate_receptor.addFollowOn(
+        #         PostTreatment(
+        #             intermidate_receptor.rv(),
+        #             config.intermidate_args.temperature,
+        #             system="receptor",
+        #             max_conformation_force=max_con_exponent,
+        #         )
+        #     ).rv(),
+        #     intermidate_complex.addFollowOn(
+        #         PostTreatment(
+        #             intermidate_complex.rv(),
+        #             config.intermidate_args.temperature,
+        #             system="complex",
+        #             max_conformation_force=max_con_exponent,
+        #             max_orientational_force=max_orien_exponent,
+        #         )
+        #     ).rv(),
+        #     restraints,
+        # )
 
 def initilized_jobs(job):
     "Place holder to schedule jobs for MD and post-processing"
@@ -1138,11 +1117,16 @@ def main():
                 )
             )
 
-            toil.start(Job.wrapJobFn(ddm_workflow, config))
+            update_config = toil.start(Job.wrapJobFn(ddm_workflow, config))
             logger.info(
                 f" Total workflow time: {time.perf_counter() - start} seconds\n"
             )
             logger.info(f"options.workDir {options.workDir}")
+            if len(update_config.intermidate_args.exponent_conformational_forces) != len(config.intermidate_args.exponent_conformational_forces):
+                logger.info(f'''Restraints windows were added to config file: \n
+                                original conformational & orientational windows: {config.intermidate_args.exponent_conformational_forces} & {config.intermidate_args.exponent_orientational_forces}\n
+                                updated conformational & orientational windows: {update_config.intermidate_args.exponent_conformational_forces} & {update_config.intermidate_args.exponent_orientational_forces}\n
+                            ''')
 
         else:
             toil.restart()
