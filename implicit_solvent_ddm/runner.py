@@ -37,7 +37,6 @@ class IntermidateRunner(Job):
         displayName: Optional[str] = "",
         descriptionClass: Optional[str] = None,
     ) -> None:
-
         super().__init__(
             memory,
             cores,
@@ -64,35 +63,33 @@ class IntermidateRunner(Job):
         fileStore.logToMaster(f"post only is {self.post_only}")
 
         def run_post_process(job: Job, ran_simulation: Simulation):
-
             for post_simulation in self.simulations:
-
                 directory_args = post_simulation.directory_args.copy()
 
                 directory_args.update(self.update_postprocess_dirstruct(ran_simulation.directory_args))  # type: ignore
-                #fileStore.logToMaster(f"RUNNER directory args {directory_args}\n")
+                # fileStore.logToMaster(f"RUNNER directory args {directory_args}\n")
 
                 mdin = self.mdin
-                
+
                 if post_simulation.directory_args["igb_value"] == 6:
                     mdin = self.no_solvent_mdin
 
                 # run simulation if its not endstate with endstate
-                #if post_simulation.post: 
+                # if post_simulation.post:
                 if (
                     post_simulation.inptraj != ran_simulation.inptraj
                     or post_simulation.inptraj == None
                 ):
-                    # endstate simulation has inptraj attribute 
+                    # endstate simulation has inptraj attribute
                     if ran_simulation.inptraj is not None:
                         input_traj = ran_simulation.inptraj
-                    
-                    # whereas the intermidate states does not 
+
+                    # whereas the intermidate states does not
                     else:
                         input_traj = job.rv(1)
-                    #if job -> endstate 
-                    #if post is endstate wont access job.rv()
-                    #but if post is not endstate then it will aceess job.rv
+                    # if job -> endstate
+                    # if post is endstate wont access job.rv()
+                    # but if post is not endstate then it will aceess job.rv
 
                     post_dirstruct = self.get_system_dirs(post_simulation.system_type)
                     fileStore.logToMaster(
@@ -136,47 +133,41 @@ class IntermidateRunner(Job):
 
         # iterate and submit all intermidate simulations. Then followup with post-process
         for simulation in self.simulations:
+            # if checking flat bottom constribution don't run
+            if simulation.directory_args["state_label"] == "no_flat_bottom":
+                continue
+
             # only post analysis
-           
             if self.post_only:
-                
-                if self._check_mdout(simulation=simulation) or simulation.inptraj != None:
+                if (
+                    self._check_mdout(simulation=simulation)
+                    or simulation.inptraj != None
+                ):
                     fileStore.logToMaster("simulation mdout may exisit?")
-                    
+
                     if simulation.inptraj == None:
                         fileStore.logToMaster(
                             f"get mdtraj at directory:\n {simulation.output_dir}"
-                            )
+                        )
                         simulation.inptraj = [
                             fileStore.import_file(
                                 "file://" + self._get_md_traj(simulation, fileStore),
                             )
                         ]
+
                     self.only_post_analysis(
                         simulation, md_traj=simulation.inptraj, fileStore=fileStore
                     )
+
                 else:
                     fileStore.logToMaster(f"RUNNING MD THEN POST")
-                    fileStore.logToMaster(f"mdout does not exist path: {simulation.output_dir}")
+                    fileStore.logToMaster(
+                        f"mdout does not exist path: {simulation.output_dir}"
+                    )
                     run_post_process(
                         job=self.addChild(simulation), ran_simulation=simulation
                     )
-                    
-            # if self.post_only:
-            #     if simulation.inptraj is None:
 
-            #         fileStore.logToMaster(
-            #             f"get mdtraj at directory:\n {simulation.output_dir}"
-            #         )
-            #         simulation.inptraj = [
-            #             fileStore.import_file(
-            #                 "file://" + self._get_md_traj(simulation, fileStore),
-            #             )
-            #         ]
-
-            #     self.only_post_analysis(
-            #         simulation, md_traj=simulation.inptraj, fileStore=fileStore
-            #     )
             else:
                 fileStore.logToMaster("DRY RUNNN")
                 run_post_process(
@@ -188,7 +179,6 @@ class IntermidateRunner(Job):
     def only_post_analysis(self, completed_sim: Simulation, md_traj, fileStore):
         """Assumes MD has already been completed and will only run post-analysis."""
         for post_simulation in self.simulations:
-
             directory_args = post_simulation.directory_args.copy()
             # fileStore.logToMaster(f"args {completed_sim.directory_args} & {md_traj}")
             directory_args.update(self.update_postprocess_dirstruct(completed_sim.directory_args))  # type: ignore
@@ -215,7 +205,9 @@ class IntermidateRunner(Job):
                 post_analysis=True,
                 restraint_key=post_simulation.restraint_key,
             )
-            if not "simulation_mdout.parquet.gzip" in os.listdir(post_process_job.output_dir):
+            if not "simulation_mdout.parquet.gzip" in os.listdir(
+                post_process_job.output_dir
+            ):
                 fileStore.logToMaster(
                     f"RUNNING post analysis with inptraj trajecory: {md_traj}"
                 )
@@ -241,13 +233,14 @@ class IntermidateRunner(Job):
                 fileStore.logToMaster("Retrieving completed post-analysis data")
                 self.post_output.append(
                     pd.read_parquet(
-                        os.path.join(post_process_job.output_dir, "simulation_mdout.parquet.gzip"), 
+                        os.path.join(
+                            post_process_job.output_dir, "simulation_mdout.parquet.gzip"
+                        ),
                     )
                 )
 
     @staticmethod
     def _get_md_traj(simulation: Simulation, fileStore):
-
         try:
             return os.path.join(
                 simulation.output_dir,
@@ -289,19 +282,18 @@ class IntermidateRunner(Job):
 
     @staticmethod
     def _check_mdout(simulation: Simulation) -> bool:
-        
-        if "mdout" in  os.listdir(simulation.output_dir):
-            for line in reversed(open(os.path.join(simulation.output_dir, "mdout")).readlines()):
+        if "mdout" in os.listdir(simulation.output_dir):
+            for line in reversed(
+                open(os.path.join(simulation.output_dir, "mdout")).readlines()
+            ):
                 if "Final Performance Info" in line:
-                    return True        
-        return False 
-                
-        
+                    return True
+        return False
+
     @staticmethod
     def update_postprocess_dirstruct(
-        run_time_args: dict
+        run_time_args: dict,
     ) -> dict[str, Union[str, object]]:
-
         if "orientational_restraints" in run_time_args.keys():
             return {
                 "traj_state_label": run_time_args["state_label"],

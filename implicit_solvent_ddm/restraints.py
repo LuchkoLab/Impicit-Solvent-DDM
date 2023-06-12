@@ -15,9 +15,15 @@ from toil.job import Job
 
 from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.restraint_helper import (
-    compute_dihedral_angle, create_atom_neighbor_array, distance_calculator,
-    find_angle, norm_distance, refactor_find_heavy_bonds,
-    screen_for_distance_restraints, shortest_distance_between_molecules)
+    compute_dihedral_angle,
+    create_atom_neighbor_array,
+    distance_calculator,
+    find_angle,
+    norm_distance,
+    refactor_find_heavy_bonds,
+    screen_for_distance_restraints,
+    shortest_distance_between_molecules,
+)
 
 
 class FlatBottom(Job):
@@ -259,7 +265,6 @@ class FlatBottom(Job):
         self.flat_bottom_restraints["rk3"] = self.spring_constant  # type: ignore
 
     def run(self, fileStore):
-
         fileStore.logToMaster("Creating FlatBottom Harmonic Restraints")
 
         self.filestore = fileStore
@@ -281,7 +286,6 @@ class FlatBottom(Job):
 
         self.topology = self.complex_traj.top
 
-    
         self._missing_parameters()
         fileStore.logToMaster("Setting restraint parameters:")
         fileStore.logToMaster(f"self.r1: {self._r1}")
@@ -295,48 +299,51 @@ class FlatBottom(Job):
         with open(temp_file, "w") as fH:
             fH.write(self._flat_bottom_restraints_template)
 
-        return fileStore.writeGlobalFile(temp_file)
+        return (
+            fileStore.writeGlobalFile(temp_file),
+            self._flat_bottom_restraints_template,
+        )
 
 
 class BoreschRestraints(Job):
     """
     Impose Boresch orientational restraints on host-guest system.
 
-    Conformations are restrained by applying a harmonic distance restraint 
+    Conformations are restrained by applying a harmonic distance restraint
     between every atom and each neighbor within 6 Å. Three heavy atoms from
     the ligand and receptor are selected by constraining 1 distance, 2
     angles and 3 dihedrals. Then the script selects the best suited
     heavy atoms, b and B, to create angles ✓A, ✓a, AB , aA, and ba between 80 and 100.
-    
+
     Parameters
     ----------
     complex_prmtop: toil.fileStores.FileID
         The complex paramter (.parm7) filepath.
     complex_coordinate: toil.fileStores.FileID
         The complex coordinate (.nc, ncrst, .rst, ect) filepath.
-    restraint_type: int 
+    restraint_type: int
         restaint_type = 1: Find atom closest to ligand's CoM and relevand information.
         restaint_type = 2: Distance restraints between CoM Ligand and closest heavy atom in receptor.
         restraint_type = 3: Distance restraints between the two closest heavy atoms in the ligand and the receptor.
-    ligand_mask: str 
-        AMBER type mask to denote ligand atoms 
-    receptor_mask: str 
-        AMBER type mask to denote receptor atoms 
-    K_r: float 
+    ligand_mask: str
+        AMBER type mask to denote ligand atoms
+    receptor_mask: str
+        AMBER type mask to denote receptor atoms
+    K_r: float
         The spring constant for the restrained distance
-    K_thetaA: float 
+    K_thetaA: float
         The spring constants for angle(r2, r3, l1).
-    K_thetaB: float 
+    K_thetaB: float
         The spring constants for angle(r3, l1, l2).
-    K_phiA, K_phiB, K_phiC: float 
+    K_phiA, K_phiB, K_phiC: float
         The spring constants for ``dihedral(r1, r2, r3, l1)``,
         ``dihedral(r2, r3, l1, l2)`` and ``dihedral(r3,l1,l2,l3)``
-    r_aA0: float 
+    r_aA0: float
         The equilibrium distance between r3 and l1 (units of length).
-    theta_A0, theat_B0: float 
+    theta_A0, theat_B0: float
         The equilibrium angles of ``angle(r2, r3, l1)`` and ``angle(r3, l1, l2)``
         (units compatible with radians).
-    phi_A0, phi_B0, phi_C0: float 
+    phi_A0, phi_B0, phi_C0: float
         The equilibrium torsion of ``dihedral(r1,r2,r3,l1)``, ``dihedral(r2,r3,l1,l2)``
         and ``dihedral(r3,l1,l2,l3)`` (units compatible with radians).
     restrained_receptor_atoms: list[int]
@@ -344,29 +351,30 @@ class BoreschRestraints(Job):
     restrained_ligand_atoms: list[int]
         A list index restrained ligand atoms. Parmed index
     ligand_heavy_atom_distance_parm_index: int
-        The selected l1 atom to construct the distance restraint 
+        The selected l1 atom to construct the distance restraint
     ligand_heavy_atom_2_parm_index: int
         The selected l2 atom to constuct angle and dihedral angles
-    ligand_heavy_atom_3_parm_index: int 
+    ligand_heavy_atom_3_parm_index: int
         The selected l3 atom to constuct angle and dihedral angles
-    receptor_heavy_atom_distance_parm_index: int 
+    receptor_heavy_atom_distance_parm_index: int
         The selected r1 atom to construct the distance restraint
     receptor_heavy_atom_2_parm_index: int
         The selected l2 atom to constuct angle and dihedral angles
-    receptor_heavy_atom_3_parm_index: int 
+    receptor_heavy_atom_3_parm_index: int
         The selected l3 atom to constuct angle and dihedral angles
     boresch_template: str
-        Orientational restraint written .RST file. 
-    
+        Orientational restraint written .RST file.
+
     References
     ----------
     [1] Boresch S, Tettinger F, Leitgeb M, Karplus M. J Phys Chem B. 107:9535, 2003.
         http://dx.doi.org/10.1021/jp0217839
     [2] Mobley DL, Chodera JD, and Dill KA. J Chem Phys 125:084902, 2006.
         https://dx.doi.org/10.1063%2F1.2221683
-    
-    
+
+
     """
+
     def __init__(
         self,
         complex_prmtop,
@@ -374,27 +382,28 @@ class BoreschRestraints(Job):
         restraint_type,
         ligand_mask,
         receptor_mask,
-        K_r, #max distance 
-        K_thetaA: float, # max_torsional
-        K_thetaB: float, # max_torisional 
-        K_phiA: float, # max torisional 
-        K_phiB: float, # max torisional 
-        K_phiC: float, # max torisional 
-        r_aA0: Optional[float] = None,  #computed distance 
-        theta_A0 =  None, # ligand angle 
-        theta_B0: Optional[float] = None, # receptor angle 
-        phi_A0: Optional[float] = None, # ligand computed phi  
-        phi_B0: Optional[float] = None, # recepotr idk 
-        phi_C0: Optional[float] = None, # compute central 
+        K_r,  # max distance
+        K_thetaA: float,  # max_torsional
+        K_thetaB: float,  # max_torisional
+        K_phiA: float,  # max torisional
+        K_phiB: float,  # max torisional
+        K_phiC: float,  # max torisional
+        r_aA0: Optional[float] = None,  # computed distance
+        theta_A0=None,  # ligand angle
+        theta_B0: Optional[float] = None,  # receptor angle
+        phi_A0: Optional[float] = None,  # ligand computed phi
+        phi_B0: Optional[float] = None,  # recepotr idk
+        phi_C0: Optional[float] = None,  # compute central
         restrained_receptor_atoms: Optional[list] = None,
         restrained_ligand_atoms: Optional[list] = None,
-        ligand_heavy_atom_distance_parm_index: Optional[int]=None, 
-        ligand_heavy_atom_2_parm_index: Optional[int] = None, 
-        ligand_heavy_atom_3_parm_index: Optional[int] = None, 
-        receptor_heavy_atom_distance_parm_index: Optional[int] = None, 
-        receptor_heavy_atom_2_parm_index: Optional[int] = None, 
-        receptor_heavy_atom_3_parm_index: Optional[int] = None, 
-        boresch_template: Optional[str] = None, 
+        ligand_heavy_atom_distance_parm_index: Optional[int] = None,
+        ligand_heavy_atom_2_parm_index: Optional[int] = None,
+        ligand_heavy_atom_3_parm_index: Optional[int] = None,
+        receptor_heavy_atom_distance_parm_index: Optional[int] = None,
+        receptor_heavy_atom_2_parm_index: Optional[int] = None,
+        receptor_heavy_atom_3_parm_index: Optional[int] = None,
+        boresch_template: Optional[str] = None,
+        flat_bottom_template: Optional[str] = None,
         memory: Optional[Union[int, str]] = None,
         cores: Optional[Union[int, float, str]] = None,
         disk: Optional[Union[int, str]] = None,
@@ -427,39 +436,40 @@ class BoreschRestraints(Job):
         self.ligand_atom3 = ligand_heavy_atom_3_parm_index
         self.receptor_atom2 = receptor_heavy_atom_2_parm_index
         self.receptor_atom3 = receptor_heavy_atom_3_parm_index
-        self.K_r=K_r #max distance 
-        self.r_aA0=r_aA0 #computed distance 
-        self.K_thetaA=K_thetaA # max_torsional
-        self.theta_A0=theta_A0 # ligand angle 
-        self.K_thetaB=K_thetaB # max_torisional 
-        self.theta_B0=theta_B0 # receptor angle 
-        self.K_phiA=K_phiA # max torisional 
-        self.phi_A0=phi_A0 # ligand computed phi  
-        self.K_phiB=K_phiB # max torisional 
-        self.phi_B0=phi_B0 # recepotr idk 
-        self.K_phiC=K_phiC # max torisional 
-        self.phi_C0=phi_C0 # compute central 
+        self.K_r = K_r  # max distance
+        self.r_aA0 = r_aA0  # computed distance
+        self.K_thetaA = K_thetaA  # max_torsional
+        self.theta_A0 = theta_A0  # ligand angle
+        self.K_thetaB = K_thetaB  # max_torisional
+        self.theta_B0 = theta_B0  # receptor angle
+        self.K_phiA = K_phiA  # max torisional
+        self.phi_A0 = phi_A0  # ligand computed phi
+        self.K_phiB = K_phiB  # max torisional
+        self.phi_B0 = phi_B0  # recepotr idk
+        self.K_phiC = K_phiC  # max torisional
+        self.phi_C0 = phi_C0  # compute central
         self.boresch_template = boresch_template
+        self.flat_bottom_template = flat_bottom_template
 
     @property
     def receptor_heavy_atoms(self):
         """Determine receptor heavy atoms only.
-        
+
         Returns
         -------
         receptor_heavy_atoms: list[pytraj.core.topology_objects.Atom]
-            List of receptor heavy atoms. 
+            List of receptor heavy atoms.
         """
         return self._determine_heavy_atoms(self.complex_traj[self.receptor_mask])
 
     @property
     def ligand_heavy_atoms(self):
-        """Determine ligand heavy atoms only. 
+        """Determine ligand heavy atoms only.
 
         Returns
         -------
         ligand_heavy_atoms: list[pytraj.core.topology_objects.Atom]
-            List of ligand heavy atoms. 
+            List of ligand heavy atoms.
         """
         return self._determine_heavy_atoms(self.complex_traj[self.ligand_mask])
 
@@ -467,50 +477,54 @@ class BoreschRestraints(Job):
 
     @property
     def receptor_heavy_atom_pairs(self):
-        """Search for all possible combinations of receptor heavy atom pairs. 
-        Return pairs with more than one heavy atom convalent bond. 
-        
+        """Search for all possible combinations of receptor heavy atom pairs.
+        Return pairs with more than one heavy atom convalent bond.
+
         Returns
         -------
-        receptor_heavy_atom_pairs: tuple(pytraj.core.topology_objects.Atom, pytraj.core.topology_objects.Atom) 
-            Receptor heavy atom pairs with more than one heavy atom convalent bonds. 
+        receptor_heavy_atom_pairs: tuple(pytraj.core.topology_objects.Atom, pytraj.core.topology_objects.Atom)
+            Receptor heavy atom pairs with more than one heavy atom convalent bonds.
         """
         no_proton_pairs = list(itertools.permutations(self.receptor_heavy_atoms, r=2))
         # get parmed infomation of the second atom
-        parmed_atoms = [self.complex_parm.atoms[atom[1].index] for atom in no_proton_pairs]
+        parmed_atoms = [
+            self.complex_parm.atoms[atom[1].index] for atom in no_proton_pairs
+        ]
 
         # if the atom have more than 1 heavy atom bond
         heavy_atoms = list(map(refactor_find_heavy_bonds, parmed_atoms))
 
         return [x for x, y in zip(no_proton_pairs, heavy_atoms) if y]
-    
+
     @property
     def ligand_heavy_atom_pairs(self):
-        """Search for all possible combinations of ligand heavy atom pairs. 
-        Return pairs with more than one heavy atom convalent bond. 
-        
+        """Search for all possible combinations of ligand heavy atom pairs.
+        Return pairs with more than one heavy atom convalent bond.
+
         Returns
         -------
-        ligand_heavy_atom_pairs: tuple(pytraj.core.topology_objects.Atom, pytraj.core.topology_objects.Atom) 
-            Ligand heavy atom pairs with more than one heavy atom convalent bonds. 
+        ligand_heavy_atom_pairs: tuple(pytraj.core.topology_objects.Atom, pytraj.core.topology_objects.Atom)
+            Ligand heavy atom pairs with more than one heavy atom convalent bonds.
         """
-        
+
         no_proton_pairs = list(itertools.permutations(self.ligand_heavy_atoms, r=2))
         # get parmed infomation of the second atom
-        parmed_atoms = [self.complex_parm.atoms[atom[1].index] for atom in no_proton_pairs]
+        parmed_atoms = [
+            self.complex_parm.atoms[atom[1].index] for atom in no_proton_pairs
+        ]
 
         # if the atom have more than 1 heavy atom bond
         heavy_atoms = list(map(refactor_find_heavy_bonds, parmed_atoms))
 
         return [x for x, y in zip(no_proton_pairs, heavy_atoms) if y]
-    
+
     @property
     def _write_orientational_template(self):
         """
         Write an orentational restraint .RST file.
-        
+
         Generate AMBER NMR restraints:
-            &rst iat = atom_r1, atom_L1, 
+            &rst iat = atom_r1, atom_L1,
             r1=0, r2 = r_aA0, r3 = r_aA0, r4 = 1000
             rk2= $drest, rk3= $drest,
             /
@@ -535,11 +549,11 @@ class BoreschRestraints(Job):
             rk2 = $trest, rk3 = $trest,
             /
             &end
-        
-        Returns 
+
+        Returns
         -------
         complex_name_orientational_template.RST: str
-            A written orientational .RST restraint file. 
+            A written orientational .RST restraint file.
         """
 
         string_template = ""
@@ -570,25 +584,25 @@ class BoreschRestraints(Job):
                 trest="$trest",
             )
             string_template += restraint_template
-        
-        complex_name = re.sub(r"\..*", "", os.path.basename(self.complex_prmtop)) 
-        with open(f"{complex_name}_orientational_template.RST", "w") as restraint_string:
+
+        complex_name = re.sub(r"\..*", "", os.path.basename(self.complex_prmtop))
+        with open(
+            f"{complex_name}_orientational_template.RST", "w"
+        ) as restraint_string:
             restraint_string.write(string_template)
-        
+
         return f"{complex_name}_orientational_template.RST"
-    
-    @property 
+
+    @property
     def compute_boresch_restraints(self):
         """Analytically calculate the DeltaG of Boresch restraints contribution.
-        
-        Returns 
+
+        Returns
         -------
         df: pd.DataFrame
-            A dataframe containing all variables to computed standard state. 
+            A dataframe containing all variables to computed standard state.
         """
-        
-        
-        
+
         Rgas = 8.31446261815324  # Ideal Gas constant (J)/(mol*K)
         kB = (
             Rgas / 4184
@@ -627,10 +641,8 @@ class BoreschRestraints(Job):
         df["Kphi3"] = [self.K_phiC]
         df["DeltaG"] = [result]
 
-        return df 
-        
+        return df
 
-    
     def _assign_if_undefined(self, attr_name, attr_value):
         """Assign value to self.name only if it is None."""
 
@@ -651,24 +663,26 @@ class BoreschRestraints(Job):
         ----------
         receptor: pytraj.trajectory
             Pytraj trajectory of the receptor molecule
-        ligand: pytraj.trajectory 
-            Pytraj trajectory of the ligand molecule 
-            
+        ligand: pytraj.trajectory
+            Pytraj trajectory of the ligand molecule
+
         Returns
         -------
         lig_a1_coords: numpy.ndarry
-            Array of coordiante of selected L1 position  
+            Array of coordiante of selected L1 position
         rec_a1_coords: numpy.ndarry
-            Array of coordiante of selected R1 position  
+            Array of coordiante of selected R1 position
         """
         ligand_com = pt.center_of_mass(ligand)
         receptor_com = pt.center_of_mass(receptor)
-        
+
         if self.restraint_type == 1:
             # find atom closest to ligand's CoM and relevand information
-            ligand_suba1, lig_a1_coords, dist_liga1_com = screen_for_distance_restraints(
-                ligand.n_atoms, ligand_com, ligand
-            )
+            (
+                ligand_suba1,
+                lig_a1_coords,
+                dist_liga1_com,
+            ) = screen_for_distance_restraints(ligand.n_atoms, ligand_com, ligand)
             ligand_a1 = receptor.n_atoms + ligand_suba1
             dist_liga1_com = distance_calculator(lig_a1_coords, ligand_com)
             receptor_a1, rec_a1_coords, dist_reca1_com = screen_for_distance_restraints(
@@ -685,39 +699,39 @@ class BoreschRestraints(Job):
                 dist_rest,
             ) = shortest_distance_between_molecules(receptor, ligand)
             ligand_a1 = receptor.n_atoms + ligand_suba1
-            
+
         else:
             # find atom closest to ligand's CoM and relevand information
-            ligand_suba1, lig_a1_coords, dist_liga1_com = screen_for_distance_restraints(
-                ligand.n_atoms, ligand_com, ligand
-            )
+            (
+                ligand_suba1,
+                lig_a1_coords,
+                dist_liga1_com,
+            ) = screen_for_distance_restraints(ligand.n_atoms, ligand_com, ligand)
             ligand_a1 = receptor.n_atoms + ligand_suba1
             receptor_a1, rec_a1_coords, dist_rest = screen_for_distance_restraints(
                 receptor.n_atoms, lig_a1_coords, receptor
             )
-        
-        # set attributes 
+
+        # set attributes
         self._assign_if_undefined("lig_dist_atom", ligand_a1)
         self._assign_if_undefined("rec_dist_atom", receptor_a1)
         self._assign_if_undefined("r_aA0", dist_rest)
-        
+
         return lig_a1_coords, rec_a1_coords
-    
+
     def _determine_heavy_atoms(self, molecule):
-        
         """Returns a list of only heavy atoms
 
         Returns:
         _determine_heavy_atoms: list[pytraj.core.topology_objects.Atom]
-            A list of heavy atoms only. 
+            A list of heavy atoms only.
         """
         # ignore protons return a list of heavy atoms
-        return  list(
+        return list(
             itertools.filterfalse(
                 lambda atom: atom.name.startswith("H"), molecule.topology.atoms
             )
         )
-
 
     @staticmethod
     def _check_suitable_restraints(
@@ -731,33 +745,33 @@ class BoreschRestraints(Job):
         Parameters
         ----------
         atom1_position: numpy.ndarry
-            Coordinates to either ligand atom A or receptor atom a. 
+            Coordinates to either ligand atom A or receptor atom a.
         atomx_position: numpy.ndarry
-            Coordinates to either ligand atom A or receptor atom a. 
+            Coordinates to either ligand atom A or receptor atom a.
         only_heavy_pairs: list[pytraj.core.topology_objects.Atom]
             Heavy atom pairs of the ligand or receptor.
-        atom_coords: pytraj.trajectory 
-            Pytraj of receptor or ligand. 
-        
-        Returns 
+        atom_coords: pytraj.trajectory
+            Pytraj of receptor or ligand.
+
+        Returns
         -------
-        selected_atom2: int 
-            Parm index of selected atom 2 
+        selected_atom2: int
+            Parm index of selected atom 2
         saved_atom2_position: numpy.ndarry
-            Coordinate position of selected atom 2 
+            Coordinate position of selected atom 2
         saved_angle_a1a2: ndarray of floats
             computed theta angle between atom 1 and atom 2
         saved_torsion_angle: ndarray of floats
             Computed torisonal angle between atomx_position, atom1_position, atom2_position and atom3_position
-        selected_atom3: int 
-            Parm index of selected atom 3 
+        selected_atom3: int
+            Parm index of selected atom 3
         """
         atom_coords = atom_coords.xyz[0]
         min_angle = 80
-        max_angle = 100 
+        max_angle = 100
         saved_average_distance_value = 0
-        suitable_restraint = False 
-        
+        suitable_restraint = False
+
         while not suitable_restraint:
             for atom_index, atom in enumerate(only_heavy_pairs):
                 atom2_position = atom_coords[
@@ -778,7 +792,9 @@ class BoreschRestraints(Job):
                     torsion_angle = compute_dihedral_angle(
                         atomx_position, atom1_position, atom2_position, atom3_position
                     )
-                    new_distance_a1a2 = distance_calculator(atom1_position, atom2_position)
+                    new_distance_a1a2 = distance_calculator(
+                        atom1_position, atom2_position
+                    )
                     new_distance_a3_norm_a1a2 = norm_distance(
                         atom1_position, atom2_position, atom3_position
                     )
@@ -786,8 +802,6 @@ class BoreschRestraints(Job):
                     if (
                         new_distance_a1a2 + new_distance_a3_norm_a1a2
                     ) / 2 > saved_average_distance_value:
-
-
                         saved_average_distance_value = (
                             new_distance_a1a2 + new_distance_a3_norm_a1a2
                         ) / 2
@@ -801,7 +815,6 @@ class BoreschRestraints(Job):
                             f"print(saved_average_distance_value) refactor {saved_average_distance_value}"
                         )
             if not suitable_restraint:
-
                 if min_angle > 10:
                     print(min_angle)
                     min_angle -= 1
@@ -809,18 +822,18 @@ class BoreschRestraints(Job):
                 else:
                     import sys
 
-                    sys.exit("no suitable restraint atom found that fit all parameters!!")
+                    sys.exit(
+                        "no suitable restraint atom found that fit all parameters!!"
+                    )
         return (
-        selected_atom2,
-        saved_atom2_position,
-        saved_angle_a1a2,
-        saved_torsion_angle,
-        selected_atom3
-    ) 
-    
-   
-    def run(self, fileStore):
+            selected_atom2,
+            saved_atom2_position,
+            saved_angle_a1a2,
+            saved_torsion_angle,
+            selected_atom3,
+        )
 
+    def run(self, fileStore):
         temp_dir = fileStore.getLocalTempDir()
         complex_prmtop_ID = fileStore.readGlobalFile(
             self.complex_prmtop,
@@ -831,34 +844,40 @@ class BoreschRestraints(Job):
             userPath=os.path.join(
                 temp_dir, os.path.basename(self.complex_coordinate[0])
             ),
-        )  
+        )
         # self.complex_traj = pt.load(self.complex_coordinate, self.complex_prmtop)
         # self.complex_parm = pmd.load_file(self.complex_prmtop)
         self.complex_traj = pt.load(complex_coordinate_ID, complex_prmtop_ID)
         self.complex_parm = pmd.load_file(complex_prmtop_ID)
-        
-                
-        ligand_atom_A_coord, receptor_atom_a_coord = self._determine_atoms_specified_restraints(receptor=self.complex_traj[self.receptor_mask], 
-                                                   ligand=self.complex_traj[self.ligand_mask])
-        
-        
+
         (
-            ligand_suba2, 
-            ligand_a2_coords, 
-            ligand_angle1, 
-            ligand_torsion, 
-            ligand_suba3
+            ligand_atom_A_coord,
+            receptor_atom_a_coord,
+        ) = self._determine_atoms_specified_restraints(
+            receptor=self.complex_traj[self.receptor_mask],
+            ligand=self.complex_traj[self.ligand_mask],
+        )
+
+        (
+            ligand_suba2,
+            ligand_a2_coords,
+            ligand_angle1,
+            ligand_torsion,
+            ligand_suba3,
         ) = self._check_suitable_restraints(
-            ligand_atom_A_coord, receptor_atom_a_coord, self.ligand_heavy_atom_pairs,self.complex_traj[self.ligand_mask]
-            )    
+            ligand_atom_A_coord,
+            receptor_atom_a_coord,
+            self.ligand_heavy_atom_pairs,
+            self.complex_traj[self.ligand_mask],
+        )
         ligand_a2 = self.complex_traj[self.receptor_mask].n_atoms + ligand_suba2
         ligand_a3 = self.complex_traj[self.receptor_mask].n_atoms + ligand_suba3
-        #set ligand angles and heavy atom attributes 
+        # set ligand angles and heavy atom attributes
         self._assign_if_undefined("ligand_atom2", ligand_a2)
         self._assign_if_undefined("ligand_atom3", ligand_a3)
         self._assign_if_undefined("theta_A0", ligand_angle1)
         self._assign_if_undefined("phi_A0", ligand_torsion)
-        
+
         (
             receptor_a2,
             receptor_a2_coords,
@@ -866,32 +885,44 @@ class BoreschRestraints(Job):
             receptor_torsion,
             receptor_a3,
         ) = self._check_suitable_restraints(
-            receptor_atom_a_coord, ligand_atom_A_coord, self.receptor_heavy_atom_pairs, self.complex_traj[self.receptor_mask]
-            )
+            receptor_atom_a_coord,
+            ligand_atom_A_coord,
+            self.receptor_heavy_atom_pairs,
+            self.complex_traj[self.receptor_mask],
+        )
 
-        #set receptor angles and heavy atom attributes 
+        # set receptor angles and heavy atom attributes
         self._assign_if_undefined("receptor_atom2", receptor_a2)
         self._assign_if_undefined("receptor_atom3", receptor_a3)
         self._assign_if_undefined("theta_B0", receptor_angle1)
         self._assign_if_undefined("phi_B0", receptor_torsion)
-        
-        central_torsion = compute_dihedral_angle(
-            receptor_a2_coords, receptor_atom_a_coord, ligand_atom_A_coord, ligand_a2_coords
-        )
-        
-        #set central torsion phi ange 
-        self._assign_if_undefined("phi_C0", central_torsion)
-        #assign boresch template 
-        self._assign_if_undefined("boresch_template",fileStore.writeGlobalFile(self._write_orientational_template))
-        
-        return self
-        
 
+        central_torsion = compute_dihedral_angle(
+            receptor_a2_coords,
+            receptor_atom_a_coord,
+            ligand_atom_A_coord,
+            ligand_a2_coords,
+        )
+
+        # set central torsion phi ange
+        self._assign_if_undefined("phi_C0", central_torsion)
+        # assign boresch template
+        self._assign_if_undefined(
+            "boresch_template",
+            fileStore.writeGlobalFile(self._write_orientational_template),
+        )
+
+        return self
 
 
 class RestraintMaker(Job):
     def __init__(
-        self, config: Config, boresch_restraints:BoreschRestraints, conformational_template=None, orientational_template=None,
+        self,
+        config: Config,
+        boresch_restraints: BoreschRestraints,
+        flat_bottom: str,
+        conformational_template=None,
+        orientational_template=None,
     ) -> None:
         super().__init__()
         self.complex_restraint_file = config.intermidate_args.complex_restraint_files
@@ -905,30 +936,27 @@ class RestraintMaker(Job):
         )
         self.config = config
         self.boresch = boresch_restraints
+        self.flat_bottom = flat_bottom
         self.restraints = {}
 
     def run(self, fileStore):
-        
-        
         conformational_restraints = self.addChildJobFn(
-                get_conformational_restraints,
-                self.config.endstate_files.complex_parameter_filename,
-                self.config.inputs["endstate_complex_lastframe"],
-                self.config.amber_masks.receptor_mask,
-                self.config.amber_masks.ligand_mask,
-            )
+            get_conformational_restraints,
+            self.config.endstate_files.complex_parameter_filename,
+            self.config.inputs["endstate_complex_lastframe"],
+            self.config.amber_masks.receptor_mask,
+            self.config.amber_masks.ligand_mask,
+        )
         self.conformational_restraints = conformational_restraints
         self.boresch_deltaG = self.boresch.compute_boresch_restraints
-            
+
         for index, (conformational_force, orientational_force) in enumerate(
             zip(
                 self.config.intermidate_args.conformational_restraints_forces,
                 self.config.intermidate_args.orientational_restriant_forces,
             )
         ):
-
             if len(self.ligand_restraint_file) == 0:
-                
                 self.restraints[
                     f"ligand_{conformational_force}_rst"
                 ] = self.addFollowOnJobFn(
@@ -953,6 +981,7 @@ class RestraintMaker(Job):
                     self.boresch.boresch_template,
                     conformational_force=conformational_force,
                     orientational_force=orientational_force,
+                    flat_bottom_template=self.flat_bottom,
                 ).rv()
             else:
                 self.restraints[
@@ -980,7 +1009,6 @@ class RestraintMaker(Job):
         return self
 
     def add_complex_window(self, conformational_force, orientational_force):
-
         return self.addChildJobFn(
             write_restraint_forces,
             self.conformational_restraints.rv(0),
@@ -990,7 +1018,6 @@ class RestraintMaker(Job):
         ).rv()
 
     def add_ligand_window(self, system, conformational_force):
-
         return self.addChildJobFn(
             write_restraint_forces,
             self.conformational_restraints.rv(1),
@@ -998,7 +1025,6 @@ class RestraintMaker(Job):
         ).rv()
 
     def add_receptor_window(self, conformational_force):
-
         return self.addFollowOnJobFn(
             write_restraint_forces,
             self.conformational_restraints.rv(2),
@@ -1033,7 +1059,7 @@ class RestraintMaker(Job):
             current_line = re.search(r"\d*\.\d*", line)
             if current_line is not None:
                 values.append(float(current_line[0]))
-        return 
+        return
         # return compute_boresch_restraints(
         #     dist_restraint_r=values[0],
         #     angle1_rest_val=values[2],
@@ -1050,7 +1076,6 @@ class RestraintMaker(Job):
     def get_restraint_file(
         restraint_obj, system, conformational_force, orientational_force=None
     ):
-
         if system == "ligand":
             return restraint_obj[f"ligand_{conformational_force}_rst"]
 
@@ -1065,7 +1090,6 @@ class RestraintMaker(Job):
 def get_conformational_restraints(
     job, complex_prmtop, complex_coordinate, receptor_mask, ligand_mask
 ):
-
     """
      Purpose to create a series of conformational restraint template files.
 
@@ -1143,10 +1167,10 @@ def write_restraint_forces(
     job,
     conformational_template,
     orientational_template=None,
+    flat_bottom_template=None,
     conformational_force=0.0,
     orientational_force=0.0,
 ):
-
     temp_dir = job.fileStore.getLocalTempDir()
 
     read_conformational_template = job.fileStore.readGlobalFile(
@@ -1156,6 +1180,9 @@ def write_restraint_forces(
     string_template = ""
 
     if orientational_template is not None:
+        if flat_bottom_template is not None:
+            string_template += flat_bottom_template + "\n"
+
         read_orientational_template = job.fileStore.readGlobalFile(
             orientational_template,
             userPath=os.path.join(temp_dir, os.path.basename(orientational_template)),
@@ -1183,11 +1210,9 @@ def write_restraint_forces(
     return job.fileStore.writeGlobalFile("restraint.RST")
 
 
-
 def conformational_restraints_template(
     solute_conformational_restraint, num_receptor_atoms=0
 ):
-
     restraint_path = os.path.abspath(
         os.path.join(
             os.path.dirname(os.path.realpath(__file__)),
@@ -1218,32 +1243,30 @@ def write_empty_restraint(job):
     return job.fileStore.writeGlobalFile("empty.restraint")
 
 
-
-
-
-def export_restraint(job, restraints:RestraintMaker):
-    
-    #f"complex_{conformational_force}_{orientational_force}_rst"
+def export_restraint(job, restraints: RestraintMaker):
+    # f"complex_{conformational_force}_{orientational_force}_rst"
     tempDir = job.fileStore.getLocalTempDir()
-    
+
     job.log(f"restraints keys {restraints.restraints.keys()}")
     restraint_file = job.fileStore.readGlobalFile(
-                restraints.restraints["complex_0.00390625_0.0625_rst"],
-                userPath=os.path.join(
-                    tempDir,
-                    os.path.basename(
-                        restraints.restraints["complex_0.00390625_0.0625_rst"]
-                    ),
-                ),
-            )
+        restraints.restraints["complex_0.00390625_0.0625_rst"],
+        userPath=os.path.join(
+            tempDir,
+            os.path.basename(restraints.restraints["complex_0.00390625_0.0625_rst"]),
+        ),
+    )
     job.fileStore.export_file(
-                    restraint_file,
-                    "file://"
-                    + os.path.abspath(
-                        os.path.join("/nas0/ayoub/Impicit-Solvent-DDM/restraint_check", os.path.basename(restraint_file))
-                    ),
-                )
-    job.log(f'''\n
+        restraint_file,
+        "file://"
+        + os.path.abspath(
+            os.path.join(
+                "/nas0/ayoub/Impicit-Solvent-DDM/restraint_check",
+                os.path.basename(restraint_file),
+            )
+        ),
+    )
+    job.log(
+        f"""\n
             r: {restraints.boresch_deltaG["r"]}\n 
             theta_1: {restraints.boresch_deltaG["theta_1"]}\n
             theta_2: {restraints.boresch_deltaG["theta_2"]}\n
@@ -1254,40 +1277,58 @@ def export_restraint(job, restraints:RestraintMaker):
             Kphi2: {restraints.boresch_deltaG["Kphi2"]}\n 
             Kphi3: {restraints.boresch_deltaG["Kphi3"]}\n 
             DeltaG: {restraints.boresch_deltaG["DeltaG"]}\n 
-            ''')
-def hello_job(job, config:Config):
-    #get_orientational_restraints(job, complex_prmtop, complex_coordinate, receptor_mask, ligand_mask, restraint_type):
-    #get_orientational_restraints(job, complex_prmtop, complex_coordinate, receptor_mask, ligand_mask, restraint_type):
-    #output = job.addChildJobFn(get_orientational_restraints, prmtop, coordinate, ":CB7", ":M01", 1)
+            """
+    )
 
-    boresch = job.addChild(BoreschRestraints(complex_prmtop=config.endstate_files.complex_parameter_filename, 
-                                complex_coordinate=config.endstate_files.complex_coordinate_filename,
-                                restraint_type=2, ligand_mask=config.amber_masks.ligand_mask, 
-                                receptor_mask=config.amber_masks.receptor_mask, K_r=16,
-                                K_thetaA=256, K_thetaB=256, 
-                                K_phiA=256, K_phiB=256, K_phiC=256))
-    config.inputs["endstate_complex_lastframe"] = config.endstate_files.complex_coordinate_filename
-    a = boresch.addFollowOn(RestraintMaker(config=config, boresch_restraints=boresch.rv()))
-    
+
+def hello_job(job, config: Config):
+    # get_orientational_restraints(job, complex_prmtop, complex_coordinate, receptor_mask, ligand_mask, restraint_type):
+    # get_orientational_restraints(job, complex_prmtop, complex_coordinate, receptor_mask, ligand_mask, restraint_type):
+    # output = job.addChildJobFn(get_orientational_restraints, prmtop, coordinate, ":CB7", ":M01", 1)
+
+    boresch = job.addChild(
+        BoreschRestraints(
+            complex_prmtop=config.endstate_files.complex_parameter_filename,
+            complex_coordinate=config.endstate_files.complex_coordinate_filename,
+            restraint_type=2,
+            ligand_mask=config.amber_masks.ligand_mask,
+            receptor_mask=config.amber_masks.receptor_mask,
+            K_r=16,
+            K_thetaA=256,
+            K_thetaB=256,
+            K_phiA=256,
+            K_phiB=256,
+            K_phiC=256,
+        )
+    )
+    config.inputs[
+        "endstate_complex_lastframe"
+    ] = config.endstate_files.complex_coordinate_filename
+    a = boresch.addFollowOn(
+        RestraintMaker(config=config, boresch_restraints=boresch.rv())
+    )
+
     b = job.addFollowOnJobFn(export_restraint, a.rv())
-    
-    return a
-if __name__ == "__main__":
 
+    return a
+
+
+if __name__ == "__main__":
     # traj = pt.load("/home/ayoub/nas0/Impicit-Solvent-DDM/success_postprocess/mdgb/split_complex_folder/ligand/split_M01_000.ncrst.1", "/home/ayoub/nas0/Impicit-Solvent-DDM/success_postprocess/mdgb/M01_000/4/4.0/M01_000.parm7")
     complex_coord = "/nas0/ayoub/sampl4_cb7/sampl4_cb7/cb7-mol01_Hmass/lambda_window/1.0/78.5/-8.0/-4.0/cb7-mol01_Hmass_300K_lastframe.ncrst"
-    complex_parm = (
-        "/nas0/ayoub/sampl4_cb7/sampl4_cb7/cb7-mol01_Hmass/lambda_window/1.0/78.5/-8.0/-4.0/cb7-mol01_Hmass.parm7"
-    )
+    complex_parm = "/nas0/ayoub/sampl4_cb7/sampl4_cb7/cb7-mol01_Hmass/lambda_window/1.0/78.5/-8.0/-4.0/cb7-mol01_Hmass.parm7"
 
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "INFO"
     options.clean = "always"
     with Toil(options) as toil:
-        import yaml 
-        with open("/nas0/ayoub/Impicit-Solvent-DDM/config_files/no_restraints.yaml") as fH:
+        import yaml
+
+        with open(
+            "/nas0/ayoub/Impicit-Solvent-DDM/config_files/no_restraints.yaml"
+        ) as fH:
             yaml_config = yaml.safe_load(fH)
-        
+
         config = Config.from_config(yaml_config)
         if not toil.options.restart:
             config.endstate_files.toil_import_parmeters(toil=toil)
@@ -1314,22 +1355,20 @@ if __name__ == "__main__":
         #     "file://" + os.path.abspath(complex_parm)
         # )
         output = toil.start(Job.wrapJobFn(hello_job, config))
-        
-    
-    # boresch = BoreschRestraints(complex_prmtop=complex_parm, 
+
+    # boresch = BoreschRestraints(complex_prmtop=complex_parm,
     #                             complex_coordinate=complex_coord,
-    #                             restraint_type=2, ligand_mask=":G3", 
+    #                             restraint_type=2, ligand_mask=":G3",
     #                             receptor_mask=":WP6", K_r=4,
-    #                             K_thetaA=8.0, K_thetaB=8.0, 
+    #                             K_thetaA=8.0, K_thetaB=8.0,
     #                             K_phiA=8.0, K_phiB=8.0, K_phiC=8.0)
     # print('K_r', boresch.K_r)
     # a = boresch.run()
     # print(type(a.theta_A0))
     # print(boresch.compute_boresch_restraints)
-    
-    
+
     # print('-'*20)
-    
+
     # get_orientational_restraints_no_toil(complex_prmtop=complex_parm, complex_coordinate=complex_coord,
     #                                      receptor_mask=":WP6", ligand_mask=":G3",
     #                                      restraint_type=2, max_torisonal_rest=8.0,

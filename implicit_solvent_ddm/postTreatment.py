@@ -25,6 +25,7 @@ AVAGADRO = 6.0221367e23
 BOLTZMAN = 1.380658e-23
 JOULES_PER_KCAL = 4184
 
+
 class PostTreatment(Job):
     def __init__(
         self,
@@ -46,13 +47,11 @@ class PostTreatment(Job):
         self.kcals_per_Kt = ((BOLTZMAN * (AVAGADRO)) / JOULES_PER_KCAL) * self.temp
 
     def _load_dfs(self):
-
         self.df = pd.concat(self.simulations_data, axis=0, ignore_index=True)
 
         self.name = self.df["solute"].iloc[0]
 
     def _create_MBAR_format(self):
-
         self.df = self.df.set_index(
             [
                 "solute",
@@ -68,9 +67,9 @@ class PostTreatment(Job):
             ],
             drop=True,
         )
-            
+
         self.df = self.df[["ENERGY"]]
-        self.df = self.df.unstack(["parm_state", "extdiel",  "charge", "parm_restraints"])  # type: ignore
+        self.df = self.df.unstack(["parm_state", "extdiel", "charge", "parm_restraints"])  # type: ignore
         self.df = self.df.reset_index(["Frames", "solute"], drop=True)
         states = [_ for _ in zip(*self.df.columns)][1]
         extdiels = [_ for _ in zip(*self.df.columns)][2]
@@ -79,7 +78,9 @@ class PostTreatment(Job):
 
         column_names = [
             (state, extdiel, charge, restraint)
-            for state, extdiel, charge, restraint in zip(states, extdiels, charges, restraints)
+            for state, extdiel, charge, restraint in zip(
+                states, extdiels, charges, restraints
+            )
         ]
 
         self.df.columns = column_names  # type: ignore
@@ -87,12 +88,12 @@ class PostTreatment(Job):
         # divide by Kcal per Kt
         self.df = self.df / self.kcals_per_Kt
 
-    def compute_binding_deltaG(self, system1: float, system2: float, boresch_dG: float):
-
-        return self.deltaG + system1 + system2 + boresch_dG
+    def compute_binding_deltaG(
+        self, system1: float, system2: float, boresch_dG: float, free_flat_bottom: float
+    ):
+        return self.deltaG + system1 + system2 + boresch_dG + free_flat_bottom
 
     def run(self, fileStore):
-
         self._load_dfs()
         self._create_MBAR_format()
         fileStore.logToMaster(f"self.df {self.df}")
@@ -114,6 +115,14 @@ class PostTreatment(Job):
         elif self.system == "receptor":
             self.deltaG = fe.loc[("endstate", "78.5", "1.0", "0.0"), [("no_gb", "0.0", "1.0", self.max_con_force)]].values[0]  # type: ignore
 
+        elif self.system == "free_flat_bottom":
+            self.deltaG = fe.loc[
+                (
+                    ("endstate", "78.5", "1.0", "0.0_0.0"),
+                    [("no_flat_bottom", "78.5", "1.0", "0.0_0.0")],
+                )
+            ].values[0]
+
         # system is complex
         else:
             self.deltaG = fe.loc[("no_interactions", "0.0", "0.0", f"{self.max_con_force}_{self.max_orien_force}"), [("endstate", "78.5", "1.0", "0.0_0.0")]].values[0]  # type: ignore
@@ -129,9 +138,9 @@ def consolidate_output(
     ligand_system: PostTreatment,
     receptor_system: PostTreatment,
     complex_system: PostTreatment,
+    flat_bottom: PostTreatment,
     boresch_df: RestraintMaker,
 ):
-
     output_path = os.path.join(f"{WORKDIR}", f".cache/{complex_system.name}")
     if not os.path.exists(output_path):
         os.makedirs(output_path)
@@ -177,7 +186,12 @@ def consolidate_output(
 
     boresch_dG = boresch_df.boresch_deltaG["DeltaG"].values[0]
     # compute total deltaG
-    deltaG_tot = complex_system.compute_binding_deltaG(system1=ligand_system.deltaG, system2=receptor_system.deltaG, boresch_dG=boresch_dG)  # type: ignore
+    deltaG_tot = complex_system.compute_binding_deltaG(
+        system1=ligand_system.deltaG,
+        system2=receptor_system.deltaG,
+        boresch_dG=boresch_dG,
+        free_flat_bottom=flat_bottom.deltaG,
+    )  # type: ignore
 
     deltaG_df = pd.DataFrame()
 
@@ -187,6 +201,7 @@ def consolidate_output(
     deltaG_df[f"{complex_system.name}_no-interactions->endstate"] = [
         complex_system.deltaG
     ]
+    deltaG_df["free->flat_bottom"] = flat_bottom.deltaG
     deltaG_df["deltaG"] = [deltaG_tot]
 
     deltaG_df.to_hdf(
@@ -195,9 +210,12 @@ def consolidate_output(
 
 
 def create_mdout_dataframe(
-    job, directory_args: dict, dirstruct: str, output_dir: str, compress:bool=True,
+    job,
+    directory_args: dict,
+    dirstruct: str,
+    output_dir: str,
+    compress: bool = True,
 ) -> pd.DataFrame:
-
     sim = Dirstruct("mdgb", directory_args, dirstruct=dirstruct)
 
     mdout = f"{output_dir}/mdout"
@@ -226,11 +244,13 @@ def create_mdout_dataframe(
         data[
             "traj_restraints"
         ] = f"{run_args['trajectory_restraint_conrest']}_{run_args['trajectory_restraint_orenrest']}"
-    
+
     if compress:
-        data.to_parquet(f"{output_dir}/simulation_mdout.parquet.gzip", compression='gzip') 
-        #data.to_parquet(f"{output_dir}/simulation_mdout.zip",  compression="gzip")
-    
+        data.to_parquet(
+            f"{output_dir}/simulation_mdout.parquet.gzip", compression="gzip"
+        )
+        # data.to_parquet(f"{output_dir}/simulation_mdout.zip",  compression="gzip")
+
     os.remove(mdout)
-    
+
     return data
