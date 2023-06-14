@@ -138,6 +138,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                     working_directory=config.system_settings.working_directory,
                     memory=config.system_settings.memory,
                     disk=config.system_settings.disk,
+                    remd_debug=config.workflow.debug,
                 )
             )
 
@@ -160,6 +161,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                     },
                     memory=config.system_settings.memory,
                     disk=config.system_settings.disk,
+                    remd_debug=config.workflow.debug,
                 )
             )
             # extact target temparture trajetory and last frame
@@ -222,6 +224,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                     working_directory=config.system_settings.working_directory,
                     memory=config.system_settings.memory,
                     disk=config.system_settings.disk,
+                    remd_debug=config.workflow.debug,
                 )
             )
 
@@ -244,6 +247,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                     working_directory=config.system_settings.working_directory,
                     memory=config.system_settings.memory,
                     disk=config.system_settings.disk,
+                    remd_debug=config.workflow.debug,
                 )
             )
             # extact target temparture trajetory and last frame
@@ -296,6 +300,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                         working_directory=config.system_settings.working_directory,
                         memory=config.system_settings.memory,
                         disk=config.system_settings.disk,
+                        remd_debug=config.workflow.debug,
                     )
                 )
 
@@ -318,6 +323,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                         working_directory=config.system_settings.working_directory,
                         memory=config.system_settings.memory,
                         disk=config.system_settings.disk,
+                        remd_debug=config.workflow.debug,
                     )
                 )
                 # extact target temparture trajetory and last frame
