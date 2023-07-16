@@ -102,7 +102,6 @@ class SystemSettings:
 
     @property
     def top_directory_path(self):
-
         return os.path.join(self.working_directory, self.output_directory_name)
 
     @classmethod
@@ -149,7 +148,6 @@ class ParameterFiles:
         return cls(**obj)
 
     def get_inital_coordinate(self):
-
         solu_complex = re.sub(
             r"\..*", "", os.path.basename(self.complex_coordinate_filename)
         )
@@ -205,7 +203,6 @@ class ParameterFiles:
             self.ligand_parameter_filename = unique_ligand_ID
 
         if self.receptor_parameter_filename is not None:
-
             unique_receptor_ID = os.path.join(
                 self.tempdir.name,
                 f"{receptor_basename}-{ligand_basename}_{unique_id}.parm7",
@@ -216,7 +213,6 @@ class ParameterFiles:
             self.receptor_parameter_filename = unique_receptor_ID
 
     def toil_import_parmeters(self, toil):
-
         self.complex_parameter_filename = str(
             toil.import_file(
                 "file://" + os.path.abspath(self.complex_parameter_filename)
@@ -318,13 +314,10 @@ class REMD:
     nthreads_ligand: int = 0
     # nthreads: int = 0
 
-    
     def __post_init__(self):
-        
-        #number of copies should equal to length of temperatures     
+        # number of copies should equal to length of temperatures
         self.ngroups = len(self.temperatures)
-    
-    
+
     @classmethod
     def from_config(cls: Type["REMD"], obj: dict):
         return cls(
@@ -337,7 +330,6 @@ class REMD:
         )
 
     def toil_import_replica_mdin(self, toil: Toil):
-
         self.remd_template_mdin = toil.import_file(
             "file://" + os.path.abspath(self.remd_template_mdin)
         )
@@ -398,7 +390,7 @@ class FlatBottomRestraints:
 
 @dataclass
 class EndStateMethod:
-    endstate_method_type: Union[str,int]
+    endstate_method_type: Union[str, int]
     remd_args: REMD
     flat_bottom: FlatBottomRestraints
 
@@ -441,7 +433,7 @@ class IntermidateStatesArgs:
     temperature: float
     charges_lambda_window: List[float] = field(default_factory=list)
     gb_extdiel_windows: List[float] = field(default_factory=list)
-
+    min_degree_overlap: float = 0.03
     guest_restraint_template: Optional[str] = None
     receptor_restraint_template: Optional[str] = None
     complex_conformational_template: Optional[str] = None
@@ -457,7 +449,6 @@ class IntermidateStatesArgs:
     max_orientational_restraint: float = field(init=False)
 
     def __post_init__(self):
-
         # check charges lambda windows have a min value of 0
         if len(self.charges_lambda_window) == 0:
             self.charges_lambda_window = [0.0, 1.0]
@@ -473,7 +464,6 @@ class IntermidateStatesArgs:
         ]
 
         if len(self.gb_extdiel_windows) > 0:
-
             if 0 in self.gb_extdiel_windows:
                 self.gb_extdiel_windows.remove(0)
             if 1 in self.gb_extdiel_windows:
@@ -504,7 +494,6 @@ class IntermidateStatesArgs:
             or self.receptor_restraint_template
             or self.complex_orientational_template
         ):
-
             # self.tempdir = "mdgb/restraints"
             self.tempdir = tempfile.TemporaryDirectory()
             # if not os.path.exists('mdgb/restraints'):
@@ -564,7 +553,6 @@ class IntermidateStatesArgs:
         self.receptor_restraint_files.append(f"{self.tempdir.name}/{filename}_{conformational_force}.RST")  # type: ignore
 
     def write_complex_restraints(self, conformational_force, orientational_force):
-
         filename = re.sub(r"\..*", "", os.path.basename(self.complex_orientational_template))  # type: ignore
 
         with open(self.complex_conformational_template) as f:  # type: ignore
@@ -646,16 +634,16 @@ class Config:
             self.workflow.gb_extdiel_windows = False
 
         if self.endstate_files.receptor_coordinate_filename is not None:
-            self.ignore_receptor = True 
-        
+            self.ignore_receptor = True
+
     def _config_sanitity_check(self):
         # check if the amber mask are valid
         self._valid_amber_masks()
         self._check_endstate_method()
         self._check_missing_flatbottom_parameters()
         self._remd_target_temperature()
-    def _check_endstate_method(self):
 
+    def _check_endstate_method(self):
         if self.endstate_method.endstate_method_type == 0:
             if self.endstate_files.ligand_parameter_filename == None:
                 raise ValueError(
@@ -681,18 +669,21 @@ class Config:
                                 Please check if AMBER masks are correct ligand_mask: "{self.amber_masks.ligand_mask}" receptor_mask: "{self.amber_masks.receptor_mask}"
                                 {self.endstate_files.complex_parameter_filename} residue lables are: {parm.parm_data['RESIDUE_LABEL']}"""
             )
+
     def _remd_target_temperature(self):
-        if self.endstate_method.endstate_method_type == 'remd':
-            if self.intermidate_args.temperature not in self.endstate_method.remd_args.temperatures:
-               raise RuntimeError(
-                f"""The specified temperature {self.intermidate_args.temperature} is not 
+        if self.endstate_method.endstate_method_type == "remd":
+            if (
+                self.intermidate_args.temperature
+                not in self.endstate_method.remd_args.temperatures
+            ):
+                raise RuntimeError(
+                    f"""The specified temperature {self.intermidate_args.temperature} is not 
                 in the list of temperatures ({self.endstate_method.remd_args.temperatures}) for running REMD.
                 Note the specified temperature {self.intermidate_args.temperature} will be the target temperature 
                 during REMD trajectory extraction.
                 """
-               )
-     
-        
+                )
+
     @classmethod
     def from_config(cls: Type["Config"], user_config: dict, ignore_unique_naming=False):
         return cls(
@@ -714,7 +705,6 @@ class Config:
             inputs={},
             restraints={},
         )
-
 
     def _check_missing_flatbottom_parameters(self):
         pass
@@ -744,7 +734,6 @@ class Config:
         self.tempdir = tempfile.TemporaryDirectory()
 
         if self.endstate_files.receptor_parameter_filename is None:
-
             receptor_traj = self.complex_pytraj_trajectory[
                 self.amber_masks.receptor_mask
             ]
@@ -782,7 +771,6 @@ class Config:
 
 
 def workflow(job, config: Config):
-
     tempdir = job.fileStore.getLocalTempDir()
 
     job.fileStore.readGlobalFile(
@@ -795,17 +783,17 @@ def workflow(job, config: Config):
 
 
 if __name__ == "__main__":
-
     import yaml
 
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "OFF"
     options.clean = "always"
-    with open("/nas0/ayoub/Impicit-Solvent-DDM/config_files/no_restraints.yaml") as fH:
+    with open(
+        "/nas0/ayoub/Impicit-Solvent-DDM/config_files/upper_bound_adaptive.yaml"
+    ) as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:
-
         config = Config.from_config(yaml_config)
         # # print(config)
         # # config.endstate_files.get_inital_coordinate()
