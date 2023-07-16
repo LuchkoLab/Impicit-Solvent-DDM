@@ -1,25 +1,53 @@
 import numpy as np
 import pandas as pd
-
+import copy
 import implicit_solvent_ddm.pandasmbar as pdmbar
 from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.matrix_order import CycleSteps
 from implicit_solvent_ddm.restraints import write_restraint_forces
 from implicit_solvent_ddm.runner import IntermidateRunner
-from implicit_solvent_ddm.simulations import Simulation
 
 AVAGADRO = 6.0221367e23
 BOLTZMAN = 1.380658e-23
 JOULES_PER_KCAL = 4184
 
-def compute_mbar(simulation_data: list[pd.DataFrame], temperature:float, matrix_order:CycleSteps, system:str,
-                  memory="2G", cores=1, disk="3G"):
-    
-    
+
+def compute_mbar(
+    simulation_data: list[pd.DataFrame],
+    temperature: float,
+    matrix_order: CycleSteps,
+    system: str,
+    memory="2G",
+    cores=1,
+    disk="3G",
+):
+    """Execute MBAR analysis.
+
+    Arrange and structure DataFrames to perform MBAR analysis.
+
+    Parameters
+    ----------
+    simulation_data: list[pd.DataFrame]
+        A completed mdout output that contains system information including timestep energies, and temperature.
+    temperature: float
+        Specified thermostat temperature used in MD simulations.
+    matrix_order: CycleSteps
+        Arranges the MBAR matrix in chronological order depending on the system.
+    system: str
+        Denoting the chronogical order of the matrix (i.e. complex, receptor or ligand).
+
+    Returns
+    -------
+    pdmbar.mbar(df_subsampled): tuple[DataFrame, DataFrame, MBAR]
+        DataFrames for the free energies differences (Deltaf_ij), error estimates in free energy difference (dDeltaf_ij), and the pyMBAR object.
+    df_mbar: pd.DataFrame
+        An formated and chronological arrange DataFrame before any MBAR analysis was performed. (Which can be used to create pdfs of MBAR matrix).
+    """
+
     def create_mbar_format():
         df = pd.concat(simulation_data, axis=0, ignore_index=True)
         print(f"df : {df}")
-        
+
         # df = df["solute"].iloc[0]
         df = df.set_index(
             [
@@ -37,7 +65,7 @@ def compute_mbar(simulation_data: list[pd.DataFrame], temperature:float, matrix_
             drop=True,
         )
         df = df[["ENERGY"]]
-        df = df.unstack(["parm_state", "extdiel",  "charge", "parm_restraints"])  # type: ignore
+        df = df.unstack(["parm_state", "extdiel", "charge", "parm_restraints"])  # type: ignore
         df = df.reset_index(["Frames", "solute"], drop=True)
         states = [_ for _ in zip(*df.columns)][1]
         extdiels = [_ for _ in zip(*df.columns)][2]
@@ -46,181 +74,360 @@ def compute_mbar(simulation_data: list[pd.DataFrame], temperature:float, matrix_
 
         column_names = [
             (state, extdiel, charge, restraint)
-            for state, extdiel, charge, restraint in zip(states, extdiels, charges, restraints)
+            for state, extdiel, charge, restraint in zip(
+                states, extdiels, charges, restraints
+            )
         ]
 
         df.columns = column_names  # type: ignore
 
         # divide by Kcal per Kt
-        #kcals_per_Kt = ((BOLTZMAN * (AVAGADRO)) / JOULES_PER_KCAL) * temperature
+        # kcals_per_Kt = ((BOLTZMAN * (AVAGADRO)) / JOULES_PER_KCAL) * temperature
         print(f"Created Unique MBAR dataframe {df.index.unique()}\n")
-        return (df / kcals_per_Kt)
-    
+
+        return df / kcals_per_Kt
+
     kcals_per_Kt = ((BOLTZMAN * (AVAGADRO)) / JOULES_PER_KCAL) * temperature
-    
 
     df_mbar = create_mbar_format()
-    
 
     if system == "complex":
         df_mbar = df_mbar[matrix_order.complex_order]
-    
+
     elif system == "ligand":
         df_mbar = df_mbar[matrix_order.ligand_order]
-        
+
     else:
         df_mbar = df_mbar[matrix_order.receptor_order]
-    
-    
+
     equil_info = pdmbar.detectEquilibration(df_mbar)
 
     df_subsampled = pdmbar.subsampleCorrelatedData(df_mbar, equil_info=equil_info)
 
-    return  (pdmbar.mbar(df_subsampled), df_mbar)
+    print("performing MBAR")
+    return pdmbar.mbar(df_subsampled), df_mbar
 
-    fe, error, mbar = pdmbar.mbar(df_subsampled)
-
-    fe = fe * kcals_per_Kt
-
-    # then multiply by kt
-    error = error * kcals_per_Kt
+    # return pdmbar.mbar(df_subsampled), df_mbar
 
 
-def adpative(job, complex_runner: IntermidateRunner,ligand_runner:IntermidateRunner, receptor_runner:IntermidateRunner,config:Config ):
+def adaptive_lambda_windows(
+    job,
+    system_runner: IntermidateRunner,
+    config: Config,
+    system_type: str,
+    restraint_end=None,
+):
+    """
+    Simple iterative process to improve poor space phase overlap between restraints and/or ligand charge windows.
 
-    #job.log(f"complex_runner: {complex_runner.post_output}")
-    cycle_steps = CycleSteps(conformation_forces=config.intermidate_args.exponent_conformational_forces,
-                            orientational_forces=config.intermidate_args.exponent_orientational_forces,
-                            charges_windows=config.intermidate_args.charges_lambda_window,
-                            external_dielectic=config.intermidate_args.gb_extdiel_windows)
+    Parameters
+    ----------
+    job: Toil.job
+        The atomic unit of work in a Toil workflow is a Job.
+    system_runner: IntermidateRunner
+        An system specific runner object to create and inital any new MD runs needed.
+    config: Config
+        User specified configuration file containing necesssary input information.
+    system_type: str
+        System type to denote the specific system_runner (i.e. complex, receptor or ligand)
+    restraint_end: Union[None, int]
+        Denoting the end of the matrix.
+
+    Returns
+    -------
+    results: tuple[DataFrame, DataFrame, MBAR], pd.DataFrame
+        Return values from compute_mbar(*args) function.
+    updated_config: Config
+        An updated config object with newly added restraint or ligand charge windows.
+    """
+    updated_config = copy.deepcopy(config)
+
+    cycle_steps = CycleSteps(
+        conformation_forces=updated_config.intermidate_args.exponent_conformational_forces,
+        orientational_forces=updated_config.intermidate_args.exponent_orientational_forces,
+        charges_windows=updated_config.intermidate_args.charges_lambda_window,
+        external_dielectic=updated_config.intermidate_args.gb_extdiel_windows,
+    )
     cycle_steps.round(3)
-    job.log(f"The start matrix: {cycle_steps.start_restraint_matrix}\n")
-    job.log(f"complex steps: \n {cycle_steps.complex_order}")
-    results = compute_mbar(simulation_data=complex_runner.post_output, 
-                               temperature=config.intermidate_args.temperature, matrix_order=cycle_steps, 
-                               system="complex")
+    job.log(f"THE SYSTEM PASSED {system_type}")
 
-    average = overlap_average(results[0][-1].computeOverlap()["matrix"], cycle_steps.start_restraint_matrix)
-    job.log(f"Average from overlap {average}")
-    
-    #job.addChildJobFn(improve_overlap, complex_runner, ligand_runner, receptor_runner, average, config).rv()
-    
-     
-    if good_enough(average=average):
-        job.log(f"THE OVERLAP IS ABOVE 0.03")
-        ligand_mbar = job.wrapFn(compute_mbar, simulation_data=ligand_runner.post_output, temperature=config.intermidate_args.temperature, 
-                                 matrix_order=cycle_steps, system="ligand"
-                                )
-        receptor_mbar = job.wrapFn(compute_mbar, receptor_runner.post_output, config.intermidate_args.temperature,
-                                   matrix_order=cycle_steps, system="receptor"
-                                )
-        
-        return results, job.addChild(ligand_mbar).rv(), job.addChild(receptor_mbar).rv(), config
-    
+    if system_type == "complex":
+        job.log(f"THE SYSTEM PASSED {cycle_steps.complex_order}")
+        restraint_start = cycle_steps.halo_restraint_matrix
+
+    elif system_type == "receptor":
+        restraint_start = 0
+        restraint_end = cycle_steps.apo_end_restraint_matrix
+        updated_config.intermidate_args.exponent_conformational_forces.sort()
+
+        job.log(f"THE SYSTEM PASSED {cycle_steps.receptor_order}")
+
+    else:
+        restraint_start = 0
+        restraint_end = cycle_steps.apo_end_restraint_matrix
+        updated_config.intermidate_args.exponent_conformational_forces.sort()
+        job.log(f"THE SYSTEM PASSED {cycle_steps.ligand_order}")
+
+    job.log(f"The start and end of the matrix: {restraint_start} & {restraint_end}")
+    job.log(
+        f"conformatinal windows for MBAR: {updated_config.intermidate_args.exponent_conformational_forces}"
+    )
+    job.log(
+        f"orientation windows for MBAR: {updated_config.intermidate_args.exponent_orientational_forces}"
+    )
+
+    results = compute_mbar(
+        simulation_data=system_runner.post_output,
+        temperature=updated_config.intermidate_args.temperature,
+        matrix_order=cycle_steps,
+        system=system_type,
+    )
+
+    averages = overlap_average(
+        results[0][-1].computeOverlap()["matrix"],
+        restraint_start,
+        end=restraint_end,
+    )
+
+    job.log(f"average: {averages}")
+
+    if good_enough(
+        space_phase_overlaps=averages,
+        min=updated_config.intermidate_args.min_degree_overlap,
+    ):
+        job.log(
+            f"THE OVERLAP IS ABOVE {updated_config.intermidate_args.min_degree_overlap}"
+        )
+
+        return (
+            results,
+            updated_config,
+        )
+
     else:
         job.log(f"POOR OVERLAP BEGING adding windows")
-        #improve the method 
-        improve_job = job.addChildJobFn(improve_overlap, complex_runner, ligand_runner, receptor_runner, average, config)
-        job.addFollowOnJobFn(adpative, improve_job.rv(0), improve_job.rv(1), improve_job.rv(2), improve_job.rv(3))
+        # improve the method
+        improve_job = job.addChildJobFn(
+            improve_overlap, system_runner, averages, updated_config, system_type
+        )
+        job.log(f"IMPROVE THE JOB {improve_job}")
+
+        return job.addFollowOnJobFn(
+            adaptive_lambda_windows,
+            improve_job.rv(0),
+            improve_job.rv(1),
+            system_type=system_type,
+        ).rv()
 
 
-
-def overlap_average(overlap_matrix, start):
-    
-    overlap_neighbors = group_overlap_neighbors(overlap_matrix)
-    
-    return [(x[0]+x[1])/2 for x in overlap_neighbors[start:]]
-       
-def good_enough(average):
-    """Look through the matrix array for poor overlap 
-
-    Args:
-        mbar_results (_type_): _description_
+def overlap_average(overlap_matrix, start, end=None):
     """
-    
-    return all([x>0.03 for x in average])
+    Compute the average of the degree of space phase overlap between a slice adjacent states.
 
-    
+    Parameters
+    ----------
+    overlap_matrix: list
+        Overlap matrix between the states.
+    start: int
+        Where the matrix should start reading degree of phase space.
+    end: int
+        The position to end the matrix.
+
+    Returns
+    ------
+    A list of averages of the degree of phase space overlap between adjacent states.
+    """
+
+    overlap_neighbors = group_overlap_neighbors(overlap_matrix)
+    print(f"OVERLAP NEIGH: {overlap_neighbors}")
+    restraints_overlap = overlap_neighbors[start:]
+
+    if end is not None:
+        restraints_overlap = overlap_neighbors[start:end]
+
+    print(f"RESTRAINT OVERLAPS NUMBERS: {restraints_overlap}")
+    return [(x[0] + x[1]) / 2 for x in restraints_overlap]
+
+
+def good_enough(space_phase_overlaps, min=0.03):
+    """Check that all averge degree of overlap are about the minimum criteria.
+
+    Parameters
+    ----------
+    averages: list
+        A list of averages degree of overlap between adjacent stats.
+    min: float
+        Minimum criteria of degree of overlap percent. Default value = 0.03 (3% overlap)
+
+    Returns
+       A boolean wheter all overlap are above the minimum criteria.
+    """
+
+    return all([x >= min for x in space_phase_overlaps])
+
 
 def group_overlap_neighbors(matrix):
-        
-    size = matrix.shape[0] - 1
-    
-    
-    def get_overlap_neighbors(n=0, new=[]):
-    
-        if n == size:
-            return new 
-        
-        else:
-            a = round(matrix[n, n+1],2)
-            b = round(matrix[n+1, n],2)
-            new.append((a,b))
+    """
+    Retireve both the foward and reverse degree of overlap between adjacent states.
 
-            
-            return get_overlap_neighbors(n+1 ,new=new)
-    
+    Parameters
+    ----------
+    matrix: np.ndarray
+        Estimated state overlap matrix : O[i,j] is an estimate of the probability of observing a sample from state i in state j
+
+    Returns
+    -------
+    overlap_neighbors: List[tuple[float, float]]
+        Returns a list of tuples of estimated probability of both forward and reverse degree of overlap.
+    """
+    size = matrix.shape[0] - 1
+
+    def get_overlap_neighbors(n=0, new=[]):
+        if n == size:
+            return new
+
+        else:
+            a = round(matrix[n, n + 1], 2)
+            b = round(matrix[n + 1, n], 2)
+            new.append((a, b))
+
+            return get_overlap_neighbors(n + 1, new=new)
+
     return get_overlap_neighbors()
 
-def improve_overlap(job, comp:IntermidateRunner, ligand:IntermidateRunner, receptor:IntermidateRunner, avg_overlap, config:Config):
 
+def improve_overlap(
+    job,
+    runner: IntermidateRunner,
+    avg_overlap,
+    config: Config,
+    system_type: str,
+):
+    """
+    Improve poor space overlap of two adjacent states via bisection.
+
+    If the user specifed an upper and lower bound (within the configuration file) an biscetion
+    will be attempted to improve the overlap between the upper and lower bounds. If only provided
+    an upper bound limit than a subtraction of 1 will be computed and biscetion when needed.
+
+    Parameters
+    ----------
+    job: Toil.job
+        The atomic unit of work in a Toil workflow is a Job.
+    runner: IntermidateRunner
+        An system specific runner object to create and inital any new MD runs needed.
+    avg_overlap: list
+        A list of averages degree of overlap between adjacent stats.
+    config: Config
+        User specified configuration file containing necesssary input information.
+    system_type: str
+        System type to denote the specific system_runner (i.e. complex, receptor or ligand)
+
+    Returns
+    -------
+    A runner job promise (toil.job.Promise) is essentially a pointer to for the return value that is replaced by the actual return value once it has been evaluated. If any windows were created MD simulation and post-process analysis will be performed and returned.
+    config: Config
+        An updated configuration file with new inserted states.
+    """
     conformational = config.intermidate_args.exponent_conformational_forces.copy()
     orient = config.intermidate_args.exponent_orientational_forces.copy()
 
     restraints_job = job.addChildJobFn(initilized_jobs)
     job.log(f"Conformational windows: {conformational}\n")
     job.log(f"Orientational windows: {orient}\n")
-    for index, a in enumerate(avg_overlap):
-        con_window = conformational[index] - 1
-        orient_window = orient[index] - 1
-        
-        if a < 0.03:
-            
-            #config.lower_bound != None
-            if con_window in config.intermidate_args.exponent_conformational_forces:
-                job.log(f"INDEX VALUE {index}")
-                job.log(f"Divide: {con_window} + {conformational[index]}")
-                #bisect 
-                con_window = (con_window +  conformational[index])/2
-                orient_window = (orient_window + orient[index])/2
-                
+    job.log(f"Interating over windows {avg_overlap}")
+
+    for index, overlap in enumerate(avg_overlap):
+        job.log(f"current window and index: {overlap} {index}")
+        if overlap < config.intermidate_args.min_degree_overlap:
+            # try to bisect
+            try:
+                # complex restraints --> releasing restraints moving forward
+                new_index = index + 1
+                # ligand/receptor endstate->lower_bound so we need know previous overlap -1
+                if system_type != "complex":
+                    new_index = index - 1
+
+                if new_index < 0:
+                    raise IndexError
+
+                con_window = (conformational[index] + conformational[new_index]) / 2
+                orient_window = (orient[index] + orient[new_index]) / 2
+
+                job.log(
+                    f"No exception was thrown, con_window and orient_window: {con_window}, {orient_window}"
+                )
+            except IndexError:
+                job.log(f"A IndexError was thrown")
+                job.log(f"Subtracting {conformational[index]} - 1")
+                job.log(f"Subtracting {orient[index]} - 1")
+                con_window = conformational[index] - 1
+                orient_window = orient[index] - 1
+
+                job.log(f"con window: {con_window}")
+                job.log(f"orient window: {orient_window}")
+
             job.log(f"ADD WINDOWS\n")
             new_con = np.exp2(con_window)
             new_orient = np.exp2(orient_window)
-            job.log(f"Conformational window: {con_window}. np.exp2({con_window}): {new_con}\n")
+            job.log(
+                f"Conformational window: {con_window}. np.exp2({con_window}): {new_con}\n"
+            )
             job.log(f"Orientational window: {orient_window}\n")
-            comp._add_complex_simulation(conformational=con_window, orientational=orient_window, 
-                                                mdin=config.inputs["default_mdin"], restraint_file=restraints_job.addChildJobFn(write_restraint_forces, 
-                                                                                                    conformational_template=comp.restraints.complex_conformational_restraints,
-                                                                                                    orientational_template=comp.restraints.boresch.boresch_template,
-                                                                                                    conformational_force=new_con,
-                                                                                                    orientational_force=new_orient))
-            ligand._add_ligand_simulation(conformational=con_window, mdin=config.inputs["default_mdin"], restraint_file = restraints_job.addChildJobFn(write_restraint_forces,
-                                                                                                                                conformational_template=ligand.restraints.ligand_conformational_restraints,
-                                                                                                                                conformational_force=new_con))
-            receptor._add_receptor_simulation(conformational=con_window, mdin=config.inputs["default_mdin"], restraint_file = restraints_job.addChildJobFn(write_restraint_forces,
-                                                                                                                                conformational_template=ligand.restraints.receptor_conformational_restraints,
-                                                                                                                                conformational_force=new_con))
+
+            if system_type == "complex":
+                runner._add_complex_simulation(
+                    conformational=con_window,
+                    orientational=orient_window,
+                    mdin=config.inputs["default_mdin"],
+                    restraint_file=restraints_job.addChildJobFn(
+                        write_restraint_forces,
+                        conformational_template=runner.restraints.complex_conformational_restraints,
+                        orientational_template=runner.restraints.boresch.boresch_template,
+                        conformational_force=new_con,
+                        orientational_force=new_orient,
+                    ),
+                )
+
+            elif system_type == "ligand":
+                runner._add_ligand_simulation(
+                    conformational=con_window,
+                    mdin=config.inputs["default_mdin"],
+                    restraint_file=restraints_job.addChildJobFn(
+                        write_restraint_forces,
+                        conformational_template=runner.restraints.ligand_conformational_restraints,
+                        conformational_force=new_con,
+                    ),
+                )
+
+            else:
+                runner._add_receptor_simulation(
+                    conformational=con_window,
+                    mdin=config.inputs["default_mdin"],
+                    restraint_file=restraints_job.addChildJobFn(
+                        write_restraint_forces,
+                        conformational_template=runner.restraints.receptor_conformational_restraints,
+                        conformational_force=new_con,
+                    ),
+                )
+
             config.intermidate_args.exponent_conformational_forces.append(con_window)
             config.intermidate_args.exponent_orientational_forces.append(orient_window)
-    
-    config.intermidate_args.exponent_conformational_forces.sort(reverse=True)
-    config.intermidate_args.exponent_orientational_forces.sort(reverse=True)
-            
-    restraints_done = restraints_job.addFollowOnJobFn(initilized_jobs)    
+
+    if system_type != "complex":
+        config.intermidate_args.exponent_conformational_forces.sort()
+        config.intermidate_args.exponent_conformational_forces.sort()
+    else:
+        config.intermidate_args.exponent_conformational_forces.sort(reverse=True)
+        config.intermidate_args.exponent_orientational_forces.sort(reverse=True)
+
+    restraints_done = restraints_job.addFollowOnJobFn(initilized_jobs)
     job.log(f"RUNNER with new restraints window")
-    # new_com = comp.new_runner(config, comp.__dict__)
-    # job.log(f"new simulation args for restriants RECEPTOR {new_com.simulations[-1].directory_args}")
-    # restraints_done.addChild(new_com)
-    # restraints_done.addChild(comp.new_runner(config, comp.__dict__))
-    #restraints_done.addChild(ligand.new_runner(config, ligand.__dict__))
-    #restraints_done.addChild(receptor.new_runner(config, receptor.__dict__))
-    
-    return (restraints_done.addChild(comp.new_runner(config, comp.__dict__)).rv(), 
-            restraints_done.addChild(ligand.new_runner(config, ligand.__dict__)).rv(), 
-            restraints_done.addChild(receptor.new_runner(config, receptor.__dict__)).rv(), 
-            config
-        )
+
+    return (
+        restraints_done.addChild(runner.new_runner(config, runner.__dict__)).rv(),
+        config,
+    )
 
 
 def initilized_jobs(job):
