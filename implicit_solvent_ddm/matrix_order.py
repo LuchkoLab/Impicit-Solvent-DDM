@@ -14,9 +14,9 @@ class CycleSteps:
     interations: list[tuple[str, str, str, str]] = field(init=False)
 
     def __post_init__(self):
-        self.external_dielectic = [
-            78.5 * extdeil for extdeil in self.external_dielectic
-        ]
+        # self.external_dielectic = [
+        #     78.5 * extdeil for extdeil in self.external_dielectic
+        # ]
 
         self.conformation_forces = [float(force) for force in self.conformation_forces]
 
@@ -81,6 +81,7 @@ class CycleSteps:
 
     @property
     def complex_charges(self):
+        charges_sorted = sorted(self.charges_windows)
         return [
             (
                 "electrostatics",
@@ -88,7 +89,7 @@ class CycleSteps:
                 f"{charge}",
                 f"{max(self.conformation_forces)}_{max(self.orientational_forces)}",
             )
-            for charge in self.charges_windows
+            for charge in charges_sorted
         ]
 
     @property
@@ -126,6 +127,18 @@ class CycleSteps:
             + self.complex_charges
             + self.remove_restraints
             + [("endstate", "78.5", "1.0", "0.0_0.0")]
+        )
+
+    @property
+    def start_ligand_charge_matrix(self):
+        return len(self.endstate) + len(self.apply_restraints)
+
+    @property
+    def start_complex_charge_matrix(self):
+        return (
+            len(self.no_interactions)
+            + len(self.interations)
+            + len(self.external_dielectic)
         )
 
     @property
