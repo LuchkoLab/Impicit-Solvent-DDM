@@ -273,26 +273,23 @@ class IntermidateRunner(Job):
                 )
 
     def _add_complex_simulation(
-        self, conformational, orientational, mdin, restraint_file
+        self,
+        conformational,
+        orientational,
+        mdin,
+        restraint_file,
+        charge=1.0,
+        charge_parm=None,
     ):
         con_force = float(round(conformational, 3))
         orient_force = float(round(orientational, 3))
 
-        new_job = Simulation(
-            executable=self.config.system_settings.executable,
-            mpi_command=self.config.system_settings.mpi_command,
-            num_cores=self.config.num_cores_per_system.complex_ncores,
-            prmtop=self.config.endstate_files.complex_parameter_filename,
-            incrd=self.config.inputs["endstate_complex_lastframe"],
-            input_file=mdin,
-            restraint_file=restraint_file.rv(),
-            working_directory=self.config.system_settings.working_directory,
-            system_type="complex",
-            directory_args={
+        dirs_args = (
+            {
                 "topology": self.config.endstate_files.complex_parameter_filename,
                 "state_label": "lambda_window",
                 "extdiel": 78.5,
-                "charge": 1.0,
+                "charge": charge,
                 "igb": f"igb_{self.config.intermidate_args.igb_solvent}",
                 "igb_value": self.config.intermidate_args.igb_solvent,
                 "conformational_restraint": con_force,
@@ -301,35 +298,82 @@ class IntermidateRunner(Job):
                 "runtype": f"Running restraint window. Conformational restraint: {con_force} and orientational restraint: {orient_force}",
                 "topdir": self.config.system_settings.top_directory_path,
             },
+        )
+
+        parm_file = self.config.endstate_files.complex_parameter_filename
+        if charge_parm is not None:
+            parm_file = charge_parm.rv()
+            dirs_args[0].update({"state_label": "electrostatics"})  # type: ignore
+
+        else:
+            restraint_file = restraint_file.rv()
+
+        new_job = Simulation(
+            executable=self.config.system_settings.executable,
+            mpi_command=self.config.system_settings.mpi_command,
+            num_cores=self.config.num_cores_per_system.complex_ncores,
+            prmtop=parm_file,
+            incrd=self.config.inputs["endstate_complex_lastframe"],
+            input_file=mdin,
+            restraint_file=restraint_file,
+            working_directory=self.config.system_settings.working_directory,
+            system_type="complex",
+            directory_args=dirs_args[0],
             dirstruct="dirstruct_halo",
         )
 
         self.simulations.append(new_job)
 
-    def _add_ligand_simulation(self, conformational, mdin, restraint_file):
+    def _add_ligand_simulation(
+        self,
+        conformational,
+        mdin,
+        restraint_file,
+        charge=1.0,
+        charge_parm=None,
+    ):
         con_force = float(round(conformational, 3))
-        new_job = Simulation(
-            executable=self.config.system_settings.executable,
-            mpi_command=self.config.system_settings.mpi_command,
-            num_cores=self.config.num_cores_per_system.ligand_ncores,
-            prmtop=self.config.endstate_files.ligand_parameter_filename,
-            incrd=self.config.inputs["ligand_endstate_frame"],
-            input_file=mdin,
-            restraint_file=restraint_file.rv(),
-            working_directory=self.config.system_settings.working_directory,
-            system_type="ligand",
-            directory_args={
+
+        dirs_args = (
+            {
                 "topology": self.config.endstate_files.ligand_parameter_filename,
                 "state_label": "lambda_window",
-                "extdiel": 78.5,
-                "charge": 1.0,
-                "igb": f"igb_{self.config.intermidate_args.igb_solvent}",
-                "igb_value": self.config.intermidate_args.igb_solvent,
                 "conformational_restraint": con_force,
+                "igb": f"igb_{self.config.intermidate_args.igb_solvent}",
+                "extdiel": 78.5,
+                "charge": charge,
+                "igb_value": self.config.intermidate_args.igb_solvent,
                 "filename": f"state_2_{con_force}_prod",
                 "runtype": f"Running restraint window, Conformational restraint: {con_force}",
                 "topdir": self.config.system_settings.top_directory_path,
             },
+        )
+
+        parm_file = self.config.endstate_files.ligand_parameter_filename
+        if charge_parm is not None:
+            parm_file = charge_parm.rv()
+            dirs_args[0].update({"state_label": "electrostatics"})  # type: ignore
+            dirs_args[0].update({"igb": "igb_6"})
+            dirs_args[0].update({"filename": "state_4_prod"})
+            dirs_args[0].update({"extdiel": 0.0})
+            dirs_args[0].update(
+                {
+                    "runtype": f"Scailing ligand charges: {charge}",
+                }
+            )
+        else:
+            restraint_file = restraint_file.rv()
+        new_job = Simulation(
+            executable=self.config.system_settings.executable,
+            mpi_command=self.config.system_settings.mpi_command,
+            num_cores=self.config.num_cores_per_system.ligand_ncores,
+            prmtop=parm_file,
+            incrd=self.config.inputs["ligand_endstate_frame"],
+            input_file=mdin,
+            restraint_file=restraint_file,
+            working_directory=self.config.system_settings.working_directory,
+            system_type="ligand",
+            directory_args=dirs_args[0],
             dirstruct="dirstruct_apo",
         )
 
