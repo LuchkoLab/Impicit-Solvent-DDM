@@ -6,6 +6,7 @@ from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.matrix_order import CycleSteps
 from implicit_solvent_ddm.restraints import write_restraint_forces
 from implicit_solvent_ddm.runner import IntermidateRunner
+from implicit_solvent_ddm.alchemical import alter_topology
 
 AVAGADRO = 6.0221367e23
 BOLTZMAN = 1.380658e-23
@@ -115,7 +116,7 @@ def adaptive_lambda_windows(
     system_runner: IntermidateRunner,
     config: Config,
     system_type: str,
-    restraint_end=None,
+    charge_scaling: bool,
 ):
     """
     Simple iterative process to improve poor space phase overlap between restraints and/or ligand charge windows.
@@ -130,8 +131,8 @@ def adaptive_lambda_windows(
         User specified configuration file containing necesssary input information.
     system_type: str
         System type to denote the specific system_runner (i.e. complex, receptor or ligand)
-    restraint_end: Union[None, int]
-        Denoting the end of the matrix.
+    charge_scaling: bool
+        Whether to perform apply adaptive process for ligand charge scaling.
 
     Returns
     -------
@@ -140,42 +141,21 @@ def adaptive_lambda_windows(
     updated_config: Config
         An updated config object with newly added restraint or ligand charge windows.
     """
-    updated_config = copy.deepcopy(config)
 
+    updated_config = copy.deepcopy(config)
+    # Sort all thermodynamic cycle steps in chronological order
     cycle_steps = CycleSteps(
         conformation_forces=updated_config.intermidate_args.exponent_conformational_forces,
         orientational_forces=updated_config.intermidate_args.exponent_orientational_forces,
         charges_windows=updated_config.intermidate_args.charges_lambda_window,
         external_dielectic=updated_config.intermidate_args.gb_extdiel_windows,
     )
+    # round all restraint forces values to 3 sig. figs for readable dataframes.
     cycle_steps.round(3)
     job.log(f"THE SYSTEM PASSED {system_type}")
+    job.log(f"Improve restaints: {charge_scaling}")
 
-    if system_type == "complex":
-        job.log(f"THE SYSTEM PASSED {cycle_steps.complex_order}")
-        restraint_start = cycle_steps.halo_restraint_matrix
-
-    elif system_type == "receptor":
-        restraint_start = 0
-        restraint_end = cycle_steps.apo_end_restraint_matrix
-        updated_config.intermidate_args.exponent_conformational_forces.sort()
-
-        job.log(f"THE SYSTEM PASSED {cycle_steps.receptor_order}")
-
-    else:
-        restraint_start = 0
-        restraint_end = cycle_steps.apo_end_restraint_matrix
-        updated_config.intermidate_args.exponent_conformational_forces.sort()
-        job.log(f"THE SYSTEM PASSED {cycle_steps.ligand_order}")
-
-    job.log(f"The start and end of the matrix: {restraint_start} & {restraint_end}")
-    job.log(
-        f"conformatinal windows for MBAR: {updated_config.intermidate_args.exponent_conformational_forces}"
-    )
-    job.log(
-        f"orientation windows for MBAR: {updated_config.intermidate_args.exponent_orientational_forces}"
-    )
-
+    # Compute MBAR
     results = compute_mbar(
         simulation_data=system_runner.post_output,
         temperature=updated_config.intermidate_args.temperature,
@@ -183,14 +163,69 @@ def adaptive_lambda_windows(
         system=system_type,
     )
 
+    matrix_start = cycle_steps.halo_restraint_matrix
+    matrix_end = None
+    if system_type != "complex":
+        matrix_start = 0
+        matrix_end = cycle_steps.apo_end_restraint_matrix
+        # sort in acending order
+        updated_config.intermidate_args.exponent_conformational_forces.sort()
+    # Get all averaged space phase overlap values for all restraint windows
     averages = overlap_average(
         results[0][-1].computeOverlap()["matrix"],
-        restraint_start,
-        end=restraint_end,
+        matrix_start,
+        end=matrix_end,
     )
+    job.log(f"Restraint averages only: {averages}")
+    restraint_length = len(averages)
 
-    job.log(f"average: {averages}")
+    # remove -> the rest once working
+    if system_type == "complex":
+        job.log(f"THE SYSTEM PASSED {cycle_steps.complex_order}")
 
+    elif system_type == "receptor":
+        job.log(f"THE SYSTEM PASSED {cycle_steps.receptor_order}")
+
+    else:
+        job.log(f"THE SYSTEM PASSED {cycle_steps.ligand_order}")
+
+    job.log(
+        f"conformatinal windows for MBAR: {updated_config.intermidate_args.exponent_conformational_forces}"
+    )
+    job.log(
+        f"orientation windows for MBAR: {updated_config.intermidate_args.exponent_orientational_forces}"
+    )
+    # Check the overlap for ligand charge scaling
+    if charge_scaling:
+        job.log("scaling ligand charges")
+        matrix_start = cycle_steps.start_complex_charge_matrix
+        matrix_end = cycle_steps.halo_restraint_matrix
+        updated_config.intermidate_args.charges_lambda_window.sort()
+        system_order = cycle_steps.complex_order
+        solu = "complex"
+        if system_type == "ligand":
+            matrix_start = cycle_steps.start_ligand_charge_matrix
+            matrix_end = None
+            updated_config.intermidate_args.charges_lambda_window.sort(reverse=True)
+            system_order = cycle_steps.ligand_order
+
+            solu = "ligand"
+
+        job.log(f"THE SYSTEM PASSED {solu}:  {system_order}")
+        job.log(
+            f"scaling ligand only charges: {updated_config.intermidate_args.charges_lambda_window}"
+        )
+
+        charge_averages = overlap_average(
+            results[0][-1].computeOverlap()["matrix"],
+            matrix_start,
+            end=matrix_end,
+        )
+        # add the two arrays together
+        averages += charge_averages
+        job.log(f"scaling charge averages {charge_averages}")
+        job.log(f"restraints with scaling charges {averages}")
+    # check that all space phase overlap windows are above the min degree overlap criteria.
     if good_enough(
         space_phase_overlaps=averages,
         min=updated_config.intermidate_args.min_degree_overlap,
@@ -202,21 +237,39 @@ def adaptive_lambda_windows(
         return (
             results,
             updated_config,
+            system_runner,
         )
-
+    # Not all windows have sufficient overlap
     else:
-        job.log(f"POOR OVERLAP BEGING adding windows")
-        # improve the method
+        job.log("POOR OVERLAP improving restraint windows")
+        # improve the overlap for restraint windows
         improve_job = job.addChildJobFn(
-            improve_overlap, system_runner, averages, updated_config, system_type
+            improve_overlap,
+            system_runner,
+            averages[:restraint_length],
+            updated_config,
+            system_type,
         )
-        job.log(f"IMPROVE THE JOB {improve_job}")
-
+        # check if ligand charge scaling needs to be improved
+        if charge_scaling and not good_enough(
+            averages[restraint_length:],
+            updated_config.intermidate_args.min_degree_overlap,
+        ):
+            job.log(f"Poor overlap improving ligand charge scaling.")
+            improve_job = improve_job.addFollowOnJobFn(
+                improve_charge_scaling,
+                improve_job.rv(0),
+                averages[restraint_length:],
+                improve_job.rv(1),
+                system_type,
+            )
+        # iterative process until all windows reached a sufficient overlap
         return job.addFollowOnJobFn(
             adaptive_lambda_windows,
             improve_job.rv(0),
             improve_job.rv(1),
             system_type=system_type,
+            charge_scaling=charge_scaling,
         ).rv()
 
 
@@ -351,8 +404,10 @@ def improve_overlap(
                 if new_index < 0:
                     raise IndexError
 
-                con_window = (conformational[index] + conformational[new_index]) / 2
-                orient_window = (orient[index] + orient[new_index]) / 2
+                con_window = bisect_between(
+                    conformational[index], conformational[new_index]
+                )
+                orient_window = bisect_between(orient[index], orient[new_index])
 
                 job.log(
                     f"No exception was thrown, con_window and orient_window: {con_window}, {orient_window}"
@@ -428,6 +483,123 @@ def improve_overlap(
         restraints_done.addChild(runner.new_runner(config, runner.__dict__)).rv(),
         config,
     )
+
+
+def improve_charge_scaling(
+    job,
+    runner: IntermidateRunner,
+    avg_overlap,
+    config: Config,
+    system_type: str,
+):
+    """Improve poor space overlap of two adjacent states via bisection.
+
+    If the user specifed an upper and lower bound (within the configuration file) an biscetion
+    will be attempted to improve the overlap between the upper and lower bounds. If only provided
+    an upper bound limit than a subtraction of 1 will be computed and biscetion when needed.
+    This adaptive procedure will be applied towards ligand net charge bisceting between
+    1 (ligand fully charge) to 0 (ligand's net charge = 0).
+    Args:
+        job (_type_): _description_
+        runner (IntermidateRunner): _description_
+        avg_overlap (_type_): _description_
+        config (Config): _description_
+        system_type (str): _description_
+
+    Parameters
+    ----------
+    job: Toil.job
+        The atomic unit of work in a Toil workflow is a Job.
+    runner: IntermidateRunner
+        An system specific runner object to create and inital any new MD runs needed.
+    avg_overlap: list
+        A list of averages degree of overlap between adjacent stats.
+    config: Config
+        User specified configuration file containing necesssary input information.
+    system_type: str
+        System type to denote the specific system_runner (i.e. complex, receptor or ligand)
+
+    Returns
+    -------
+    A runner job promise (toil.job.Promise) is essentially a pointer to for the return value that is replaced by the actual return value once it has been evaluated. If any windows were created MD simulation and post-process analysis will be performed and returned.
+    config: Config
+        An updated configuration file with new inserted states.
+    """
+    charges = config.intermidate_args.charges_lambda_window.copy()
+
+    job.log(f"Interating over windows {avg_overlap}")
+
+    for index, overlap in enumerate(avg_overlap):
+        # if sufficient overlap continue iterating
+        if overlap > config.intermidate_args.min_degree_overlap:
+            continue
+        # biscet between adjacent windows with poor overlap
+        new_charge = bisect_between(charges[index], charges[index + 1])
+        # append to list
+        job.log(
+            f"Biscent between charges {charges[index], charges[index + 1]} = {new_charge}"
+        )
+        config.intermidate_args.charges_lambda_window.append(new_charge)
+        # check to see if the system passed is an complex
+        if system_type == "complex":
+            runner._add_complex_simulation(
+                conformational=max(
+                    config.intermidate_args.exponent_conformational_forces
+                ),
+                orientational=max(
+                    config.intermidate_args.exponent_orientational_forces
+                ),
+                mdin=config.inputs["default_mdin"],
+                restraint_file=runner.restraints.max_complex_restraint,
+                charge=new_charge,
+                charge_parm=job.addChildJobFn(
+                    alter_topology,
+                    solute_amber_parm=config.endstate_files.complex_parameter_filename,
+                    solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
+                    ligand_mask=config.amber_masks.ligand_mask,
+                    receptor_mask=config.amber_masks.receptor_mask,
+                    set_charge=new_charge,
+                ),
+            )
+        else:
+            # if not a complex then it must be a ligand only system
+            runner._add_ligand_simulation(
+                conformational=max(
+                    config.intermidate_args.exponent_conformational_forces
+                ),
+                mdin=config.inputs["no_solvent_mdin"],
+                restraint_file=runner.restraints.max_ligand_conformational_restraint,
+                charge=new_charge,
+                charge_parm=job.addChildJobFn(
+                    alter_topology,
+                    solute_amber_parm=config.endstate_files.ligand_parameter_filename,
+                    solute_amber_coordinate=config.endstate_files.ligand_coordinate_filename,
+                    ligand_mask=config.amber_masks.ligand_mask,
+                    receptor_mask=config.amber_masks.receptor_mask,
+                    set_charge=new_charge,
+                ),
+            )
+
+    return (
+        job.addFollowOn(runner.new_runner(config, runner.__dict__)).rv(),
+        config,
+    )
+
+
+def bisect_between(start, end):
+    """
+    Perform a bisection search between two numbers.
+
+    Parameters
+    ----------
+        start (float): The start of the interval.
+        end (float): The end of the interval.
+
+    Returns
+    -------
+        float: The midpoint between start and end.
+    """
+    return (start + end) / 2
 
 
 def initilized_jobs(job):
