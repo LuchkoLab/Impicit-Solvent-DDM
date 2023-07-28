@@ -960,23 +960,36 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config) -> Config:
             config=config,
         )
     )
-
+    # Improve any poor space phase overlap between adjacent windows
+    # adaptive process for restraints and ligand charge scalingfor complex system steps.
     complex_adaptive_job = intermidate_complex.addFollowOnJobFn(
-        adaptive_lambda_windows, intermidate_complex.rv(), config, "complex"
+        adaptive_lambda_windows,
+        intermidate_complex.rv(),
+        config,
+        "complex",
+        charge_scaling=True,
     )
-
+    #  adaptive process for restraints and ligand charge scaling for ligand system steps.
+    ligand_restraints_adaptive_job = intermidate_ligand.addFollowOnJobFn(
+        adaptive_lambda_windows,
+        intermidate_ligand.rv(),
+        config,
+        "ligand",
+        charge_scaling=True,
+    )
+    #  adaptive process for restraints only.
     receptor_adaptive_job = intermidate_receptor.addFollowOnJobFn(
-        adaptive_lambda_windows, intermidate_receptor.rv(), config, "receptor"
-    )
-
-    ligand_adaptive_job = intermidate_ligand.addFollowOnJobFn(
-        adaptive_lambda_windows, intermidate_ligand.rv(), config, "ligand"
+        adaptive_lambda_windows,
+        intermidate_receptor.rv(),
+        config,
+        "receptor",
+        charge_scaling=False,
     )
 
     job.addFollowOn(
         ConsolidateData(
             complex_adative_run=complex_adaptive_job.rv(0),
-            ligand_adaptive_run=ligand_adaptive_job.rv(0),
+            ligand_adaptive_run=ligand_restraints_adaptive_job.rv(0),
             receptor_adaptive_run=receptor_adaptive_job.rv(0),
             temperature=config.intermidate_args.temperature,
             max_conformation_force=max_con_exponent,
