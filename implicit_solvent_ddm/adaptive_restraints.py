@@ -7,6 +7,7 @@ from implicit_solvent_ddm.matrix_order import CycleSteps
 from implicit_solvent_ddm.restraints import write_restraint_forces
 from implicit_solvent_ddm.runner import IntermidateRunner
 from implicit_solvent_ddm.alchemical import alter_topology
+from typing import Optional
 
 AVAGADRO = 6.0221367e23
 BOLTZMAN = 1.380658e-23
@@ -16,7 +17,7 @@ JOULES_PER_KCAL = 4184
 def compute_mbar(
     simulation_data: list[pd.DataFrame],
     temperature: float,
-    matrix_order: CycleSteps,
+    matrix_order: Optional[CycleSteps],
     system: str,
     memory="2G",
     cores=1,
@@ -92,7 +93,11 @@ def compute_mbar(
 
     df_mbar = create_mbar_format()
 
-    if system == "complex":
+    # flat bottom to no flat bottom -> EXP()
+    if matrix_order is None:
+        pass
+
+    elif system == "complex":
         df_mbar = df_mbar[matrix_order.complex_order]
 
     elif system == "ligand":
@@ -600,6 +605,29 @@ def bisect_between(start, end):
         float: The midpoint between start and end.
     """
     return (start + end) / 2
+
+
+def run_exponential_averaging(
+    job,
+    system_runner: IntermidateRunner,
+    temperature: float,
+):
+    """_summary_
+
+    Args:
+        job (_type_): _description_
+        system_runner (IntermidateRunner): _description_
+        temparture (float): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    return compute_mbar(
+        simulation_data=system_runner.post_output,
+        temperature=temperature,
+        matrix_order=None,
+        system="free_flat_bottom",
+    )
 
 
 def initilized_jobs(job):
