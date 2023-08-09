@@ -139,8 +139,11 @@ class IntermidateRunner(Job):
         # iterate and submit all intermidate simulations. Then followup with post-process
         for simulation in self.simulations:
             # only post analysis
+
             fileStore.logToMaster(f"loaded dataframe: {simulation._loaded_dataframe}\n")
             fileStore.logToMaster(f"simulations args {simulation.directory_args}\n")
+            if simulation.directory_args["state_label"] == "no_flat_bottom":
+                continue
 
             if self._check_mdout(simulation=simulation) or simulation.inptraj != None:
                 fileStore.logToMaster("simulation mdout may exisit?")

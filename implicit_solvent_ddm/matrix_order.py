@@ -32,7 +32,7 @@ class CycleSteps:
             (
                 "interactions",
                 "0.0",
-                "0",
+                "0.0",
                 f"{max(self.conformation_forces)}_{max(self.orientational_forces)}",
             )
         ]

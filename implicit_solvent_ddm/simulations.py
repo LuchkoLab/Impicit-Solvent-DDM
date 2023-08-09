@@ -3,20 +3,15 @@ import re
 import shutil
 import subprocess as sp
 import sys
-from asyncore import file_dispatcher
 from datetime import datetime
-from importlib.metadata import files
-from logging import setLogRecordFactory
 from string import Template
-from tempfile import tempdir
+
 from typing import Optional, TypedDict, Union
 
-import pytraj as pt
-from pydantic import NumberNotGeError
+
 from toil.common import Toil
 from toil.job import FileID, FunctionWrappingJob, Job
 
-from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.get_dirstruct import Dirstruct
 from implicit_solvent_ddm.restraints import RestraintMaker
 
@@ -43,7 +38,7 @@ class Calculation(Job):
         directory_args: TypedDict,
         dirstruct="dirstruct",
         inptraj: Union[FileID, None] = None,
-        post_analysis: bool = False 
+        post_analysis: bool = False,
     ):
         self.executable = executable
         self.mpi_command = mpi_command
@@ -85,7 +80,6 @@ class Calculation(Job):
         # self._path2dict(dirs)
 
     def _setLogging(self):
-
         file_handler = logging.FileHandler(
             os.path.join(self.output_dir, "simulations.log"), mode="w"
         )
@@ -100,7 +94,6 @@ class Calculation(Job):
         return self.logger
 
     def _mdin_restraint(self, fileStore, mdin):
-
         scratch_mdin = fileStore.getLocalTempFile()
         # scratch_restraint = fileStore.getLocalTempFile()
 
@@ -239,29 +232,28 @@ class Calculation(Job):
 
         fileStore.logToMaster(f"amber_stdout: {amber_stdout}")
         fileStore.logToMaster(f"amber_stderr: {amber_stderr}")
-        
+
         # if post analysis simulation just export the mdout file
         if self.post_analysis:
-            
-            #for not don't export any data 
-            #return fileStore.writeGlobalFile("mdout", cleanup=True),
-                    
+            # for not don't export any data
+            # return fileStore.writeGlobalFile("mdout", cleanup=True),
+
             fileStore.export_file(
-                    fileStore.writeGlobalFile("mdout", cleanup=True),
-                    "file://"
-                    + os.path.abspath(
-                        os.path.join(self.output_dir, os.path.basename("mdout"))
-                    ),
-                )
+                fileStore.writeGlobalFile("mdout", cleanup=True),
+                "file://"
+                + os.path.abspath(
+                    os.path.join(self.output_dir, os.path.basename("mdout"))
+                ),
+            )
             # Don't need the trajectories from post analysis
-            return 
-        
+            return
+
         else:
-            # Export all ouput files from MD simulation 
+            # Export all ouput files from MD simulation
             restart_ID, trajectory_ID = self.export_files(
                 fileStore, self.output_dir, files_in_current_directory
             )
-            # log MD simulation performance 
+            # log MD simulation performance
             self.logger.info(
                 f"Completed simulation datetime {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
             )
@@ -295,7 +287,7 @@ class Simulation(Calculation):
         orientational_force=None,
         dirstruct="dirstruct",
         inptraj=None,
-        post_analysis = False, 
+        post_analysis=False,
         restraint_key=None,
         memory: Optional[Union[int, str]] = None,
         disk: Optional[Union[int, str]] = None,
@@ -323,8 +315,8 @@ class Simulation(Calculation):
         )
         self.restraint_key = restraint_key
         self.system_type = system_type
-        self._loaded_dataframe = False 
-        
+        self._loaded_dataframe = False
+
     def setup(self):
         """
         Sets up the command-line arguments. Sander requires a unique restrt file
@@ -358,7 +350,6 @@ class Simulation(Calculation):
         self.calc_setup = True
 
     def run(self, fileStore):
-
         tempDir = fileStore.getLocalTempDir()
         """
         Import all command line arguments into the temporary working directory 
@@ -467,7 +458,7 @@ class REMDSimulation(Calculation):
         Sets up the REMD calculation. All it has to do is fill in the
         necessary command-line arguments
         """
-    
+
         self.exec_list.extend(("-n", str(self.num_cores)))
         self.exec_list.append(self.executable)
         self.exec_list.extend(("-ng", str(self.ng)))
@@ -476,7 +467,6 @@ class REMDSimulation(Calculation):
         self.calc_setup = True
 
     def _groupfile(self, fileStore):
-
         scratch_file = fileStore.getLocalTempFile()
         # fileStore.logToMaster(f"self.input_file {self.input_file}")
         # create groupfile mdin
@@ -540,7 +530,6 @@ class REMDSimulation(Calculation):
         self.read_files["groupfile"] = fileStore.readGlobalFile(groupfile_ID)
 
     def run(self, fileStore):
-
         tempDir = self.tempDir
         fileStore.logToMaster(f"self.input files is {self.input_file}")
         # read in parameter files
@@ -584,7 +573,6 @@ class ExtractTrajectories(Job):
         self.read_trajs = []
 
     def run(self, fileStore) -> tuple[FileID, FileID, FileID]:
-
         temp_dir = fileStore.getLocalTempDir()
         self.filestore = fileStore
 
@@ -763,7 +751,6 @@ class ExtractTrajectories(Job):
 
 
 def write_mdin(job, mdin_type):
-
     tempdir = job.fileStore.getLocalTempDir()
 
     mdin_path = (
@@ -776,7 +763,6 @@ def write_mdin(job, mdin_type):
 
 
 def write_empty_restraint(job) -> str:
-
     scratch_file = job.fileStore.getLocalTempFile()
 
     with open(scratch_file, "w") as rest:
@@ -786,7 +772,6 @@ def write_empty_restraint(job) -> str:
 
 
 def workflow(job: FunctionWrappingJob, parm_file, coord_files):
-
     output = job.addChild(
         ExtractTrajectories(parm_file, coord_files, target_temp=300.0)
     )
@@ -800,7 +785,6 @@ if __name__ == "__main__":
     # cb7 =os.path.abspath("structs/complex/cb7-mol01.parm7")
     # traj = pt.load("inputs/M01_000_minimization.rst7", "inputs/M01_000.parm7")
     with Toil(options) as toil:
-
         remd_traj = [
             toil.import_file("file://" + os.path.abspath(filename))
             for filename in [
