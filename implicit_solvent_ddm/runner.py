@@ -138,6 +138,10 @@ class IntermidateRunner(Job):
 
         # iterate and submit all intermidate simulations. Then followup with post-process
         for simulation in self.simulations:
+            # if checking flat bottom constribution don't run
+            if simulation.directory_args["state_label"] == "no_flat_bottom":
+                continue
+
             # only post analysis
 
             fileStore.logToMaster(f"loaded dataframe: {simulation._loaded_dataframe}\n")

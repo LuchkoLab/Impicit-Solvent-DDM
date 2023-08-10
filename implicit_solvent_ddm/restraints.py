@@ -940,6 +940,7 @@ class RestraintMaker(Job):
         )
         self.config = config
         self.boresch = boresch_restraints
+        self.flat_bottom = flat_bottom
         self.restraints = {}
         self.ligand_conformational_restraints = None
         self.receptor_conformational_restraints = None

@@ -8,7 +8,6 @@ from string import Template
 
 from typing import Optional, TypedDict, Union
 
-
 from toil.common import Toil
 from toil.job import FileID, FunctionWrappingJob, Job
 
@@ -39,6 +38,7 @@ class Calculation(Job):
         dirstruct="dirstruct",
         inptraj: Union[FileID, None] = None,
         post_analysis: bool = False,
+        debug: bool = False,
     ):
         self.executable = executable
         self.mpi_command = mpi_command
@@ -53,6 +53,7 @@ class Calculation(Job):
         self.directory_args = directory_args.copy()
         self.calc_setup = False  # This means that the setup has run successfully
         self.post_analysis = post_analysis
+        self.debug = debug
         self.exec_list = [self.mpi_command]
         # self.exec_list = []
         self.read_files = {}
@@ -127,6 +128,14 @@ class Calculation(Job):
                 elif re.match(r".*\.nc.*", name):
                     output_file = fileStore.writeGlobalFile(name, cleanup=True)
                     traj_files.append(str(output_file))
+
+                elif (
+                    not self.debug
+                    and re.match(r"rem.log", name)
+                    or re.match(r"(equilibrate)?(remd)?.mdout\..*", name)
+                ):
+                    continue
+
                 else:
                     output_file = fileStore.writeGlobalFile(name, cleanup=True)
                 fileStore.export_file(
@@ -426,6 +435,7 @@ class REMDSimulation(Calculation):
         directory_args,
         dirstruct="dirstruct",
         inptraj=None,
+        remd_debug: bool = False,
         memory: Optional[Union[int, str]] = None,
         disk: Optional[Union[int, str]] = None,
         preemptable: Optional[Union[bool, int, str]] = None,
@@ -448,6 +458,7 @@ class REMDSimulation(Calculation):
             directory_args,
             dirstruct=dirstruct,
             inptraj=None,
+            debug=remd_debug,
         )
         self.runtype = runtype
         self.ng = ngroups

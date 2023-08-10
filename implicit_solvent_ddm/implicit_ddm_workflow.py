@@ -173,7 +173,6 @@ def ddm_workflow(
     # define max conformational and restraint forces
     max_con_force = max(config.intermidate_args.conformational_restraints_forces)
     max_orien_force = max(config.intermidate_args.orientational_restriant_forces)
-
     max_con_exponent = float(
         round(max(config.intermidate_args.exponent_conformational_forces), 3)
     )

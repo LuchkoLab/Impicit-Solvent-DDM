@@ -12,19 +12,21 @@ Implicit solvent ddm project is a python tool for performing fully automated bin
 [![codecov](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/Implicit_Solvent_DDM/branch/master/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/Implicit_Solvent_DDM/branch/master)
 
 ## Setup/Install
-  1. `conda create name mol_ddm_env python=3.8`
   1. `git pull git@github.com:LuchkoLab/Impicit-Solvent-DDM.git`
-  2.  `python setup.py sdist`
-  3.  `pip install dist/*`
+  2.  `conda env create -f devtools/conda-envs/test_env.yaml`
+  3.  `conda activate mol_ddm_env`
+  4.  `python setup.py sdist`
+  5.  `pip install dist/*`
  
 ## YAML config file format
    The yaml config file is required to be able to run the program. The YAML config file specifies input parameters needed from the user, such as endstate `.parm7, .ncsrst` files of the complex system. As well system parameters, which program supports AMBER engines such as Sander, PMEMD & .MPI
-   ```yaml
-   system_parameters:
-    working_directory: '/nas0/ayoub/Impicit-Solvent-DDM/'
-    executable: "sander.MPI" # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
-    mpi_command: "srun" # system dependent /
- 
+```yaml
+
+system_parameters:
+  working_directory: '/nas0/ayoub/Impicit-Solvent-DDM/'
+  executable: "sander.MPI" # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
+  mpi_command: "srun" # system dependent /
+
 
 endstate_parameter_files:
   complex_parameter_filename: structs/complex/cb7-mol01.parm7 # list of topology file of a complex
@@ -39,30 +41,35 @@ AMBER_masks:
     receptor_mask: ':CB7' # list of Amber masks denoting receptor atoms in respected complex file
     ligand_mask: ':M01' # list of Amber masks denoting ligand atoms in respected complex file
 
-
 workflow:
-    endstate_method: remd #options REMD or 0 (meaning no endstate simulation will be performed just intermidates)endstate_method: REMD #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates) 
-    endstate_arguments:
-      flat_bottom_restraints: {r1: 0, r2: 0, r3: 10, r4: 20, rk2: 0.1, rk3: 0.1} #r1, r2, r3, r4, rk2, rk3  
-      nthreads: 4 
-      ngroups: 4 
-      target_temperature: 300
-      equilibration_replica_mdins: [equilibration_mdin/mdin.rep.001, equilibration_mdin/mdin.rep.002, equilibration_mdin/mdin.rep.003, equilibration_mdin/mdin.rep.004]
-      remd_mdins: [remd_mdins/remd.mdin.001, remd_mdins/remd.mdin.002, remd_mdins/remd.mdin.003, remd_mdins/remd.mdin.004]
+  endstate_method: remd #options REMD or 0 (meaning no endstate simulation will be performed just intermidates)endstate_method: REMD #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates) 
+  endstate_arguments:
+    nthreads_complex: 16
+    nthreads_receptor: 8
+    nthreads_ligand: 8
+    ngroups: 8 
+    target_temperature: 300 # list of temperatures or temp.dat file
+    remd_template_mdin: remd.template
+    equilibrate_mdin_template: equil.template
+    temperatures: [300.00, 327.32, 356.62, 388.05, 421.77, 457.91, 496.70, 500.00]
 
-    intermidate_states_arguments:
-      mdin_intermidate_config: intermidate_steps_args.yaml #intermidate mdins required states 3-8
-      igb_solvent: 2 #igb [1,2,3,7,8]
-      exponent_conformational_forces: [-8, -3, 2] # list exponent values 2**p 
-      exponent_orientational_forces: [-8, -3, 2] # list exponent values 2**p 
-      restraint_type: 1 # choices: [ 1: CoM-CoM, 2: CoM-Heavy_Atom, 3: Heavy_Atom-Heavy_Atom, must be 1, 2 or 3 ]
+  intermidate_states_arguments:
+    mdin_intermidate_config: intermidate_args.yaml #intermidate mdins required states 3-8
+    igb_solvent: 2 #igb [1,2,3,7,8]
+    temperature: 300
+    exponent_conformational_forces: [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 2.584963, 3, 3.584963, 4] # list exponent values 2**p 
+    exponent_orientational_forces: [-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 6.584963, 7, 7.584963, 8] # list exponent values 2**p 
+    restraint_type: 2 # choices: [ 1: CoM-CoM, 2: CoM-Heavy_Atom, 3: Heavy_Atom-Heavy_Atom, must be 1, 2 or 3 ]
+    charges_lambda_window:  [0.5, 1.0]
+    gb_extdiel_windows: [0.1, 0.2, 0.5]
+
 ```
 ## intermidate mdin arguments (mdin_intermidate_config)^^
   For intermidate MD parameters use an .yml file 
 ```yaml
 #mdin required input parameters for intermidates 
 nstlim: 1000
-dt: 0.001
+dt: 0.002
 igb: 2
 saltcon: 0.3
 rgbmax: 999.0
@@ -74,28 +81,51 @@ cut: 999
 ntc: 2  
 ```
   
-## Equilibration & REMD MDIN requirment 
-Running Replica Exchange (endstate) insert an $restraint string for flatbottom restraints to placed during run
+## Equilibration example Template  
+The number of input files(len(temperatures)) will be generated automatically for the user. Only requirment is an template for equil and remd-production. 
+User must  placed a $ig and $restraint key within both template as shown below. 
+The number of temperature specify within the config file will generate the number of corresponding input files. 
 ```text 
-  Equilibration
+ Equilibration (example)
  &cntrl
    irest=0, ntx=1, 
-   nstlim=100, dt=0.002,
-   irest=0, ntt=3, gamma_ln=1.0,
-   temp0=260.0, ig=5714,
-   ntc=2, ntf=2, nscm=10,
-   ntb=0, igb=5,
+   nstlim=25000, dt=0.004,
+   ntt=3, gamma_ln=1.0,
+   temp0=$temp, ig=$ig,
+   ntc=2, ntf=2, nscm=1000,
+   ntb=0, igb=2,
    cut=999.0, rgbmax=999.0,
-   ntpr=50, ntwx=50, ntwr=50,
-   nmropt=1
+   ntpr=1, ntwx=1,
+   nmropt=1, ioutfm=1,
+   saltcon=0.025, gbsa = 0
  /
  &wt TYPE='END'
  /
 DISANG=$restraint
+
+```
+```text 
+TREMD (example)
+ &cntrl
+   irest=1, ntx=5, 
+   nstlim = 1, dt=0.004, 
+   numexchg = 2500000,
+   ntt=3, gamma_ln=1.0,
+   temp0=$temp, ig=$ig,
+   ntc=2, ntf=2, nscm=0,
+   ntb=0, igb=2,
+   cut=999.0, rgbmax=999.0,
+   ntpr=250, ntwx=250,
+   ioutfm=1, nmropt=1,
+   saltcon=0.15, gbsa = 0
+ /
+ &wt TYPE='END'
+ /
+DISANG=$restraint
+
 ```
 ## Quick Start (running locally) 
-
-   `run_implicit_ddm.py --config_file config.yml --workDir working_directory`
+   `run_implicit_ddm.py file:/scratch/my-job-store --config_file script_examples/config_script1.yaml --workDir /localhome/working_directory`
 
 ## SLURM batch file (preferred) submission 
 ```bash
@@ -109,7 +139,9 @@ DISANG=$restraint
 
 pwd
 
-run_implicit_ddm.py file:jobstore_test --config_file new_workflow.yaml 
+
+#if you’re on a node that has a large /scratch volume
+run_implicit_ddm.py file:/scratch/my-job-store --config_file script_examples/config_script1.yaml --workDir /localhome/working_directory
 ```
 ## Ignore receptor flag
  If running mutiple HOST/Guests system with the same Host system use the `--ignore_receptor` flag to prevent any repeated receptor only simulations 
