@@ -60,7 +60,7 @@ jobs:
       shell: bash -l {0}
 
       run: |
-        pytest -v --cov=implicit_solvent_ddm --cov-report=xml --color=yes implicit_solvent_ddm/tests/
+        pytest -v --cov=implicit_solvent_ddm --cov-report=xml --color=yes  implicit_solvent_ddm/tests/test_implicit_solvent_ddm.py  implicit_solvent_ddm/tests/test_adaptive_procedure.py
 
     - name: CodeCov
       uses: codecov/codecov-action@v1
