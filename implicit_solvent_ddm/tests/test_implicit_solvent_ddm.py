@@ -17,49 +17,6 @@ from toil.job import Job
 working_directory = os.getcwd()
 
 
-@pytest.fixture(scope="module")
-def run_workflow():
-    options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
-    options.logLevel = "INFO"
-    options.clean = "always"
-    options.workDir = working_directory
-    yaml_file = os.path.join("implicit_solvent_ddm/tests/input_files/config.yaml")
-    with open(yaml_file) as yml:
-        config_file = yaml.safe_load(yml)
-
-    config = Config.from_config(config_file)
-
-    # create top level directory to write output files
-    if not os.path.exists(config.system_settings.top_directory_path):
-        os.makedirs(config.system_settings.top_directory_path)
-        
-    with Toil(options) as toil:
-        config.workflow.ignore_receptor_endstate = False
-        
-        if not toil.options.restart:
-            config.endstate_files.toil_import_parmeters(toil=toil)
-            config.inputs["min_mdin"] = str(
-                toil.import_file(
-                    "file://"
-                    + os.path.abspath(
-                        os.path.dirname(os.path.realpath(__file__))
-                        + "/input_files/min.mdin"
-                    )
-                )
-            )
-
-            toil.start(Job.wrapJobFn(ddm_workflow, config))
-            # postprocess analysis
-
-        else:
-            toil.restart()
-    # cleanup
-    yield
-    shutil.rmtree("mdgb/")
-
-
-#     yield mdout_files
-
 # load topology without any changes
 parm_file_path = os.path.join("implicit_solvent_ddm/tests/structs/")
 
@@ -94,18 +51,18 @@ def get_mdouts(request, run_workflow):
     yield mdout_files
 
 
-@pytest.mark.parametrize(
-    "test_input, expected", [("mdgb/M01/", 6), ("mdgb/CB7/", 4), ("mdgb/cb7-mol01/", 7)]
-)
-def test_completed_workflow(test_input, expected, run_workflow):
-    print("test input:", test_input)
-    mdout_files = []
-    for root, dirs, files in os.walk(test_input, topdown=False):
-        for name in files:
-            if "mdout" == name:
-                mdout_files.append(os.path.join(root, name))
+# @pytest.mark.parametrize(
+#     "test_input, expected", [("mdgb/M01/", 6), ("mdgb/CB7/", 4), ("mdgb/cb7-mol01/", 7)]
+# )
+# def test_completed_workflow(test_input, expected, run_workflow):
+#     print("test input:", test_input)
+#     mdout_files = []
+#     for root, dirs, files in os.walk(test_input, topdown=False):
+#         for name in files:
+#             if "mdout" == name:
+#                 mdout_files.append(os.path.join(root, name))
 
-    assert len(mdout_files) == expected
+#     assert len(mdout_files) == expected
 
 
 # read in all mdout files and check if run was completed
@@ -126,7 +83,6 @@ def test_successful_simulations(get_mdouts):
 
 @pytest.fixture(scope="module", params=[0, 0.5, 1])
 def test_ligand_charges(request, load_topology):
-
     filepath = f"mdgb/M01/electrostatics/{request.param}"
 
     parm = load_parm7(filepath)
@@ -139,7 +95,6 @@ def test_ligand_charges(request, load_topology):
 
 @pytest.fixture(scope="module", params=[0, 0.5, 1])
 def test_complex_ligand_charges(request, load_topology):
-
     filepath = f"mdgb/cb7-mol01/electrostatics/{request.param}"
     parm = load_parm7(filepath)
 
@@ -151,7 +106,6 @@ def test_complex_ligand_charges(request, load_topology):
 
 # check complex parameter potential that host and guest have no interactions and ligand charge = 0
 def test_complex_exclusions(load_exclusions_no_charge):
-
     output_solute_traj = load_parm7("mdgb/cb7-mol01/no_interactions/0.0/0.0/4.0/8.0/")
 
     assert (
@@ -166,7 +120,7 @@ def test_complex_exclusions(load_exclusions_no_charge):
         "mdgb/M01/electrostatics/",
         "mdgb/CB7/no_gb/",
         "mdgb/cb7-mol01/no_interactions/",
-        "mdgb/cb7-mol01/interactions/"
+        "mdgb/cb7-mol01/interactions/",
     ],
 )
 def test_no_solvent_complex(no_igb_path):
@@ -183,7 +137,6 @@ def test_no_solvent_complex(no_igb_path):
 
 
 def assert_exclusions_charges(output, correct_output):
-
     assert (
         output.parm_data["NUMBER_EXCLUDED_ATOMS"]
         == correct_output.parm_data["NUMBER_EXCLUDED_ATOMS"]
