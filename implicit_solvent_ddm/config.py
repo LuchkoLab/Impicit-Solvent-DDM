@@ -22,7 +22,7 @@ class Workflow:
     """Base workflow procedure."""
 
     setup_workflow: bool = True
-    post_treatment: bool = True
+    consolidate_output: bool = True
     run_endstate_method: bool = True
     gb_extdiel_windows: bool = True
     end_state_postprocess: bool = True
@@ -37,6 +37,7 @@ class Workflow:
     complex_turn_on_ligand_charges: bool = True
     complex_turn_on_GB_enviroment: bool = True
     complex_remove_restraint: bool = True
+    run_adaptive_windows: bool = True
     post_analysis_only: bool = False
     vina_dock: bool = False
 

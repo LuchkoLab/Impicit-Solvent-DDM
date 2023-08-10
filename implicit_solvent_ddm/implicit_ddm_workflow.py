@@ -34,7 +34,9 @@ from implicit_solvent_ddm.runner import IntermidateRunner
 working_directory = os.getcwd()
 
 
-def ddm_workflow(job: JobFunctionWrappingJob, config: Config) -> Config:
+def ddm_workflow(
+    job: JobFunctionWrappingJob, config: Config
+) -> tuple[Config, Config, Config]:
     """
     Double decoupling workflow
 
@@ -357,49 +359,57 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config) -> Config:
 
     # Improve any poor space phase overlap between adjacent windows
     # adaptive process for restraints and ligand charge scaling.
-    complex_adaptive_job = intermidate_complex.addFollowOnJobFn(
-        adaptive_lambda_windows,
-        intermidate_complex.rv(),
-        updated_config,
-        "complex",
-        charge_scaling=True,
-    )
-
-    # adaptive process for restraints and ligand charge scaling for ligand system steps.
-    ligand_restraints_adaptive_job = intermidate_ligand.addFollowOnJobFn(
-        adaptive_lambda_windows,
-        intermidate_ligand.rv(),
-        updated_config,
-        "ligand",
-        charge_scaling=True,
-    )
-    # adaptive process for restraints only.
-    receptor_adaptive_job = intermidate_receptor.addFollowOnJobFn(
-        adaptive_lambda_windows,
-        intermidate_receptor.rv(),
-        updated_config,
-        "receptor",
-        charge_scaling=False,
-    )
-    # Once reached, we are done just export results :)
-    job.addFollowOn(
-        ConsolidateData(
-            complex_adative_run=complex_adaptive_job.rv(0),
-            ligand_adaptive_run=ligand_restraints_adaptive_job.rv(0),
-            receptor_adaptive_run=receptor_adaptive_job.rv(0),
-            flat_botton_run=flat_bottom_exp.rv(),
-            temperature=config.intermidate_args.temperature,
-            max_conformation_force=max_con_exponent,
-            max_orientational_force=max_orien_exponent,
-            boresch_df=restraints,
-            complex_filename=config.endstate_files.complex_parameter_filename,
-            ligand_filename=config.endstate_files.ligand_parameter_filename,
-            receptor_filename=config.endstate_files.receptor_parameter_filename,
-            working_path=config.system_settings.working_directory,
+    if workflow.run_adaptive_windows:
+        complex_adaptive_job = intermidate_complex.addFollowOnJobFn(
+            adaptive_lambda_windows,
+            intermidate_complex.rv(),
+            updated_config,
+            "complex",
+            charge_scaling=True,
         )
-    )
 
-    return complex_adaptive_job.rv(1)
+        # adaptive process for restraints and ligand charge scaling for ligand system steps.
+        ligand_restraints_adaptive_job = intermidate_ligand.addFollowOnJobFn(
+            adaptive_lambda_windows,
+            intermidate_ligand.rv(),
+            updated_config,
+            "ligand",
+            charge_scaling=True,
+        )
+        # adaptive process for restraints only.
+        receptor_adaptive_job = intermidate_receptor.addFollowOnJobFn(
+            adaptive_lambda_windows,
+            intermidate_receptor.rv(),
+            updated_config,
+            "receptor",
+            charge_scaling=False,
+        )
+        # Once reached, we are done just export results :)
+        if workflow.consolidate_output:
+            job.addFollowOn(
+                ConsolidateData(
+                    complex_adative_run=complex_adaptive_job.rv(0),
+                    ligand_adaptive_run=ligand_restraints_adaptive_job.rv(0),
+                    receptor_adaptive_run=receptor_adaptive_job.rv(0),
+                    flat_botton_run=flat_bottom_exp.rv(),
+                    temperature=config.intermidate_args.temperature,
+                    max_conformation_force=max_con_exponent,
+                    max_orientational_force=max_orien_exponent,
+                    boresch_df=restraints,
+                    complex_filename=config.endstate_files.complex_parameter_filename,
+                    ligand_filename=config.endstate_files.ligand_parameter_filename,
+                    receptor_filename=config.endstate_files.receptor_parameter_filename,
+                    working_path=config.system_settings.working_directory,
+                )
+            )
+
+        return (
+            complex_adaptive_job.rv(1),
+            ligand_restraints_adaptive_job.rv(1),
+            receptor_adaptive_job.rv(1),
+        )
+
+    return config
 
 
 def update_config(
