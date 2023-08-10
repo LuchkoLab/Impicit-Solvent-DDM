@@ -6,6 +6,8 @@ hardware_parameters:
   CUDA:  # run on GPU
   memory: "2G"
   disk: "3G"
+  output_directory_name: mdgb
+
 endstate_parameter_files:
   complex_parameter_filename: implicit_solvent_ddm/tests/structs/cb7-mol01.parm7 # list of topology file of a complex
   complex_coordinate_filename: implicit_solvent_ddm/tests/structs/cb7-mol01_300K.nc # list of coordinate file of a complex  
@@ -38,6 +40,5 @@ workflow:
     temperature: 300
 
 workflow_jobs:
-  end_state_postprocess: False 
-  post_treatment: False 
-  #complex_turn_off_exclusions: False 
+    run_endstate_method: False 
+    run_adaptive_windows: True  
