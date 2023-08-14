@@ -43,7 +43,7 @@ class Calculation(Job):
         dirstruct="dirstruct",
         inptraj: Union[FileID, None] = None,
         post_analysis: bool = False,
-        debug: bool = False, 
+        debug: bool = False,
     ):
         self.executable = executable
         self.mpi_command = mpi_command
@@ -133,10 +133,14 @@ class Calculation(Job):
                 elif re.match(r".*\.nc.*", name):
                     output_file = fileStore.writeGlobalFile(name, cleanup=True)
                     traj_files.append(str(output_file))
-                    
-                elif not self.debug and re.match(r"rem.log", name) or re.match(r"(equilibrate)?(remd)?.mdout\..*", name):
+
+                elif (
+                    not self.debug
+                    and re.match(r"rem.log", name)
+                    or re.match(r"(equilibrate)?(remd)?.mdout\..*", name)
+                ):
                     continue
-                
+
                 else:
                     output_file = fileStore.writeGlobalFile(name, cleanup=True)
                 fileStore.export_file(
@@ -299,6 +303,7 @@ class Simulation(Calculation):
         inptraj=None,
         post_analysis=False,
         restraint_key=None,
+        sim_debug: bool = False,
         memory: Optional[Union[int, str]] = None,
         disk: Optional[Union[int, str]] = None,
         preemptable: Optional[Union[bool, int, str]] = None,
@@ -322,6 +327,7 @@ class Simulation(Calculation):
             dirstruct=dirstruct,
             inptraj=inptraj,
             post_analysis=post_analysis,
+            debug=sim_debug,
         )
         self.restraint_key = restraint_key
         self.system_type = system_type
@@ -435,7 +441,7 @@ class REMDSimulation(Calculation):
         directory_args,
         dirstruct="dirstruct",
         inptraj=None,
-        remd_debug: bool = False, 
+        remd_debug: bool = False,
         memory: Optional[Union[int, str]] = None,
         disk: Optional[Union[int, str]] = None,
         preemptable: Optional[Union[bool, int, str]] = None,
