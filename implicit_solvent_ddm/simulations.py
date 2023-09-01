@@ -298,6 +298,7 @@ class Simulation(Calculation):
         inptraj=None,
         post_analysis=False,
         restraint_key=None,
+        sim_debug: bool = False,
         memory: Optional[Union[int, str]] = None,
         disk: Optional[Union[int, str]] = None,
         preemptable: Optional[Union[bool, int, str]] = None,
@@ -321,6 +322,7 @@ class Simulation(Calculation):
             dirstruct=dirstruct,
             inptraj=inptraj,
             post_analysis=post_analysis,
+            debug=sim_debug,
         )
         self.restraint_key = restraint_key
         self.system_type = system_type

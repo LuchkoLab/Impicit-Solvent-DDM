@@ -40,6 +40,7 @@ class Workflow:
     run_adaptive_windows: bool = True
     post_analysis_only: bool = False
     vina_dock: bool = False
+    restart: bool = False
     debug: bool = False
 
     @classmethod
