@@ -48,7 +48,6 @@ def compute_mbar(
 
     def create_mbar_format():
         df = pd.concat(simulation_data, axis=0, ignore_index=True)
-        print(f"df : {df}")
 
         # df = df["solute"].iloc[0]
         df = df.set_index(
@@ -93,6 +92,10 @@ def compute_mbar(
 
     df_mbar = create_mbar_format()
 
+    print(f"df.index.unique :\n {df_mbar.index.unique()}\n")
+    print(f"df.index.values :\n {df_mbar.index.values}\n")
+    print(f"df.columns.unique :\n {df_mbar.columns.unique()}\n")
+    print(f"df.columns.values :\n {df_mbar.columns.values}\n")
     # flat bottom to no flat bottom -> EXP()
     if matrix_order is None:
         pass

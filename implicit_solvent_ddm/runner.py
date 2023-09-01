@@ -29,6 +29,7 @@ class IntermidateRunner(Job):
         post_only: bool,
         config: Config,
         adaptive: bool = False,
+        loaded_dataframe: list = [],
         post_output: Union[list, list[pd.DataFrame]] = [],
         memory: Optional[Union[int, str]] = None,
         cores: Optional[Union[int, float, str]] = None,
@@ -61,6 +62,7 @@ class IntermidateRunner(Job):
         self.ligand_output = []
         self.receptor_output = []
         self.complex_output = []
+        self._loaded_dataframe = loaded_dataframe
         self.post_process_distruct = post_process_distruct
 
     def run(self, fileStore):
@@ -123,7 +125,7 @@ class IntermidateRunner(Job):
                         post_process_job.dirstruct,
                         post_process_job.output_dir,
                     )
-
+                    self._loaded_dataframe.append(post_process_job.output_dir)
                 else:
                     fileStore.logToMaster(f"parsing endstate post only")
                     data_frame = job.addFollowOnJobFn(
@@ -132,15 +134,13 @@ class IntermidateRunner(Job):
                         post_simulation.dirstruct,
                         post_simulation.output_dir,
                     )
+                    self._loaded_dataframe.append(post_simulation.output_dir)
 
                 self.post_output.append(data_frame.rv())
-                ran_simulation._loaded_dataframe = True
 
         # iterate and submit all intermidate simulations. Then followup with post-process
         for simulation in self.simulations:
             # if checking flat bottom constribution don't run
-            if simulation.directory_args["state_label"] == "no_flat_bottom":
-                continue
 
             # only post analysis
 
@@ -256,11 +256,16 @@ class IntermidateRunner(Job):
 
                 self.post_output.append(data_frame.rv())
 
-            elif self.adaptive:
+            elif (
+                self.adaptive and post_process_job.output_dir in self._loaded_dataframe
+            ):
                 if post_process_job.directory_args["state_label"] == "lambda_window":
                     fileStore.logToMaster(f"ADAPTIVE lambda window set")
                     fileStore.logToMaster(
                         f"Adapative restraints Is TRUE therefore {post_process_job.output_dir} is already loaded\n"
+                    )
+                    fileStore.logToMaster(
+                        f"simulations output that were loaded \n {self._loaded_dataframe}"
                     )
                 continue
 
@@ -278,6 +283,7 @@ class IntermidateRunner(Job):
                         ),
                     )
                 )
+                self._loaded_dataframe.append(post_process_job.output_dir)
 
     def _add_complex_simulation(
         self,
@@ -418,7 +424,7 @@ class IntermidateRunner(Job):
     @classmethod
     def new_runner(
         cls: Type["IntermidateRunner"],
-        config,
+        config: Config,
         obj: dict,
     ):
         return cls(
@@ -431,6 +437,7 @@ class IntermidateRunner(Job):
             adaptive=True,
             post_only=True,
             post_output=obj["post_output"],
+            loaded_dataframe=obj["_loaded_dataframe"],
         )
 
     @staticmethod
