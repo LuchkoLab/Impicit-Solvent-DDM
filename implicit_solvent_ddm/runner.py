@@ -137,6 +137,9 @@ class IntermidateRunner(Job):
                     self._loaded_dataframe.append(post_simulation.output_dir)
 
                 self.post_output.append(data_frame.rv())
+                fileStore.logToMaster(
+                    f"First runs loaded data frames: {self._loaded_dataframe}"
+                )
 
         # iterate and submit all intermidate simulations. Then followup with post-process
         for simulation in self.simulations:
@@ -144,7 +147,7 @@ class IntermidateRunner(Job):
 
             # only post analysis
 
-            fileStore.logToMaster(f"loaded dataframe: {simulation._loaded_dataframe}\n")
+            fileStore.logToMaster(f"loaded dataframe: {self._loaded_dataframe}\n")
             fileStore.logToMaster(f"simulations args {simulation.directory_args}\n")
             if simulation.directory_args["state_label"] == "no_flat_bottom":
                 continue
@@ -183,7 +186,7 @@ class IntermidateRunner(Job):
         """Assumes MD has already been completed and will only run post-analysis."""
 
         fileStore.logToMaster("RUNNING POST only\n")
-        fileStore.logToMaster(f"loaded dataframe: {completed_sim._loaded_dataframe}")
+        fileStore.logToMaster(f"loaded dataframe: {self._loaded_dataframe}")
 
         for post_simulation in self.simulations:
             directory_args = post_simulation.directory_args.copy()
@@ -256,17 +259,14 @@ class IntermidateRunner(Job):
 
                 self.post_output.append(data_frame.rv())
 
-            elif (
-                self.adaptive and post_process_job.output_dir in self._loaded_dataframe
-            ):
-                if post_process_job.directory_args["state_label"] == "lambda_window":
-                    fileStore.logToMaster(f"ADAPTIVE lambda window set")
-                    fileStore.logToMaster(
-                        f"Adapative restraints Is TRUE therefore {post_process_job.output_dir} is already loaded\n"
-                    )
-                    fileStore.logToMaster(
-                        f"simulations output that were loaded \n {self._loaded_dataframe}"
-                    )
+            elif post_process_job.output_dir in self._loaded_dataframe:
+                fileStore.logToMaster(f"ADAPTIVE lambda window set")
+                fileStore.logToMaster(
+                    f"Adapative restraints Is TRUE therefore {post_process_job.output_dir} is already loaded\n"
+                )
+                fileStore.logToMaster(
+                    f"simulations output that were loaded \n {self._loaded_dataframe}"
+                )
                 continue
 
             else:
@@ -283,7 +283,7 @@ class IntermidateRunner(Job):
                         ),
                     )
                 )
-                self._loaded_dataframe.append(post_process_job.output_dir)
+            self._loaded_dataframe.append(post_process_job.output_dir)
 
     def _add_complex_simulation(
         self,
