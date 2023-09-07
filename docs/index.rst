@@ -9,11 +9,22 @@ absolute binding free energy calculations. Current only support AMBER
 force fields and file formats '.parm7' and 'mol2'. 
 =========================================================
 
+
+
+   
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :caption: Getting Started:
 
-   getting_started
+   Installation
+   Implementation
+   config
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Examples:
+
+   Examples
    api
    about 
 
