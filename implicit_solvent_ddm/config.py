@@ -342,6 +342,30 @@ class REMD:
 
 
 @dataclass
+class BasicMD:
+    """Parameter to run basic Molecular Dynamics.
+
+    Attributes:
+    -----------
+    md_template_mdin: str
+        A template to run a MD simulation.
+    """
+
+    md_template_mdin: Union[FileID, str] = "md.template"
+
+    @classmethod
+    def from_config(cls: Type["BasicMD"], obj: dict):
+        return cls(
+            md_template_mdin=obj["endstate_arguments"]["md_template_mdin"],
+        )
+
+    def toil_import_basic_mdin(self, toil: Toil):
+        self.md_template_mdin = toil.import_file(
+            "file://" + os.path.abspath(self.md_template_mdin)
+        )
+
+
+@dataclass
 class FlatBottomRestraints:
     """Paramters for flat bottom restraints
 
@@ -395,10 +419,11 @@ class FlatBottomRestraints:
 class EndStateMethod:
     endstate_method_type: Union[str, int]
     remd_args: REMD
+    basic_md_args: BasicMD
     flat_bottom: FlatBottomRestraints
 
     def __post_init__(self):
-        endstate_method_options = ["remd", "md", 0]
+        endstate_method_options = ["remd", "basic_md", 0]
         if self.endstate_method_type not in endstate_method_options:
             raise NameError(
                 f"'{self.endstate_method_type}' is not a valid endstate method. Options: {endstate_method_options}"
@@ -410,18 +435,21 @@ class EndStateMethod:
             return cls(
                 endstate_method_type=obj["endstate_method"],
                 remd_args=REMD(),
+                basic_md_args=BasicMD(),
                 flat_bottom=FlatBottomRestraints.from_config(obj=obj),
             )
         elif obj["endstate_method"].lower() == "remd":
             return cls(
                 endstate_method_type=str(obj["endstate_method"]).lower(),
                 remd_args=REMD.from_config(obj=obj),
+                basic_md_args=BasicMD(),
                 flat_bottom=FlatBottomRestraints.from_config(obj=obj),
             )
         else:
             return cls(
-                endstate_method_type=obj["endstate_method"],
+                endstate_method_type=str(obj["endstate_method"]).lower(),
                 remd_args=REMD(),
+                basic_md_args=BasicMD.from_config(obj=obj),
                 flat_bottom=FlatBottomRestraints.from_config(obj=obj),
             )
 
