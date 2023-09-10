@@ -18,7 +18,11 @@ from implicit_solvent_ddm.adaptive_restraints import (
 )
 from implicit_solvent_ddm.alchemical import alter_topology, split_complex_system
 from implicit_solvent_ddm.config import Config
-from implicit_solvent_ddm.run_endstate import run_remd, user_defined_endstate
+from implicit_solvent_ddm.run_endstate import (
+    run_remd,
+    run_basic_md,
+    user_defined_endstate,
+)
 from implicit_solvent_ddm.setup_simulations import SimulationSetup
 from implicit_solvent_ddm.mdin import get_mdins, make_mdin
 from implicit_solvent_ddm.postTreatment import ConsolidateData
@@ -86,7 +90,7 @@ def ddm_workflow(
             # use loaded receptor completed trajectory
         # run basic MD
         else:
-            endstate_job = mdins.addFollowOnJobFn(initilized_jobs)
+            endstate_job = mdins.addFollowOnJobFn(run_basic_md, config)
     # no endstate run
     else:
         endstate_job = mdins.addFollowOnJobFn(user_defined_endstate, config)
@@ -511,8 +515,16 @@ def main():
         if not toil.options.restart:
             config.endstate_files.toil_import_parmeters(toil=toil)
 
-            if config.endstate_method.endstate_method_type == "remd":
-                config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
+            # if the user doesn't provide there own endstate simulation
+            if config.endstate_method.endstate_method_type != 0:
+                # import files for remd
+                if config.endstate_method.endstate_method_type == "remd":
+                    config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
+                # import files for basic MD
+                else:
+                    config.endstate_method.basic_md_args.toil_import_basic_mdin(
+                        toil=toil
+                    )
 
             if config.intermidate_args.guest_restraint_files is not None:
                 config.intermidate_args.toil_import_user_restriants(toil=toil)
