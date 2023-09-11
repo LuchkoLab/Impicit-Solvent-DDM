@@ -368,10 +368,20 @@ class Simulation(Calculation):
         self.read_files["prmtop"] = fileStore.readGlobalFile(
             self.prmtop, userPath=os.path.join(tempDir, os.path.basename(self.prmtop))
         )
+        fileStore.logToMaster(f"incrd file: {self.incrd}")
 
-        self.read_files["incrd"] = fileStore.readGlobalFile(
-            self.incrd, userPath=os.path.join(tempDir, os.path.basename(self.incrd))
-        )
+        # double check this -> basicMD
+        if not isinstance(self.incrd, list):
+            self.read_files["incrd"] = fileStore.readGlobalFile(
+                self.incrd, userPath=os.path.join(tempDir, os.path.basename(self.incrd))
+            )
+
+        else:
+            self.read_files["incrd"] = fileStore.readGlobalFile(
+                self.incrd[0],
+                userPath=os.path.join(tempDir, os.path.basename(self.incrd[0])),
+            )
+
         self.read_files["input_file"] = fileStore.readGlobalFile(
             self.input_file,
             userPath=os.path.join(tempDir, os.path.basename(self.input_file)),
@@ -613,6 +623,15 @@ class ExtractTrajectories(Job):
                 userPath=os.path.join(temp_dir, os.path.basename(target_trajectoryID)),
             )
 
+        # basic MD was performed
+        elif isinstance(self.trajectory_files, list):
+            read_target_traj = fileStore.readGlobalFile(
+                self.trajectory_files[0],
+                userPath=os.path.join(
+                    temp_dir, os.path.basename(self.trajectory_files[0])
+                ),
+            )
+            target_trajectoryID = self.trajectory_files[0]
         # user provided there one endstate trajectory
         else:
             read_target_traj = fileStore.readGlobalFile(
