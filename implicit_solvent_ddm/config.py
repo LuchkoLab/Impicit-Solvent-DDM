@@ -320,6 +320,7 @@ class REMD:
     def __post_init__(self):
         # number of copies should equal to length of temperatures
         self.ngroups = len(self.temperatures)
+        self._mdin_sanity_check()
 
     @classmethod
     def from_config(cls: Type["REMD"], obj: dict):
@@ -331,6 +332,28 @@ class REMD:
             nthreads_receptor=obj["endstate_arguments"]["nthreads_receptor"],
             nthreads_ligand=obj["endstate_arguments"]["nthreads_ligand"],
         )
+
+    def _mdin_sanity_check(self):
+        for mdin in [self.equil_template_mdin, self.remd_template_mdin]:
+            if os.path.isfile(mdin):
+                with open(mdin, "r") as outfile:
+                    input_args = outfile.read()
+
+                matches = re.findall(r"\$temp|\$restraint", input_args)
+
+                if "$temp" not in matches:
+                    raise RuntimeError(
+                        f"""\n The '$temp' key not found in {mdin}.\n
+                        Please set  'temperature=$temp' within the mdin file. The temperature will be filled in during the REMD portion of the workflow.
+                """
+                    )
+
+                if "$restraint" not in matches:
+                    raise RuntimeError(
+                        f""" $restraint key not found in {mdin}.
+                        Please set 'restraint=$restraint' within the mdin file. The temperature will be filled in during the REMD portion of the workflow.
+                """
+                    )
 
     def toil_import_replica_mdin(self, toil: Toil):
         self.remd_template_mdin = toil.import_file(
@@ -353,11 +376,32 @@ class BasicMD:
 
     md_template_mdin: Union[FileID, str] = "md.template"
 
+    def __post_init__(self):
+        self._mdin_sanity_check()
+
     @classmethod
     def from_config(cls: Type["BasicMD"], obj: dict):
         return cls(
             md_template_mdin=obj["endstate_arguments"]["md_template_mdin"],
         )
+
+    def _mdin_sanity_check(self):
+        """
+        Check the $restraint key is in the user .mdin input file.
+        """
+        if os.path.isfile(self.md_template_mdin):
+            print("matches")
+            with open(self.md_template_mdin, "r") as outfile:
+                input_args = outfile.read()
+
+            matches = re.findall(r"\$restraint", input_args)
+
+            if "$restraint" not in matches:
+                raise RuntimeError(
+                    f""" $restraint key not found in {self.md_template_mdin}.
+                        Please set 'restraint=$restraint' within the mdin file. The restraint file will be filled in during the workflow.
+                """
+                )
 
     def toil_import_basic_mdin(self, toil: Toil):
         self.md_template_mdin = toil.import_file(
@@ -819,9 +863,7 @@ if __name__ == "__main__":
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "OFF"
     options.clean = "always"
-    with open(
-        "/nas0/ayoub/Impicit-Solvent-DDM/config_files/upper_bound_adaptive.yaml"
-    ) as fH:
+    with open("/nas0/ayoub/Impicit-Solvent-DDM/config_files/run_basic_md.yaml") as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:
