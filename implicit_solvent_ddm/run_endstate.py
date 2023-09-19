@@ -65,6 +65,7 @@ def run_remd(job, user_config: Config):
             input_file=equil_mdins.rv(),
             restraint_file=user_config.inputs["flat_bottom_restraint"],
             runtype="equil",
+            remd_debug=user_config.workflow.debug,
             ngroups=user_config.endstate_method.remd_args.ngroups,
             directory_args={
                 "runtype": "equilibration",
@@ -96,6 +97,7 @@ def run_remd(job, user_config: Config):
             },
             memory=user_config.system_settings.memory,
             disk=user_config.system_settings.disk,
+            remd_debug=user_config.workflow.debug,
         )
     )
     # extact target temparture trajetory and last frame
@@ -160,6 +162,7 @@ def run_remd(job, user_config: Config):
             working_directory=user_config.system_settings.working_directory,
             memory=user_config.system_settings.memory,
             disk=user_config.system_settings.disk,
+            remd_debug=user_config.workflow.debug,
         )
     )
 
@@ -182,6 +185,7 @@ def run_remd(job, user_config: Config):
             working_directory=user_config.system_settings.working_directory,
             memory=user_config.system_settings.memory,
             disk=user_config.system_settings.disk,
+            remd_debug=user_config.workflow.debug,
         )
     )
     # extact target temparture trajetory and last frame
@@ -227,6 +231,7 @@ def run_remd(job, user_config: Config):
                 input_file=equil_mdins.rv(),
                 restraint_file=user_config.inputs["empty_restraint"],
                 runtype="equil",
+                remd_debug=user_config.workflow.debug,
                 ngroups=user_config.endstate_method.remd_args.ngroups,
                 directory_args={
                     "runtype": "equilibration",
@@ -258,6 +263,7 @@ def run_remd(job, user_config: Config):
                 working_directory=user_config.system_settings.working_directory,
                 memory=user_config.system_settings.memory,
                 disk=user_config.system_settings.disk,
+                remd_debug=user_config.workflow.debug,
             )
         )
         # extact target temparture trajetory and last frame
