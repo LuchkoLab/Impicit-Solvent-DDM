@@ -35,10 +35,10 @@ class Calculation(Job):
         work_dir,
         restraint_file: Union[RestraintMaker, str],
         directory_args: TypedDict,
+        debug: bool,
         dirstruct="dirstruct",
         inptraj: Union[FileID, None] = None,
         post_analysis: bool = False,
-        debug: bool = False,
     ):
         self.executable = executable
         self.mpi_command = mpi_command
@@ -116,6 +116,7 @@ class Calculation(Job):
     def export_files(self, fileStore, output_directory, parameter_files):
         restart_files = []
         traj_files = []
+        fileStore.logToMaster(f"DEBUG is {self.debug}")
         for root, dirs, files in os.walk(".", topdown=False):
             for name in files:
                 if name in parameter_files:
@@ -129,11 +130,12 @@ class Calculation(Job):
                     output_file = fileStore.writeGlobalFile(name, cleanup=True)
                     traj_files.append(str(output_file))
 
-                elif (
-                    not self.debug
-                    and re.match(r"rem.log", name)
-                    or re.match(r"(equilibrate)?(remd)?.mdout\..*", name)
+                elif not self.debug and re.match(
+                    r"(rem.log)?|(equilibrate)?(remd)?.mdout\..*", name
                 ):
+                    # fileStore.logToMaster(
+                    #     f"checking the name that is not exporting {name}"
+                    # )
                     continue
 
                 else:
@@ -444,9 +446,9 @@ class REMDSimulation(Calculation):
         runtype,
         ngroups,
         directory_args,
+        remd_debug: bool,
         dirstruct="dirstruct",
         inptraj=None,
-        remd_debug: bool = False,
         memory: Optional[Union[int, str]] = None,
         disk: Optional[Union[int, str]] = None,
         preemptable: Optional[Union[bool, int, str]] = None,
@@ -499,6 +501,7 @@ class REMDSimulation(Calculation):
                     mdin, userPath=os.path.join(self.tempDir, os.path.basename(mdin))
                 )
                 local_mdin = Calculation._mdin_restraint(self, fileStore, read_mdin)
+
                 # fileStore.logToMaster(f"local mdin {local_mdin}")
                 solu = re.sub(r"\..*", "", os.path.basename(self.prmtop))
 
