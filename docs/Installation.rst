@@ -13,5 +13,5 @@ Usagae
 ------
 One installed, you can use the package. Quick example out to run the command executable.
 
-run_implicit_ddm.py file:jobstore --config_file script_examples/config_script1.yaml --workDir path/to/working/directory 
+run_implicit_ddm.py file:jobstore --config_file script_examples/config_files/basic_md_config.yaml --workDir path/to/working/directory 
 

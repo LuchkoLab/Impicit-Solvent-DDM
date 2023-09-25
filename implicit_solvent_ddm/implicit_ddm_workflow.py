@@ -4,18 +4,28 @@ import os
 import os.path
 import re
 import time
+
 from pathlib import Path
-from typing import List
 
 import numpy as np
 import yaml
 from toil.common import Toil
 from toil.job import Job, JobFunctionWrappingJob
 
+from implicit_solvent_ddm.adaptive_restraints import (
+    adaptive_lambda_windows,
+    run_exponential_averaging,
+)
 from implicit_solvent_ddm.alchemical import alter_topology, split_complex_system
 from implicit_solvent_ddm.config import Config
-from implicit_solvent_ddm.mdin import generate_replica_mdin, get_mdins, make_mdin
-from implicit_solvent_ddm.postTreatment import PostTreatment, consolidate_output
+from implicit_solvent_ddm.run_endstate import (
+    run_remd,
+    run_basic_md,
+    user_defined_endstate,
+)
+from implicit_solvent_ddm.setup_simulations import SimulationSetup
+from implicit_solvent_ddm.mdin import get_mdins, make_mdin
+from implicit_solvent_ddm.postTreatment import ConsolidateData
 from implicit_solvent_ddm.restraints import (
     BoreschRestraints,
     FlatBottom,
@@ -23,16 +33,14 @@ from implicit_solvent_ddm.restraints import (
     write_empty_restraint,
 )
 from implicit_solvent_ddm.runner import IntermidateRunner
-from implicit_solvent_ddm.simulations import (
-    ExtractTrajectories,
-    REMDSimulation,
-    Simulation,
-)
+
 
 working_directory = os.getcwd()
 
 
-def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
+def ddm_workflow(
+    job: JobFunctionWrappingJob, config: Config
+) -> tuple[Config, Config, Config]:
     """
     Double decoupling workflow
 
@@ -55,14 +63,8 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
     end_state_job: toil.job.JobFunctionWrappingJob
         contains the entire workflow in indiviudual jobs.
     """
-    ligand_simulations = []
-    receptor_simuations = []
-    complex_simuations = []
-    flat_bottom_simulations = []
-    workflow = config.workflow
-    ligand_receptor_dirstruct = "dirstruct_apo"
-    complex_dirstruct = "dirstruct_halo"
 
+    workflow = config.workflow
     # set intermidate mdin files
     mdins = job.addChildJobFn(
         get_mdins, config.intermidate_args.mdin_intermidate_config
@@ -72,8 +74,7 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
     config.inputs["no_solvent_mdin"] = mdins.rv(1)
     config.inputs["post_mdin"] = mdins.rv(2)
     config.inputs["post_nosolv_mdin"] = mdins.rv(3)
-    default_mdin = mdins.rv(0)
-    mdin_no_solv = mdins.rv(1)
+
     # write empty restraint.RST
     empty_restraint = mdins.addChildJobFn(write_empty_restraint)
     config.inputs["empty_restraint"] = empty_restraint.rv()
@@ -84,322 +85,32 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
     config.inputs["flat_bottom_restraint"] = flat_bottom_template.rv(0)
 
     if workflow.run_endstate_method:
-        endstate_method = mdins.addFollowOnJobFn(initilized_jobs)
-
         if config.endstate_method.endstate_method_type == "remd":
-            equil_mdins = endstate_method.addChildJobFn(
-                generate_replica_mdin,
-                config.endstate_method.remd_args.equil_template_mdin,
-                config.endstate_method.remd_args.temperatures,
-                runtype="relax",
-            )
-            remd_mdins = equil_mdins.addChildJobFn(
-                generate_replica_mdin,
-                config.endstate_method.remd_args.remd_template_mdin,
-                config.endstate_method.remd_args.temperatures,
-                runtype="remd",
-            )
-
-            minimization_complex = remd_mdins.addChild(
-                Simulation(
-                    executable=config.system_settings.executable,
-                    mpi_command=config.system_settings.mpi_command,
-                    num_cores=config.num_cores_per_system.complex_ncores,
-                    prmtop=config.endstate_files.complex_parameter_filename,
-                    incrd=config.endstate_files.complex_coordinate_filename,
-                    input_file=config.inputs["min_mdin"],
-                    restraint_file=config.inputs["flat_bottom_restraint"],
-                    directory_args={
-                        "runtype": "minimization",
-                        "filename": "min",
-                        "topology": config.endstate_files.complex_parameter_filename,
-                        "topdir": config.system_settings.top_directory_path,
-                    },
-                    working_directory=config.system_settings.working_directory,
-                )
-            )
-            # config.endstate_method.remd_args.nthreads
-            equilibrate_complex = minimization_complex.addFollowOn(
-                REMDSimulation(
-                    executable=config.system_settings.executable,
-                    mpi_command=config.system_settings.mpi_command,
-                    num_cores=config.endstate_method.remd_args.nthreads_complex,
-                    prmtop=config.endstate_files.complex_parameter_filename,
-                    incrd=minimization_complex.rv(0),
-                    input_file=equil_mdins.rv(),
-                    restraint_file=config.inputs["flat_bottom_restraint"],
-                    runtype="equil",
-                    ngroups=config.endstate_method.remd_args.ngroups,
-                    directory_args={
-                        "runtype": "equilibration",
-                        "topology": config.endstate_files.complex_parameter_filename,
-                        "topdir": config.system_settings.top_directory_path,
-                    },
-                    working_directory=config.system_settings.working_directory,
-                    memory=config.system_settings.memory,
-                    disk=config.system_settings.disk,
-                    remd_debug=config.workflow.debug,
-                )
-            )
-
-            remd_complex = equilibrate_complex.addFollowOn(
-                REMDSimulation(
-                    executable=config.system_settings.executable,
-                    mpi_command=config.system_settings.mpi_command,
-                    num_cores=config.endstate_method.remd_args.nthreads_complex,
-                    ngroups=config.endstate_method.remd_args.ngroups,
-                    prmtop=config.endstate_files.complex_parameter_filename,
-                    incrd=equilibrate_complex.rv(0),
-                    input_file=remd_mdins.rv(),
-                    working_directory=config.system_settings.working_directory,
-                    restraint_file=config.inputs["flat_bottom_restraint"],
-                    runtype="remd",
-                    directory_args={
-                        "runtype": "remd",
-                        "topology": config.endstate_files.complex_parameter_filename,
-                        "topdir": config.system_settings.top_directory_path,
-                    },
-                    memory=config.system_settings.memory,
-                    disk=config.system_settings.disk,
-                    remd_debug=config.workflow.debug,
-                )
-            )
-            # extact target temparture trajetory and last frame
-            extract_complex = remd_complex.addFollowOn(
-                ExtractTrajectories(
-                    config.endstate_files.complex_parameter_filename,
-                    remd_complex.rv(1),
-                    config.intermidate_args.temperature,
-                )
-            )
-
-            config.inputs["endstate_complex_traj"] = extract_complex.rv(0)
-
-            config.inputs["endstate_complex_lastframe"] = extract_complex.rv(1)
-
-            # run minimization at the end states for ligand system only
-            minimization_ligand = Simulation(
-                executable=config.system_settings.executable,
-                mpi_command=config.system_settings.mpi_command,
-                num_cores=config.num_cores_per_system.ligand_ncores,
-                prmtop=config.endstate_files.ligand_parameter_filename,
-                incrd=config.endstate_files.ligand_coordinate_filename,
-                input_file=config.inputs["min_mdin"],
-                restraint_file=config.inputs["empty_restraint"],
-                directory_args={
-                    "runtype": "minimization",
-                    "filename": "min",
-                    "topology": config.endstate_files.ligand_parameter_filename,
-                    "topdir": config.system_settings.top_directory_path,
-                },
-                working_directory=config.system_settings.working_directory,
-                memory=config.system_settings.memory,
-                disk=config.system_settings.disk,
-            )
-            # check to see if PMEMD is specified
-            num_ligand_cores = int(config.endstate_method.remd_args.nthreads_ligand)
-            ligand_endstate_exe = config.system_settings.executable
-            if "pmemd.MPI" in config.system_settings.executable:
-                num_ligand_cores = int(
-                    config.endstate_method.remd_args.nthreads_ligand / 2
-                )
-                ligand_endstate_exe = "sander.MPI"
-
-            equilibrate_ligand = minimization_ligand.addFollowOn(
-                REMDSimulation(
-                    executable=ligand_endstate_exe,
-                    mpi_command=config.system_settings.mpi_command,
-                    num_cores=num_ligand_cores,
-                    ngroups=config.endstate_method.remd_args.ngroups,
-                    prmtop=config.endstate_files.ligand_parameter_filename,
-                    incrd=minimization_ligand.rv(0),
-                    input_file=equil_mdins.rv(),
-                    restraint_file=config.inputs["empty_restraint"],
-                    runtype="equil",
-                    directory_args={
-                        "runtype": "equilibration",
-                        "topology": config.endstate_files.ligand_parameter_filename,
-                        "topdir": config.system_settings.top_directory_path,
-                    },
-                    working_directory=config.system_settings.working_directory,
-                    memory=config.system_settings.memory,
-                    disk=config.system_settings.disk,
-                    remd_debug=config.workflow.debug,
-                )
-            )
-
-            remd_ligand = equilibrate_ligand.addFollowOn(
-                REMDSimulation(
-                    executable=ligand_endstate_exe,
-                    mpi_command=config.system_settings.mpi_command,
-                    num_cores=num_ligand_cores,
-                    prmtop=config.endstate_files.ligand_parameter_filename,
-                    incrd=equilibrate_ligand.rv(0),
-                    input_file=remd_mdins.rv(),
-                    restraint_file=config.inputs["empty_restraint"],
-                    runtype="remd",
-                    ngroups=config.endstate_method.remd_args.ngroups,
-                    directory_args={
-                        "runtype": "remd",
-                        "topology": config.endstate_files.ligand_parameter_filename,
-                        "topdir": config.system_settings.top_directory_path,
-                    },
-                    working_directory=config.system_settings.working_directory,
-                    memory=config.system_settings.memory,
-                    disk=config.system_settings.disk,
-                    remd_debug=config.workflow.debug,
-                )
-            )
-            # extact target temparture trajetory and last frame
-            extract_ligand_traj = remd_ligand.addFollowOn(
-                ExtractTrajectories(
-                    config.endstate_files.ligand_parameter_filename,
-                    remd_ligand.rv(1),
-                    config.intermidate_args.temperature,
-                )
-            )
-
-            if not workflow.ignore_receptor_endstate:
-                minimization_receptor = remd_complex.addChild(
-                    Simulation(
-                        executable=config.system_settings.executable,
-                        mpi_command=config.system_settings.mpi_command,
-                        num_cores=config.num_cores_per_system.receptor_ncores,
-                        prmtop=config.endstate_files.receptor_parameter_filename,
-                        incrd=config.endstate_files.receptor_coordinate_filename,
-                        input_file=config.inputs["min_mdin"],
-                        restraint_file=config.inputs["empty_restraint"],
-                        directory_args={
-                            "runtype": "minimization",
-                            "filename": "min",
-                            "topology": config.endstate_files.receptor_parameter_filename,
-                            "topdir": config.system_settings.top_directory_path,
-                        },
-                        working_directory=config.system_settings.working_directory,
-                        memory=config.system_settings.memory,
-                        disk=config.system_settings.disk,
-                    )
-                )
-
-                equilibrate_receptor = minimization_receptor.addFollowOn(
-                    REMDSimulation(
-                        executable=config.system_settings.executable,
-                        mpi_command=config.system_settings.mpi_command,
-                        num_cores=config.endstate_method.remd_args.nthreads_receptor,
-                        prmtop=config.endstate_files.receptor_parameter_filename,
-                        incrd=minimization_receptor.rv(0),
-                        input_file=equil_mdins.rv(),
-                        restraint_file=config.inputs["empty_restraint"],
-                        runtype="equil",
-                        ngroups=config.endstate_method.remd_args.ngroups,
-                        directory_args={
-                            "runtype": "equilibration",
-                            "topology": config.endstate_files.receptor_parameter_filename,
-                            "topdir": config.system_settings.top_directory_path,
-                        },
-                        working_directory=config.system_settings.working_directory,
-                        memory=config.system_settings.memory,
-                        disk=config.system_settings.disk,
-                        remd_debug=config.workflow.debug,
-                    )
-                )
-
-                remd_receptor = equilibrate_receptor.addFollowOn(
-                    REMDSimulation(
-                        executable=config.system_settings.executable,
-                        mpi_command=config.system_settings.mpi_command,
-                        num_cores=config.endstate_method.remd_args.nthreads_receptor,
-                        prmtop=config.endstate_files.receptor_parameter_filename,
-                        incrd=equilibrate_receptor.rv(0),
-                        input_file=remd_mdins.rv(),
-                        restraint_file=config.inputs["empty_restraint"],
-                        runtype="remd",
-                        ngroups=config.endstate_method.remd_args.ngroups,
-                        directory_args={
-                            "runtype": "remd",
-                            "topology": config.endstate_files.receptor_parameter_filename,
-                            "topdir": config.system_settings.output_directory_name,
-                        },
-                        working_directory=config.system_settings.working_directory,
-                        memory=config.system_settings.memory,
-                        disk=config.system_settings.disk,
-                        remd_debug=config.workflow.debug,
-                    )
-                )
-                # extact target temparture trajetory and last frame
-                extract_receptor = remd_receptor.addFollowOn(
-                    ExtractTrajectories(
-                        config.endstate_files.receptor_parameter_filename,
-                        remd_receptor.rv(1),
-                        config.intermidate_args.temperature,
-                    )
-                )
-                config.inputs["endstate_receptor_traj"] = extract_receptor.rv(0)
-                config.inputs["endstate_receptor_lastframe"] = extract_receptor.rv(1)
+            endstate_job = mdins.addFollowOnJobFn(run_remd, config)
             # use loaded receptor completed trajectory
-            else:
-                extract_receptor = remd_complex.addChild(
-                    ExtractTrajectories(
-                        config.endstate_files.receptor_parameter_filename,
-                        config.endstate_files.receptor_coordinate_filename,
-                    )
-                )
-                config.inputs["endstate_receptor_traj"] = extract_receptor.rv(0)
-                config.inputs["endstate_receptor_lastframe"] = extract_receptor.rv(1)
-                config.endstate_files.receptor_coordinate_filename = (
-                    extract_receptor.rv(1)
-                )
-
+        # run basic MD
+        else:
+            endstate_job = mdins.addFollowOnJobFn(run_basic_md, config)
     # no endstate run
     else:
-        endstate_method = mdins.addFollowOn(
-            ExtractTrajectories(
-                config.endstate_files.complex_parameter_filename,
-                config.endstate_files.complex_coordinate_filename,
-            )
-        )
-        config.inputs["endstate_complex_traj"] = endstate_method.rv(0)
-        config.inputs["endstate_complex_lastframe"] = endstate_method.rv(1)
+        endstate_job = mdins.addFollowOnJobFn(user_defined_endstate, config)
 
-        extract_ligand_traj = endstate_method.addChild(
-            ExtractTrajectories(
-                config.endstate_files.ligand_parameter_filename,
-                config.endstate_files.ligand_coordinate_filename,
-            )
-        )
-        config.inputs["endstate_ligand_traj"] = extract_ligand_traj.rv(0)
-        config.inputs["endstate_ligand_lastframe"] = extract_ligand_traj.rv(1)
-
-        extract_receptor_traj = endstate_method.addChild(
-            ExtractTrajectories(
-                config.endstate_files.receptor_parameter_filename,
-                config.endstate_files.receptor_coordinate_filename,
-            )
-        )
-        config.inputs[
-            "endstate_receptor_traj"
-        ] = config.endstate_files.receptor_coordinate_filename
-        config.inputs["endstate_receptor_lastframe"] = extract_receptor_traj.rv(1)
-
-    if config.workflow.vina_dock:
-        config.inputs[
-            "endstate_complex_lastframe"
-        ] = config.endstate_files.complex_coordinate_filename
     # split the complex into host and substrate using the endstate lastframe
-    split_job = endstate_method.addFollowOnJobFn(
+    split_job = endstate_job.addFollowOnJobFn(
         split_complex_system,
         config.endstate_files.complex_parameter_filename,
-        config.inputs["endstate_complex_lastframe"],
+        endstate_job.rv(0),
         config.amber_masks.ligand_mask,
         config.amber_masks.receptor_mask,
     )
 
-    config.inputs["ligand_endstate_frame"] = split_job.rv(1)
-    config.inputs["receptor_endstate_frame"] = split_job.rv(0)
+    # create parent job for flat bottom contribution
+    flat_bottom_contribution = split_job.addFollowOnJobFn(initilized_jobs)
+    # generate Boresch orientational restraints
     boresh_restraints = split_job.addChild(
         BoreschRestraints(
             complex_prmtop=config.endstate_files.complex_parameter_filename,
-            complex_coordinate=config.inputs["endstate_complex_lastframe"],
+            complex_coordinate=endstate_job.rv(0),
             restraint_type=config.intermidate_args.restraint_type,
             ligand_mask=config.amber_masks.ligand_mask,
             receptor_mask=config.amber_masks.receptor_mask,
@@ -411,345 +122,109 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             K_phiC=config.intermidate_args.max_orientational_restraint,
         )
     )
-
+    # manage restraints
     restraints = boresh_restraints.addChild(
         RestraintMaker(
             config=config,
+            complex_binding_mode=endstate_job.rv(0),
             boresch_restraints=boresh_restraints.rv(),
             flat_bottom=flat_bottom_template.rv(1),
         )
     ).rv()
 
-    # create independent simulation jobs for each system
-    complex_host_jobs = split_job.addFollowOnJobFn(initilized_jobs)
-    completed_endstate_ligand = split_job.addFollowOnJobFn(initilized_jobs)
-    flat_bottom_contribution = split_job.addFollowOnJobFn(initilized_jobs)
+    runner_jobs = boresh_restraints.addFollowOnJobFn(initilized_jobs)
 
-    try:
-        completed_endstate_ligand.addChild(minimization_ligand)
-        ligand_simulation_jobs = extract_ligand_traj
+    # setup system dependent cycle steps
+    complex_simulations = SimulationSetup(
+        config=config,
+        system_type="complex",
+        endstate_traj=endstate_job.rv(1),
+        binding_mode=endstate_job.rv(0),
+        restraints=restraints,
+    )
 
-    except NameError:
-        ligand_simulation_jobs = split_job.addFollowOnJobFn(initilized_jobs)
-
+    receptor_simulations = SimulationSetup(
+        config=config,
+        system_type="receptor",
+        restraints=restraints,
+        binding_mode=split_job.rv(0),
+        endstate_traj=endstate_job.rv(2),
+    )
+    ligand_simulations = SimulationSetup(
+        config=config,
+        system_type="ligand",
+        restraints=restraints,
+        binding_mode=split_job.rv(1),
+        endstate_traj=endstate_job.rv(3),
+    )
+    flat_bottom_setup = SimulationSetup(
+        config=config,
+        system_type="complex",
+        endstate_traj=endstate_job.rv(1),
+        binding_mode=endstate_job.rv(0),
+        restraints=restraints,
+    )
     if workflow.end_state_postprocess:
-        complex_coordinate = config.endstate_files.complex_coordinate_filename
+        # Setup EXP ->  flat bottom contribution
+        flat_bottom_setup.setup_post_endstate_simulation(flat_bottom=True)
+        flat_bottom_setup.setup_post_endstate_simulation()
 
-        if config.endstate_files.complex_initial_coordinate is not None:
-            complex_coordinate = config.endstate_files.complex_initial_coordinate
-
-        complex_endstate_dirstruct = {
-            "topology": config.endstate_files.complex_parameter_filename,
-            "state_label": "endstate",
-            "traj_charge": 1.0,
-            "extdiel": 78.5,
-            "charge": 1.0,
-            "traj_extdiel": 78.5,
-            "igb": f"igb_{config.intermidate_args.igb_solvent}",
-            "igb_value": config.intermidate_args.igb_solvent,
-            "conformational_restraint": 0.0,
-            "orientational_restraints": 0.0,
-            "runtype": "remd",
-            "traj_state_label": "endstate",
-            "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
-            "topdir": config.system_settings.top_directory_path,
-            "filename": "state_8_endstate_postprocess",
-            "trajectory_restraint_conrest": 0.0,
-            "trajectory_restraint_orenrest": 0.0,
-        }
-        complex_endstate_postprocess = Simulation(
-            executable="sander.MPI",
-            mpi_command=config.system_settings.mpi_command,
-            num_cores=config.num_cores_per_system.complex_ncores,
-            prmtop=config.endstate_files.complex_parameter_filename,
-            incrd=complex_coordinate,
-            input_file=config.inputs["post_mdin"],
-            restraint_file=config.inputs["flat_bottom_restraint"],
-            directory_args=complex_endstate_dirstruct,
-            system_type="complex",
-            dirstruct="post_process_halo",
-            inptraj=[config.inputs["endstate_complex_traj"]],
-            post_analysis=True,
-            working_directory=config.system_settings.working_directory,
-            memory=config.system_settings.memory,
-            disk=config.system_settings.disk,
-        )
-        complex_simuations.append(complex_endstate_postprocess)
-
-        # Remove Flat Bottom Restraints
-        no_flat_bottom_args = {
-            "topology": config.endstate_files.complex_parameter_filename,
-            "state_label": "no_flat_bottom",
-            "traj_charge": 1.0,
-            "extdiel": 78.5,
-            "charge": 1.0,
-            "traj_extdiel": 78.5,
-            "igb": f"igb_{config.intermidate_args.igb_solvent}",
-            "igb_value": config.intermidate_args.igb_solvent,
-            "conformational_restraint": 0.0,
-            "orientational_restraints": 0.0,
-            "runtype": "remd",
-            "traj_state_label": "no_flat_bottom",
-            "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
-            "topdir": config.system_settings.top_directory_path,
-            "filename": "state_8_endstate_postprocess",
-            "trajectory_restraint_conrest": 0.0,
-            "trajectory_restraint_orenrest": 0.0,
-        }
-        complex_endstate_no_fb = Simulation(
-            executable="sander.MPI",
-            mpi_command=config.system_settings.mpi_command,
-            num_cores=config.num_cores_per_system.complex_ncores,
-            prmtop=config.endstate_files.complex_parameter_filename,
-            incrd=complex_coordinate,
-            input_file=config.inputs["post_mdin"],
-            restraint_file=config.inputs["empty_restraint"],
-            directory_args=no_flat_bottom_args,
-            system_type="complex",
-            dirstruct="post_process_halo",
-            post_analysis=True,
-            working_directory=config.system_settings.working_directory,
-            memory=config.system_settings.memory,
-            disk=config.system_settings.disk,
-        )
-
-        flat_bottom_simulations.append(complex_endstate_postprocess)
-        flat_bottom_simulations.append(complex_endstate_no_fb)
-
-        ligand_coordiante = config.endstate_files.ligand_coordinate_filename
-
-        if config.endstate_files.ligand_initial_coordinate is not None:
-            ligand_coordiante = config.endstate_files.ligand_initial_coordinate
-
-        ligand_endstate_dirstruct = {
-            "topology": config.endstate_files.ligand_parameter_filename,
-            "state_label": "endstate",
-            "charge": 1.0,
-            "extdiel": 78.5,
-            "igb": f"igb_{config.intermidate_args.igb_solvent}",
-            "igb_value": config.intermidate_args.igb_solvent,
-            "conformational_restraint": 0.0,
-            "orientational_restraints": 0.0,
-            "runtype": "remd",
-            "traj_state_label": "endstate",
-            "traj_charge": 1.0,
-            "traj_extdiel": 78.5,
-            "topdir": config.system_settings.top_directory_path,
-            "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
-            "filename": "state_2_endstate_postprocess",
-            "trajectory_restraint_conrest": 0.0,
-        }
-
-        ligand_endstate_postprocess = Simulation(
-            executable="sander.MPI",
-            mpi_command=config.system_settings.mpi_command,
-            num_cores=config.num_cores_per_system.ligand_ncores,
-            prmtop=config.endstate_files.ligand_parameter_filename,
-            incrd=ligand_coordiante,
-            input_file=config.inputs["post_mdin"],
-            restraint_file=config.inputs["empty_restraint"],
-            directory_args=ligand_endstate_dirstruct,
-            system_type="ligand",
-            dirstruct="post_process_apo",
-            inptraj=[extract_ligand_traj.rv(0)],
-            post_analysis=True,
-            working_directory=config.system_settings.working_directory,
-            memory=config.system_settings.memory,
-            disk=config.system_settings.disk,
-        )
-        ligand_simulations.append(ligand_endstate_postprocess)
-
-        receptor_coordiate = config.endstate_files.receptor_coordinate_filename
-        if config.endstate_files.receptor_initial_coordinate is not None:
-            receptor_coordiate = config.endstate_files.receptor_initial_coordinate
-
-        receptor_endstate_dirstruct = {
-            "topology": config.endstate_files.receptor_parameter_filename,
-            "state_label": "endstate",
-            "charge": 1.0,
-            "extdiel": 78.5,
-            "igb": f"igb_{config.intermidate_args.igb_solvent}",
-            "igb_value": config.intermidate_args.igb_solvent,
-            "conformational_restraint": 0.0,
-            "orientational_restraints": 0.0,
-            "runtype": "remd",
-            "traj_state_label": "endstate",
-            "traj_charge": 1.0,
-            "traj_extdiel": 78.5,
-            "topdir": config.system_settings.top_directory_path,
-            "traj_igb": f"igb_{config.intermidate_args.igb_solvent}",
-            "filename": "state_2_endstate_postprocess",
-            "trajectory_restraint_conrest": 0.0,
-        }
-        receptor_endstate_postprocess = Simulation(
-            executable="sander.MPI",
-            mpi_command=config.system_settings.mpi_command,
-            num_cores=config.num_cores_per_system.receptor_ncores,
-            prmtop=config.endstate_files.receptor_parameter_filename,
-            incrd=receptor_coordiate,
-            input_file=config.inputs["post_mdin"],
-            restraint_file=config.inputs["empty_restraint"],
-            directory_args=receptor_endstate_dirstruct,
-            system_type="receptor",
-            dirstruct="post_process_apo",
-            inptraj=[config.inputs["endstate_receptor_traj"]],
-            post_analysis=True,
-            working_directory=config.system_settings.working_directory,
-            memory=config.system_settings.memory,
-            disk=config.system_settings.disk,
-        )
-        receptor_simuations.append(receptor_endstate_postprocess)
+        # Setup endstate post-process analysis at the endstates
+        complex_simulations.setup_post_endstate_simulation(flat_bottom=True)
+        receptor_simulations.setup_post_endstate_simulation()
+        ligand_simulations.setup_post_endstate_simulation()
 
     # define max conformational and restraint forces
     max_con_force = max(config.intermidate_args.conformational_restraints_forces)
     max_orien_force = max(config.intermidate_args.orientational_restriant_forces)
-    ### CB7 round
     max_con_exponent = float(
         round(max(config.intermidate_args.exponent_conformational_forces), 3)
     )
     max_orien_exponent = float(
         round(max(config.intermidate_args.exponent_orientational_forces), 3)
     )
-    # max_con_exponent = float(
-    #     max(config.intermidate_args.exponent_conformational_forces)
-    # )
-    # max_orien_exponent = float(
-    #     max(config.intermidate_args.exponent_orientational_forces)
-    # )
-
     # interpolate charges of the ligand
     for index, charge in enumerate(config.intermidate_args.charges_lambda_window):  # type: ignore
         # IGB=6
-        if workflow.remove_GB_solvent_ligand:
-            no_solv_args = {
-                "topology": config.endstate_files.ligand_parameter_filename,
-                "state_label": "electrostatics",
-                "conformational_restraint": max_con_exponent,
-                "igb": "igb_6",
-                "extdiel": 0.0,
-                "charge": charge,
-                "igb_value": f"igb_{config.intermidate_args.igb_solvent}",
-                "filename": "state_4_prod",
-                "runtype": f"Running production Simulation in state 4 (No GB). Max conformational force: {max_con_force} ",
-                "topdir": config.system_settings.top_directory_path,
-            }
-            no_solv_ligand = Simulation(
-                executable=config.system_settings.executable,
-                mpi_command=config.system_settings.mpi_command,
-                num_cores=config.num_cores_per_system.ligand_ncores,
-                prmtop=ligand_simulation_jobs.addChildJobFn(
-                    alter_topology,
-                    solute_amber_parm=config.endstate_files.ligand_parameter_filename,
-                    solute_amber_coordinate=config.endstate_files.ligand_coordinate_filename,
-                    ligand_mask=config.amber_masks.ligand_mask,
-                    receptor_mask=config.amber_masks.receptor_mask,
-                    set_charge=charge,
-                ).rv(),
-                incrd=config.inputs["ligand_endstate_frame"],
-                input_file=mdin_no_solv,
-                restraint_file=restraints,  # config.inputs[f"ligand_{max_con_force}_rst"]
-                directory_args=no_solv_args.copy(),
-                system_type="ligand",
-                dirstruct=ligand_receptor_dirstruct,
-                restraint_key=f"ligand_{max_con_force}_rst",
-                working_directory=config.system_settings.working_directory,
-                memory=config.system_settings.memory,
-                disk=config.system_settings.disk,
-            )
-            ligand_simulations.append(no_solv_ligand)
-
-        # alter the ligand charges in the complex
-        if workflow.complex_turn_on_ligand_charges:
-            complex_turn_on_ligand_charges_args = {
-                "topology": config.endstate_files.complex_parameter_filename,
-                "state_label": "electrostatics",
-                "charge": charge,
-                "extdiel": 78.5,
-                "igb": f"igb_{config.intermidate_args.igb_solvent}",
-                "igb_value": config.intermidate_args.igb_solvent,
-                "conformational_restraint": max_con_exponent,
-                "orientational_restraints": max_orien_exponent,
-                "filename": "state_7b_prod",
-                "runtype": "Running production simulation in state 7b: Turning back on ligand charges, still in vacuum",
-                "topdir": config.system_settings.top_directory_path,
-            }
-            complex_turn_on_ligand_charges = Simulation(
-                executable=config.system_settings.executable,
-                mpi_command=config.system_settings.mpi_command,
-                num_cores=config.num_cores_per_system.complex_ncores,
-                prmtop=complex_host_jobs.addChildJobFn(
-                    alter_topology,
-                    solute_amber_parm=config.endstate_files.complex_parameter_filename,
-                    solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
-                    ligand_mask=config.amber_masks.ligand_mask,
-                    receptor_mask=config.amber_masks.receptor_mask,
-                    set_charge=charge,
-                ).rv(),
-                incrd=config.inputs["endstate_complex_lastframe"],
-                input_file=default_mdin,
-                restraint_file=restraints,
-                directory_args=complex_turn_on_ligand_charges_args,
-                system_type="complex",
-                dirstruct=complex_dirstruct,
-                restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
-                working_directory=config.system_settings.working_directory,
-                memory=config.system_settings.memory,
-                disk=config.system_settings.disk,
-            )
-            complex_simuations.append(complex_turn_on_ligand_charges)
-
-    # Desolvation of receptor
-    if workflow.remove_GB_solvent_receptor:
-        no_solv_args_receptor = {
-            "topology": config.endstate_files.receptor_parameter_filename,
-            "state_label": "no_gb",
-            "conformational_restraint": max_con_exponent,
-            "igb": "igb_6",
-            "igb_value": 6,
-            "extdiel": 0.0,
-            "charge": 1.0,
-            "filename": "state_4_prod",
-            "runtype": "Running production simulation in state 4: Receptor only",
-            "topdir": config.system_settings.top_directory_path,
-        }
-        no_solv_receptor = Simulation(
-            executable=config.system_settings.executable,
-            mpi_command=config.system_settings.mpi_command,
-            num_cores=config.num_cores_per_system.receptor_ncores,
-            prmtop=config.endstate_files.receptor_parameter_filename,
-            incrd=config.inputs["receptor_endstate_frame"],
-            input_file=mdin_no_solv,
-            restraint_file=restraints,
-            directory_args=no_solv_args_receptor,
-            system_type="receptor",
-            dirstruct=ligand_receptor_dirstruct,
-            working_directory=config.system_settings.working_directory,
-            restraint_key=f"receptor_{max_con_force}_rst",
-            memory=config.system_settings.memory,
-            disk=config.system_settings.disk,
+        # scale ligand charges
+        ligand_simulations.setup_ligand_charge_simulation(
+            prmtop=runner_jobs.addChildJobFn(
+                alter_topology,
+                solute_amber_parm=config.endstate_files.ligand_parameter_filename,
+                solute_amber_coordinate=config.endstate_files.ligand_coordinate_filename,
+                ligand_mask=config.amber_masks.ligand_mask,
+                receptor_mask=config.amber_masks.receptor_mask,
+                set_charge=charge,
+            ).rv(),
+            charge=charge,
+            restraint_key=f"ligand_{max_con_force}_rst",
         )
-        receptor_simuations.append(no_solv_receptor)
+        # scale ligand charges within the complex
+        complex_simulations.setup_ligand_charge_simulation(
+            prmtop=runner_jobs.addChildJobFn(
+                alter_topology,
+                solute_amber_parm=config.endstate_files.complex_parameter_filename,
+                solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
+                ligand_mask=config.amber_masks.ligand_mask,
+                receptor_mask=config.amber_masks.receptor_mask,
+                set_charge=charge,
+            ).rv(),
+            charge=charge,
+            restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
+        )
 
-    # Exclusions turned on, no electrostatics, in gas phase
+    # desolvation of receptor only
+    if workflow.remove_GB_solvent_receptor:
+        receptor_simulations.setup_remove_gb_solvent_simulation(
+            restraint_key=f"receptor_{max_con_force}_rst",
+            prmtop=config.endstate_files.receptor_parameter_filename,
+        )
+
+    # exclusions turned on, no electrostatics and in gas phase
     if workflow.complex_ligand_exclusions:
-        complex_ligand_exclusions_args = {
-            "topology": config.endstate_files.complex_parameter_filename,
-            "state_label": "no_interactions",
-            "extdiel": 0.0,
-            "igb": "igb_6",
-            "igb_value": 6,
-            "charge": 0.0,
-            "conformational_restraint": max_con_exponent,
-            "orientational_restraints": max_orien_exponent,
-            "filename": "state_7_prod",
-            "topdir": config.system_settings.top_directory_path,
-            "runtype": "Running production simulation in state 7: No iteractions with receptor/guest and in vacuum",
-        }
-        complex_no_interactions = Simulation(
-            executable=config.system_settings.executable,
-            mpi_command=config.system_settings.mpi_command,
-            num_cores=config.num_cores_per_system.complex_ncores,
-            prmtop=complex_host_jobs.addChildJobFn(
+        complex_simulations.setup_remove_gb_solvent_simulation(
+            restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
+            prmtop=runner_jobs.addChildJobFn(
                 alter_topology,
                 solute_amber_parm=config.endstate_files.complex_parameter_filename,
                 solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
@@ -758,39 +233,13 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                 set_charge=0.0,
                 exculsions=True,
             ).rv(),
-            incrd=config.inputs["endstate_complex_lastframe"],
-            input_file=mdin_no_solv,
-            restraint_file=restraints,
-            directory_args=complex_ligand_exclusions_args,
-            system_type="complex",
-            dirstruct=complex_dirstruct,
-            working_directory=config.system_settings.working_directory,
-            restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
-            memory=config.system_settings.memory,
-            disk=config.system_settings.disk,
         )
-        complex_simuations.append(complex_no_interactions)
 
     # Turn on LJ potentials bewteen ligand and host. (IGB=6 and ligand charge = 0)
     if workflow.complex_turn_off_exclusions:
-        complex_turn_off_exclusions_args = {
-            "topology": config.endstate_files.complex_parameter_filename,
-            "state_label": "interactions",
-            "igb": "igb_6",
-            "extdiel": 0.0,
-            "igb_value": 6,
-            "charge": 0,
-            "conformational_restraint": max_con_exponent,
-            "orientational_restraints": max_orien_exponent,
-            "filename": "state_7a_prod",
-            "topdir": config.system_settings.top_directory_path,
-            "runtype": "Running production simulation in state 7a: Turing back on interactions with recetor and guest in vacuum",
-        }
-        complex_no_electrostatics = Simulation(
-            executable=config.system_settings.executable,
-            mpi_command=config.system_settings.mpi_command,
-            num_cores=config.num_cores_per_system.complex_ncores,
-            prmtop=complex_host_jobs.addChildJobFn(
+        complex_simulations.setup_lj_interations_simulation(
+            restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
+            prmtop=runner_jobs.addChildJobFn(
                 alter_topology,
                 solute_amber_parm=config.endstate_files.complex_parameter_filename,
                 solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
@@ -798,23 +247,11 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
                 receptor_mask=config.amber_masks.receptor_mask,
                 set_charge=0.0,
             ).rv(),
-            incrd=config.inputs["endstate_complex_lastframe"],
-            input_file=mdin_no_solv,
-            restraint_file=restraints,
-            directory_args=complex_turn_off_exclusions_args,
-            system_type="complex",
-            dirstruct=complex_dirstruct,
-            restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
-            working_directory=config.system_settings.working_directory,
-            memory=config.system_settings.memory,
-            disk=config.system_settings.disk,
         )
-        complex_simuations.append(complex_no_electrostatics)
-
     # turn on GB solvent
     if workflow.gb_extdiel_windows:
         # create complex with ligand electrostatics = 0
-        complex_ligand_no_charge = complex_host_jobs.addChildJobFn(
+        complex_ligand_no_charge = runner_jobs.addChildJobFn(
             alter_topology,
             solute_amber_parm=config.endstate_files.complex_parameter_filename,
             solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
@@ -822,285 +259,174 @@ def ddm_workflow(job: JobFunctionWrappingJob, config: Config):
             receptor_mask=config.amber_masks.receptor_mask,
             set_charge=0.0,
         ).rv()
-
         # interpolate GB external dielectric constant
-        for dielectic in config.intermidate_args.gb_extdiel_windows:
-            complex_gb_windows = {
-                "topology": config.endstate_files.complex_parameter_filename,
-                "state_label": "gb_dielectric",
-                "extdiel": dielectic,
-                "conformational_restraint": max_con_exponent,
-                "orientational_restraints": max_orien_exponent,
-                "igb": f"igb_{config.intermidate_args.igb_solvent}",
-                "charge": 0.0,
-                "igb_value": f"igb_{config.intermidate_args.igb_solvent}",
-                "filename": "state_8_prod",
-                "runtype": f"Running production Simulation in state 8. Changing extdiel to:{dielectic}",
-                "topdir": config.system_settings.top_directory_path,
-            }
-            complex_dielectic = Simulation(
-                executable=config.system_settings.executable,
-                mpi_command=config.system_settings.mpi_command,
-                num_cores=config.num_cores_per_system.complex_ncores,
+        for dielectric in config.intermidate_args.gb_extdiel_windows:
+            complex_simulations.setup_gb_external_dielectric(
+                restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
                 prmtop=complex_ligand_no_charge,
-                incrd=config.inputs["endstate_complex_lastframe"],
-                input_file=complex_host_jobs.addChildJobFn(
+                mdin=runner_jobs.addChildJobFn(
                     make_mdin,
                     mdin_args=config.intermidate_args.mdin_intermidate_config,
-                    extdiel=dielectic,
+                    extdiel=dielectric,
                 ).rv(),
-                restraint_file=restraints,
-                directory_args=complex_gb_windows,
-                system_type="complex",
-                dirstruct=complex_dirstruct,
-                restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
-                working_directory=config.system_settings.working_directory,
-                memory=config.system_settings.memory,
-                disk=config.system_settings.disk,
+                extdiel=dielectric,
             )
-            complex_simuations.append(complex_dielectic)
 
-    # intermidate_simulationsappend(complex_turn_on_ligand_charges)
     # lambda window interate through conformational and orientational restraint forces
     for con_force, orien_force in zip(
         config.intermidate_args.conformational_restraints_forces,
         config.intermidate_args.orientational_restriant_forces,
     ):
-        # add conformational restraints
-        # if config.workflow.add_ligand_conformational_restraints:
         exponent_conformational = round(np.log2(con_force), 3)
         exponent_orientational = round(np.log2(orien_force), 3)
-        # exponent_conformational = np.log2(con_force)
-        # exponent_orientational = np.log2(orien_force)
-        # exponent_orientational = round(np.log2(orien_force), 4) cyc
 
-        if workflow.add_ligand_conformational_restraints:
-            ligand_window_args = {
-                "topology": config.endstate_files.ligand_parameter_filename,
-                "state_label": "lambda_window",
-                "conformational_restraint": exponent_conformational,
-                "igb": f"igb_{config.intermidate_args.igb_solvent}",
-                "extdiel": 78.5,
-                "charge": 1.0,
-                "igb_value": config.intermidate_args.igb_solvent,
-                "filename": f"state_2_{exponent_conformational}_prod",
-                "runtype": f"Running restraint window, Conformational restraint: {exponent_conformational}",
-                "topdir": config.system_settings.top_directory_path,
-            }
-
-            ligand_windows = Simulation(
-                executable=config.system_settings.executable,
-                mpi_command=config.system_settings.mpi_command,
-                num_cores=config.num_cores_per_system.ligand_ncores,
-                prmtop=config.endstate_files.ligand_parameter_filename,
-                incrd=config.inputs["ligand_endstate_frame"],
-                input_file=default_mdin,
-                restraint_file=restraints,
-                directory_args=ligand_window_args,
-                system_type="ligand",
-                dirstruct=ligand_receptor_dirstruct,
+        # add conformational restraints
+        if config.workflow.add_ligand_conformational_restraints:
+            ligand_simulations.setup_apply_restraint_windows(
                 restraint_key=f"ligand_{con_force}_rst",
-                working_directory=config.system_settings.working_directory,
-                memory=config.system_settings.memory,
-                disk=config.system_settings.disk,
+                exponent_conformational=exponent_conformational,
             )
-            ligand_simulations.append(ligand_windows)
 
         if workflow.add_receptor_conformational_restraints:
-            receptor_window_args = {
-                "topology": config.endstate_files.receptor_parameter_filename,
-                "state_label": "lambda_window",
-                "extdiel": 78.5,
-                "charge": 1.0,
-                "conformational_restraint": exponent_conformational,
-                "igb": f"igb_{config.intermidate_args.igb_solvent}",
-                "igb_value": config.intermidate_args.igb_solvent,
-                "filename": f"state_2_{exponent_conformational}_prod",
-                "runtype": f"Running restraint window, conformational restraint: {exponent_conformational}",
-                "topdir": config.system_settings.top_directory_path,
-            }
-
-            receptor_windows = Simulation(
-                executable=config.system_settings.executable,
-                mpi_command=config.system_settings.mpi_command,
-                num_cores=config.num_cores_per_system.receptor_ncores,
-                prmtop=config.endstate_files.receptor_parameter_filename,
-                incrd=config.inputs["receptor_endstate_frame"],
-                input_file=default_mdin,
-                restraint_file=restraints,
-                directory_args=receptor_window_args,
-                system_type="receptor",
-                dirstruct=ligand_receptor_dirstruct,
+            receptor_simulations.setup_apply_restraint_windows(
                 restraint_key=f"receptor_{con_force}_rst",
-                working_directory=config.system_settings.working_directory,
-                memory=config.system_settings.memory,
-                disk=config.system_settings.disk,
+                exponent_conformational=exponent_conformational,
             )
-            receptor_simuations.append(receptor_windows)
 
         # slowly remove conformational and orientational restraints
         # turn back on ligand charges
-        # if config.workflow.complex_remove_restraint:
         if workflow.complex_remove_restraint and max_con_force != con_force:
-            remove_restraints_args = {
-                "topology": config.endstate_files.complex_parameter_filename,
-                "state_label": "lambda_window",
-                "extdiel": 78.5,
-                "charge": 1.0,
-                "igb": f"igb_{config.intermidate_args.igb_solvent}",
-                "igb_value": config.intermidate_args.igb_solvent,
-                "conformational_restraint": exponent_conformational,
-                "orientational_restraints": exponent_orientational,
-                "filename": f"state_8_{exponent_conformational}_{exponent_orientational}_prod",
-                "runtype": f"Running restraint window. Conformational restraint: {exponent_conformational} and orientational restraint: {exponent_orientational}",
-                "topdir": config.system_settings.top_directory_path,
-            }
-            remove_restraints = Simulation(
-                executable=config.system_settings.executable,
-                mpi_command=config.system_settings.mpi_command,
-                num_cores=config.num_cores_per_system.complex_ncores,
-                prmtop=config.endstate_files.complex_parameter_filename,
-                incrd=config.inputs["endstate_complex_lastframe"],
-                input_file=default_mdin,
-                restraint_file=restraints,
-                directory_args=remove_restraints_args,
-                system_type="complex",
-                dirstruct=complex_dirstruct,
+            complex_simulations.setup_apply_restraint_windows(
                 restraint_key=f"complex_{con_force}_{orien_force}_rst",
-                working_directory=config.system_settings.working_directory,
-                memory=config.system_settings.memory,
-                disk=config.system_settings.disk,
+                exponent_conformational=exponent_conformational,
+                exponent_orientational=exponent_orientational,
             )
-            complex_simuations.append(remove_restraints)
 
-    intermidate_complex = complex_host_jobs.addFollowOn(
+    # Flat bottom contribution
+    flat_bottom_analysis = flat_bottom_contribution.addChild(
         IntermidateRunner(
-            complex_simuations,
+            flat_bottom_setup.simulations,
             restraints,
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_halo",
             post_only=workflow.post_analysis_only,
+            config=config,
         )
     )
-
-    intermidate_receptor = complex_host_jobs.addFollowOn(
-        IntermidateRunner(
-            receptor_simuations,
-            restraints,
-            post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
-            post_process_mdin=config.inputs["post_mdin"],
-            post_process_distruct="post_process_apo",
-            post_only=workflow.post_analysis_only,
-        )
+    # perform exponntial averaging -> flat bottom restraint contribution
+    flat_bottom_exp = flat_bottom_analysis.addFollowOnJobFn(
+        run_exponential_averaging,
+        system_runner=flat_bottom_analysis.rv(),
+        temperature=config.intermidate_args.temperature,
     )
-    intermidate_ligand = ligand_simulation_jobs.addFollowOn(
+    # place the binding models within the config.inputs dictionary
+    updated_config = runner_jobs.addChildJobFn(
+        update_config, config, endstate_job.rv(0), split_job.rv(0), split_job.rv(1)
+    ).rv()
+    # Run all initial left and right side MD cycle steps.
+    intermidate_complex = runner_jobs.addFollowOn(
         IntermidateRunner(
-            ligand_simulations,
-            restraints,
-            post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
-            post_process_mdin=config.inputs["post_mdin"],
-            post_process_distruct="post_process_apo",
-            post_only=workflow.post_analysis_only,
-        )
-    )
-
-    intermidate_flat_bottom = flat_bottom_contribution.addFollowOn(
-        IntermidateRunner(
-            flat_bottom_simulations,
+            complex_simulations.simulations,
             restraints,
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_halo",
             post_only=workflow.post_analysis_only,
+            config=updated_config,
+        )
+    )
+    intermidate_receptor = runner_jobs.addFollowOn(
+        IntermidateRunner(
+            receptor_simulations.simulations,
+            restraints,
+            post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
+            post_process_mdin=config.inputs["post_mdin"],
+            post_process_distruct="post_process_apo",
+            post_only=workflow.post_analysis_only,
+            config=updated_config,
         )
     )
 
-    if config.workflow.post_treatment:
-        job.addFollowOnJobFn(
-            consolidate_output,
-            intermidate_ligand.addFollowOn(
-                PostTreatment(
-                    intermidate_ligand.rv(),
-                    config.intermidate_args.temperature,
-                    system="ligand",
-                    max_conformation_force=max_con_exponent,
-                )
-            ).rv(),
-            intermidate_receptor.addFollowOn(
-                PostTreatment(
-                    intermidate_receptor.rv(),
-                    config.intermidate_args.temperature,
-                    system="receptor",
-                    max_conformation_force=max_con_exponent,
-                )
-            ).rv(),
-            intermidate_complex.addFollowOn(
-                PostTreatment(
-                    intermidate_complex.rv(),
-                    config.intermidate_args.temperature,
-                    system="complex",
+    intermidate_ligand = runner_jobs.addFollowOn(
+        IntermidateRunner(
+            ligand_simulations.simulations,
+            restraints,
+            post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
+            post_process_mdin=config.inputs["post_mdin"],
+            post_process_distruct="post_process_apo",
+            post_only=workflow.post_analysis_only,
+            config=updated_config,
+        )
+    )
+
+    # Improve any poor space phase overlap between adjacent windows
+    # adaptive process for restraints and ligand charge scaling.
+    if workflow.run_adaptive_windows:
+        complex_adaptive_job = intermidate_complex.addFollowOnJobFn(
+            adaptive_lambda_windows,
+            intermidate_complex.rv(),
+            updated_config,
+            "complex",
+            charge_scaling=True,
+        )
+
+        # adaptive process for restraints and ligand charge scaling for ligand system steps.
+        ligand_restraints_adaptive_job = intermidate_ligand.addFollowOnJobFn(
+            adaptive_lambda_windows,
+            intermidate_ligand.rv(),
+            updated_config,
+            "ligand",
+            charge_scaling=True,
+        )
+        # adaptive process for restraints only.
+        receptor_adaptive_job = intermidate_receptor.addFollowOnJobFn(
+            adaptive_lambda_windows,
+            intermidate_receptor.rv(),
+            updated_config,
+            "receptor",
+            charge_scaling=False,
+        )
+        # Once reached, we are done just export results :)
+        if workflow.consolidate_output:
+            job.addFollowOn(
+                ConsolidateData(
+                    complex_adative_run=complex_adaptive_job.rv(0),
+                    ligand_adaptive_run=ligand_restraints_adaptive_job.rv(0),
+                    receptor_adaptive_run=receptor_adaptive_job.rv(0),
+                    flat_botton_run=flat_bottom_exp.rv(),
+                    temperature=config.intermidate_args.temperature,
                     max_conformation_force=max_con_exponent,
                     max_orientational_force=max_orien_exponent,
+                    boresch_df=restraints,
+                    complex_filename=config.endstate_files.complex_parameter_filename,
+                    ligand_filename=config.endstate_files.ligand_parameter_filename,
+                    receptor_filename=config.endstate_files.receptor_parameter_filename,
+                    working_path=config.system_settings.working_directory,
                 )
-            ).rv(),
-            intermidate_flat_bottom.addFollowOn(
-                PostTreatment(
-                    intermidate_flat_bottom.rv(),
-                    config.intermidate_args.temperature,
-                    system="free_flat_bottom",
-                    max_conformation_force=max_con_exponent,
-                )
-            ).rv(),
-            restraints,
+            )
+
+        return (
+            complex_adaptive_job.rv(1),
+            ligand_restraints_adaptive_job.rv(1),
+            receptor_adaptive_job.rv(1),
         )
 
+    return config
 
-def get_outdir(job, simulations: List[Simulation], post_only):
-    for simulation in simulations:
-        # only post analysis
-        if post_only:
-            if simulation.inptraj is None:
-                job.log(f"get mdtraj at directory:\n {simulation.output_dir}")
-                try:
-                    simulation.inptraj = os.path.join(
-                        simulation.output_dir,
-                        list(
-                            filter(
-                                lambda file: re.match(r"^.*\.nc$", file),
-                                os.listdir(simulation.output_dir),
-                            )
-                        )[0],
-                    )
-                except:
-                    job.log(f"except clause: ")
-                    job.log(f"old output dir {simulation.output_dir}")
 
-                    if re.search(r"-0.2857142857142864", simulation.output_dir):
-                        simulation.output_dir = re.sub(
-                            r"-0.2857142857142864",
-                            "-0.2857142857142865",
-                            simulation.output_dir,
-                        )
-                    else:
-                        simulation.output_dir = re.sub(
-                            r"-0.2857142857142865",
-                            "-0.2857142857142864",
-                            simulation.output_dir,
-                        )
+def update_config(
+    job,
+    config: Config,
+    complex_binding_mode,
+    receptor_binding_mode,
+    ligand_binding_mode,
+):
+    config.inputs["endstate_complex_lastframe"] = complex_binding_mode
+    config.inputs["receptor_endstate_frame"] = receptor_binding_mode
+    config.inputs["ligand_endstate_frame"] = ligand_binding_mode
 
-                job.log(f"new output dir {simulation.output_dir}")
-
-                output = os.path.join(
-                    simulation.output_dir,
-                    list(
-                        filter(
-                            lambda file: re.match(r"^.*\.nc$", file),
-                            os.listdir(simulation.output_dir),
-                        )
-                    )[0],
-                )
-                job.log(output)
+    return config
 
 
 def initilized_jobs(job):
@@ -1189,8 +515,16 @@ def main():
         if not toil.options.restart:
             config.endstate_files.toil_import_parmeters(toil=toil)
 
-            if config.endstate_method.endstate_method_type == "remd":
-                config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
+            # if the user doesn't provide there own endstate simulation
+            if config.endstate_method.endstate_method_type != 0:
+                # import files for remd
+                if config.endstate_method.endstate_method_type == "remd":
+                    config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
+                # import files for basic MD
+                else:
+                    config.endstate_method.basic_md_args.toil_import_basic_mdin(
+                        toil=toil
+                    )
 
             if config.intermidate_args.guest_restraint_files is not None:
                 config.intermidate_args.toil_import_user_restriants(toil=toil)
@@ -1205,11 +539,20 @@ def main():
                 )
             )
 
-            toil.start(Job.wrapJobFn(ddm_workflow, config))
+            update_config = toil.start(Job.wrapJobFn(ddm_workflow, config))
             logger.info(
                 f" Total workflow time: {time.perf_counter() - start} seconds\n"
             )
-            logger.info(f"options.workDir {options.workDir}")
+            # logger.info(f"options.workDir {options.workDir}")
+            # if len(
+            #     update_config.intermidate_args.exponent_conformational_forces
+            # ) != len(config.intermidate_args.exponent_conformational_forces):
+            #     logger.info(
+            #         f"""Restraints windows were added to config file: \n
+            #                     original conformational & orientational windows: {config.intermidate_args.exponent_conformational_forces} & {config.intermidate_args.exponent_orientational_forces}\n
+            #                     updated conformational & orientational windows: {update_config.intermidate_args.exponent_conformational_forces} & {update_config.intermidate_args.exponent_orientational_forces}\n
+            #                 """
+            #     )
 
         else:
             toil.restart()

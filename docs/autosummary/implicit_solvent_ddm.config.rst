@@ -24,6 +24,7 @@
    .. autosummary::
    
       AmberMasks
+      BasicMD
       Config
       EndStateMethod
       FlatBottomRestraints

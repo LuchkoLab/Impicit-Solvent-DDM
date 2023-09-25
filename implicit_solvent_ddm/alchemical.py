@@ -1,7 +1,4 @@
-import copy
 import os
-import re
-from typing import List, Tuple
 
 import parmed as pmd
 import pytraj as pt
@@ -88,8 +85,8 @@ def alter_topology(
     ----------
     solute_parm: str
         AMBER parameter file format
-    solute_amber_coordinate: str 
-        AMBER coordinate file format 
+    solute_amber_coordinate: str
+        AMBER coordinate file format
     ligand_mask: str
         AMBER mask which selects all ligand atoms from the complex
     receptor_mask: str

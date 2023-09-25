@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import parmed as pmd
 import pytraj as pt
-from toil.common import Toil
+from toil.common import Toil, FileID
 from toil.job import Job
 
 from implicit_solvent_ddm.config import Config
@@ -403,7 +403,6 @@ class BoreschRestraints(Job):
         receptor_heavy_atom_2_parm_index: Optional[int] = None,
         receptor_heavy_atom_3_parm_index: Optional[int] = None,
         boresch_template: Optional[str] = None,
-        flat_bottom_template: Optional[str] = None,
         memory: Optional[Union[int, str]] = None,
         cores: Optional[Union[int, float, str]] = None,
         disk: Optional[Union[int, str]] = None,
@@ -449,7 +448,6 @@ class BoreschRestraints(Job):
         self.K_phiC = K_phiC  # max torisional
         self.phi_C0 = phi_C0  # compute central
         self.boresch_template = boresch_template
-        self.flat_bottom_template = flat_bottom_template
 
     @property
     def receptor_heavy_atoms(self):
@@ -920,14 +918,20 @@ class RestraintMaker(Job):
         self,
         config: Config,
         boresch_restraints: BoreschRestraints,
-        flat_bottom: str,
+        complex_binding_mode: FileID,
+        flat_bottom: FileID,
         conformational_template=None,
         orientational_template=None,
     ) -> None:
         super().__init__()
+        self.complex_binding_mode = complex_binding_mode
+        self.flat_bottom = flat_bottom
         self.complex_restraint_file = config.intermidate_args.complex_restraint_files
         self.ligand_restraint_file = config.intermidate_args.guest_restraint_files
         self.receptor_restraint_file = config.intermidate_args.receptor_restraint_files
+        self.max_con_force = config.intermidate_args.max_conformational_restraint
+        self.max_orient_force = config.intermidate_args.max_orientational_restraint
+
         self.conformational_forces = (
             config.intermidate_args.conformational_restraints_forces
         )
@@ -938,16 +942,55 @@ class RestraintMaker(Job):
         self.boresch = boresch_restraints
         self.flat_bottom = flat_bottom
         self.restraints = {}
+        self.ligand_conformational_restraints = None
+        self.receptor_conformational_restraints = None
+        self.complex_conformational_restraints = None
+
+    def _assign_if_undefined(self, attr_name, attr_value):
+        """Assign value to self.name only if it is None."""
+
+        if getattr(self, attr_name) is None:
+            setattr(self, attr_name, attr_value)
+
+    @property
+    def max_ligand_conformational_restraint(self):
+        return self.restraints[f"ligand_{self.max_con_force}_rst"]
+
+    @property
+    def max_receptor_conformational_restraint(self):
+        return self.restraints[f"receptor_{self.max_con_force}_rst"]
+
+    @property
+    def max_complex_restraint(self):
+        return self.restraints[
+            f"complex_{self.max_con_force}_{self.max_orient_force}_rst"
+        ]
 
     def run(self, fileStore):
         conformational_restraints = self.addChildJobFn(
             get_conformational_restraints,
             self.config.endstate_files.complex_parameter_filename,
-            self.config.inputs["endstate_complex_lastframe"],
+            self.complex_binding_mode,
             self.config.amber_masks.receptor_mask,
             self.config.amber_masks.ligand_mask,
         )
         self.conformational_restraints = conformational_restraints
+
+        # just added remove
+        self._assign_if_undefined(
+            "complex_conformational_restraints", conformational_restraints.rv(0)
+        )
+        self._assign_if_undefined(
+            "ligand_conformational_restraints", conformational_restraints.rv(1)
+        )
+        self._assign_if_undefined(
+            "receptor_conformational_restraints", conformational_restraints.rv(2)
+        )
+
+        # self.ligand_conformational_restraints = conformational_restraints.rv(1)
+        # self.complex_conformational_restraints = conformational_restraints.rv(0)
+        # self.receptor_conformational_restraints = conformational_restraints.rv(2)
+
         self.boresch_deltaG = self.boresch.compute_boresch_restraints
 
         for index, (conformational_force, orientational_force) in enumerate(
@@ -1015,9 +1058,9 @@ class RestraintMaker(Job):
             self.boresch.boresch_template,
             conformational_force=conformational_force,
             orientational_force=orientational_force,
-        ).rv()
+        )
 
-    def add_ligand_window(self, system, conformational_force):
+    def add_ligand_window(self, conformational_force):
         return self.addChildJobFn(
             write_restraint_forces,
             self.conformational_restraints.rv(1),

@@ -3,19 +3,13 @@ import re
 import shutil
 import subprocess as sp
 import sys
-from asyncore import file_dispatcher
 from datetime import datetime
-from importlib.metadata import files
-from logging import setLogRecordFactory
 from string import Template
-from tempfile import tempdir
 from typing import Optional, TypedDict, Union
 
-import pytraj as pt
 from toil.common import Toil
 from toil.job import FileID, FunctionWrappingJob, Job
 
-from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.get_dirstruct import Dirstruct
 from implicit_solvent_ddm.restraints import RestraintMaker
 
@@ -40,10 +34,10 @@ class Calculation(Job):
         work_dir,
         restraint_file: Union[RestraintMaker, str],
         directory_args: TypedDict,
+        debug: bool,
         dirstruct="dirstruct",
         inptraj: Union[FileID, None] = None,
         post_analysis: bool = False,
-        debug: bool = False,
     ):
         self.executable = executable
         self.mpi_command = mpi_command
@@ -121,6 +115,7 @@ class Calculation(Job):
     def export_files(self, fileStore, output_directory, parameter_files):
         restart_files = []
         traj_files = []
+        fileStore.logToMaster(f"DEBUG is {self.debug}")
         for root, dirs, files in os.walk(".", topdown=False):
             for name in files:
                 if name in parameter_files:
@@ -134,11 +129,12 @@ class Calculation(Job):
                     output_file = fileStore.writeGlobalFile(name, cleanup=True)
                     traj_files.append(str(output_file))
 
-                elif (
-                    not self.debug
-                    and re.match(r"rem.log", name)
-                    or re.match(r"(equilibrate)?(remd)?.mdout\..*", name)
+                elif not self.debug and re.match(
+                    r"(rem.log)|(equilibrate)?(remd)?\.mdout\.\d*", name
                 ):
+                    fileStore.logToMaster(
+                        f"checking the name that is not exporting {name}"
+                    )
                     continue
 
                 else:
@@ -373,10 +369,20 @@ class Simulation(Calculation):
         self.read_files["prmtop"] = fileStore.readGlobalFile(
             self.prmtop, userPath=os.path.join(tempDir, os.path.basename(self.prmtop))
         )
+        fileStore.logToMaster(f"incrd file: {self.incrd}")
 
-        self.read_files["incrd"] = fileStore.readGlobalFile(
-            self.incrd, userPath=os.path.join(tempDir, os.path.basename(self.incrd))
-        )
+        # double check this -> basicMD
+        if not isinstance(self.incrd, list):
+            self.read_files["incrd"] = fileStore.readGlobalFile(
+                self.incrd, userPath=os.path.join(tempDir, os.path.basename(self.incrd))
+            )
+
+        else:
+            self.read_files["incrd"] = fileStore.readGlobalFile(
+                self.incrd[0],
+                userPath=os.path.join(tempDir, os.path.basename(self.incrd[0])),
+            )
+
         self.read_files["input_file"] = fileStore.readGlobalFile(
             self.input_file,
             userPath=os.path.join(tempDir, os.path.basename(self.input_file)),
@@ -439,9 +445,9 @@ class REMDSimulation(Calculation):
         runtype,
         ngroups,
         directory_args,
+        remd_debug: bool,
         dirstruct="dirstruct",
         inptraj=None,
-        remd_debug: bool = False,
         memory: Optional[Union[int, str]] = None,
         disk: Optional[Union[int, str]] = None,
         preemptable: Optional[Union[bool, int, str]] = None,
@@ -494,6 +500,7 @@ class REMDSimulation(Calculation):
                     mdin, userPath=os.path.join(self.tempDir, os.path.basename(mdin))
                 )
                 local_mdin = Calculation._mdin_restraint(self, fileStore, read_mdin)
+
                 # fileStore.logToMaster(f"local mdin {local_mdin}")
                 solu = re.sub(r"\..*", "", os.path.basename(self.prmtop))
 
@@ -618,6 +625,15 @@ class ExtractTrajectories(Job):
                 userPath=os.path.join(temp_dir, os.path.basename(target_trajectoryID)),
             )
 
+        # basic MD was performed
+        elif isinstance(self.trajectory_files, list):
+            read_target_traj = fileStore.readGlobalFile(
+                self.trajectory_files[0],
+                userPath=os.path.join(
+                    temp_dir, os.path.basename(self.trajectory_files[0])
+                ),
+            )
+            target_trajectoryID = self.trajectory_files[0]
         # user provided there one endstate trajectory
         else:
             read_target_traj = fileStore.readGlobalFile(

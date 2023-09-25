@@ -22,7 +22,7 @@ class Workflow:
     """Base workflow procedure."""
 
     setup_workflow: bool = True
-    post_treatment: bool = True
+    consolidate_output: bool = True
     run_endstate_method: bool = True
     gb_extdiel_windows: bool = True
     end_state_postprocess: bool = True
@@ -37,8 +37,10 @@ class Workflow:
     complex_turn_on_ligand_charges: bool = True
     complex_turn_on_GB_enviroment: bool = True
     complex_remove_restraint: bool = True
+    run_adaptive_windows: bool = True
     post_analysis_only: bool = False
     vina_dock: bool = False
+    restart: bool = False
     debug: bool = False
 
     @classmethod
@@ -103,7 +105,6 @@ class SystemSettings:
 
     @property
     def top_directory_path(self):
-
         return os.path.join(self.working_directory, self.output_directory_name)
 
     @classmethod
@@ -150,7 +151,6 @@ class ParameterFiles:
         return cls(**obj)
 
     def get_inital_coordinate(self):
-
         solu_complex = re.sub(
             r"\..*", "", os.path.basename(self.complex_coordinate_filename)
         )
@@ -206,7 +206,6 @@ class ParameterFiles:
             self.ligand_parameter_filename = unique_ligand_ID
 
         if self.receptor_parameter_filename is not None:
-
             unique_receptor_ID = os.path.join(
                 self.tempdir.name,
                 f"{receptor_basename}-{ligand_basename}_{unique_id}.parm7",
@@ -217,7 +216,6 @@ class ParameterFiles:
             self.receptor_parameter_filename = unique_receptor_ID
 
     def toil_import_parmeters(self, toil):
-
         self.complex_parameter_filename = str(
             toil.import_file(
                 "file://" + os.path.abspath(self.complex_parameter_filename)
@@ -319,13 +317,11 @@ class REMD:
     nthreads_ligand: int = 0
     # nthreads: int = 0
 
-    
     def __post_init__(self):
-        
-        #number of copies should equal to length of temperatures     
+        # number of copies should equal to length of temperatures
         self.ngroups = len(self.temperatures)
-    
-    
+        self._mdin_sanity_check()
+
     @classmethod
     def from_config(cls: Type["REMD"], obj: dict):
         return cls(
@@ -337,13 +333,79 @@ class REMD:
             nthreads_ligand=obj["endstate_arguments"]["nthreads_ligand"],
         )
 
-    def toil_import_replica_mdin(self, toil: Toil):
+    def _mdin_sanity_check(self):
+        for mdin in [self.equil_template_mdin, self.remd_template_mdin]:
+            if os.path.isfile(mdin):
+                with open(mdin, "r") as outfile:
+                    input_args = outfile.read()
 
+                matches = re.findall(r"\$temp|\$restraint", input_args)
+
+                if "$temp" not in matches:
+                    raise RuntimeError(
+                        f"""\n The '$temp' key not found in {mdin}.\n
+                        Please set  'temperature=$temp' within the mdin file. The temperature will be filled in during the REMD portion of the workflow.
+                """
+                    )
+
+                if "$restraint" not in matches:
+                    raise RuntimeError(
+                        f""" $restraint key not found in {mdin}.
+                        Please set 'restraint=$restraint' within the mdin file. The temperature will be filled in during the REMD portion of the workflow.
+                """
+                    )
+
+    def toil_import_replica_mdin(self, toil: Toil):
         self.remd_template_mdin = toil.import_file(
             "file://" + os.path.abspath(self.remd_template_mdin)
         )
         self.equil_template_mdin = toil.import_file(
             "file://" + os.path.abspath(self.equil_template_mdin)
+        )
+
+
+@dataclass
+class BasicMD:
+    """Parameter to run basic Molecular Dynamics.
+
+    Attributes:
+    -----------
+    md_template_mdin: str
+        A template to run a MD simulation.
+    """
+
+    md_template_mdin: Union[FileID, str] = "md.template"
+
+    def __post_init__(self):
+        self._mdin_sanity_check()
+
+    @classmethod
+    def from_config(cls: Type["BasicMD"], obj: dict):
+        return cls(
+            md_template_mdin=obj["endstate_arguments"]["md_template_mdin"],
+        )
+
+    def _mdin_sanity_check(self):
+        """
+        Check the $restraint key is in the user .mdin input file.
+        """
+        if os.path.isfile(self.md_template_mdin):
+            print("matches")
+            with open(self.md_template_mdin, "r") as outfile:
+                input_args = outfile.read()
+
+            matches = re.findall(r"\$restraint", input_args)
+
+            if "$restraint" not in matches:
+                raise RuntimeError(
+                    f""" $restraint key not found in {self.md_template_mdin}.
+                        Please set 'restraint=$restraint' within the mdin file. The restraint file will be filled in during the workflow.
+                """
+                )
+
+    def toil_import_basic_mdin(self, toil: Toil):
+        self.md_template_mdin = toil.import_file(
+            "file://" + os.path.abspath(self.md_template_mdin)
         )
 
 
@@ -399,12 +461,13 @@ class FlatBottomRestraints:
 
 @dataclass
 class EndStateMethod:
-    endstate_method_type: Union[str,int]
+    endstate_method_type: Union[str, int]
     remd_args: REMD
+    basic_md_args: BasicMD
     flat_bottom: FlatBottomRestraints
 
     def __post_init__(self):
-        endstate_method_options = ["remd", "md", 0]
+        endstate_method_options = ["remd", "basic_md", 0]
         if self.endstate_method_type not in endstate_method_options:
             raise NameError(
                 f"'{self.endstate_method_type}' is not a valid endstate method. Options: {endstate_method_options}"
@@ -416,18 +479,21 @@ class EndStateMethod:
             return cls(
                 endstate_method_type=obj["endstate_method"],
                 remd_args=REMD(),
+                basic_md_args=BasicMD(),
                 flat_bottom=FlatBottomRestraints.from_config(obj=obj),
             )
         elif obj["endstate_method"].lower() == "remd":
             return cls(
                 endstate_method_type=str(obj["endstate_method"]).lower(),
                 remd_args=REMD.from_config(obj=obj),
+                basic_md_args=BasicMD(),
                 flat_bottom=FlatBottomRestraints.from_config(obj=obj),
             )
         else:
             return cls(
-                endstate_method_type=obj["endstate_method"],
+                endstate_method_type=str(obj["endstate_method"]).lower(),
                 remd_args=REMD(),
+                basic_md_args=BasicMD.from_config(obj=obj),
                 flat_bottom=FlatBottomRestraints.from_config(obj=obj),
             )
 
@@ -442,7 +508,7 @@ class IntermidateStatesArgs:
     temperature: float
     charges_lambda_window: List[float] = field(default_factory=list)
     gb_extdiel_windows: List[float] = field(default_factory=list)
-
+    min_degree_overlap: float = 0.03
     guest_restraint_template: Optional[str] = None
     receptor_restraint_template: Optional[str] = None
     complex_conformational_template: Optional[str] = None
@@ -458,7 +524,6 @@ class IntermidateStatesArgs:
     max_orientational_restraint: float = field(init=False)
 
     def __post_init__(self):
-
         # check charges lambda windows have a min value of 0
         if len(self.charges_lambda_window) == 0:
             self.charges_lambda_window = [0.0, 1.0]
@@ -474,7 +539,6 @@ class IntermidateStatesArgs:
         ]
 
         if len(self.gb_extdiel_windows) > 0:
-
             if 0 in self.gb_extdiel_windows:
                 self.gb_extdiel_windows.remove(0)
             if 1 in self.gb_extdiel_windows:
@@ -505,7 +569,6 @@ class IntermidateStatesArgs:
             or self.receptor_restraint_template
             or self.complex_orientational_template
         ):
-
             # self.tempdir = "mdgb/restraints"
             self.tempdir = tempfile.TemporaryDirectory()
             # if not os.path.exists('mdgb/restraints'):
@@ -565,7 +628,6 @@ class IntermidateStatesArgs:
         self.receptor_restraint_files.append(f"{self.tempdir.name}/{filename}_{conformational_force}.RST")  # type: ignore
 
     def write_complex_restraints(self, conformational_force, orientational_force):
-
         filename = re.sub(r"\..*", "", os.path.basename(self.complex_orientational_template))  # type: ignore
 
         with open(self.complex_conformational_template) as f:  # type: ignore
@@ -647,16 +709,16 @@ class Config:
             self.workflow.gb_extdiel_windows = False
 
         if self.endstate_files.receptor_coordinate_filename is not None:
-            self.ignore_receptor = True 
-        
+            self.ignore_receptor = True
+
     def _config_sanitity_check(self):
         # check if the amber mask are valid
         self._valid_amber_masks()
         self._check_endstate_method()
         self._check_missing_flatbottom_parameters()
         self._remd_target_temperature()
-    def _check_endstate_method(self):
 
+    def _check_endstate_method(self):
         if self.endstate_method.endstate_method_type == 0:
             if self.endstate_files.ligand_parameter_filename == None:
                 raise ValueError(
@@ -682,18 +744,21 @@ class Config:
                                 Please check if AMBER masks are correct ligand_mask: "{self.amber_masks.ligand_mask}" receptor_mask: "{self.amber_masks.receptor_mask}"
                                 {self.endstate_files.complex_parameter_filename} residue lables are: {parm.parm_data['RESIDUE_LABEL']}"""
             )
+
     def _remd_target_temperature(self):
-        if self.endstate_method.endstate_method_type == 'remd':
-            if self.intermidate_args.temperature not in self.endstate_method.remd_args.temperatures:
-               raise RuntimeError(
-                f"""The specified temperature {self.intermidate_args.temperature} is not 
+        if self.endstate_method.endstate_method_type == "remd":
+            if (
+                self.intermidate_args.temperature
+                not in self.endstate_method.remd_args.temperatures
+            ):
+                raise RuntimeError(
+                    f"""The specified temperature {self.intermidate_args.temperature} is not 
                 in the list of temperatures ({self.endstate_method.remd_args.temperatures}) for running REMD.
                 Note the specified temperature {self.intermidate_args.temperature} will be the target temperature 
                 during REMD trajectory extraction.
                 """
-               )
-     
-        
+                )
+
     @classmethod
     def from_config(cls: Type["Config"], user_config: dict, ignore_unique_naming=False):
         return cls(
@@ -715,7 +780,6 @@ class Config:
             inputs={},
             restraints={},
         )
-
 
     def _check_missing_flatbottom_parameters(self):
         pass
@@ -745,7 +809,6 @@ class Config:
         self.tempdir = tempfile.TemporaryDirectory()
 
         if self.endstate_files.receptor_parameter_filename is None:
-
             receptor_traj = self.complex_pytraj_trajectory[
                 self.amber_masks.receptor_mask
             ]
@@ -783,7 +846,6 @@ class Config:
 
 
 def workflow(job, config: Config):
-
     tempdir = job.fileStore.getLocalTempDir()
 
     job.fileStore.readGlobalFile(
@@ -796,17 +858,15 @@ def workflow(job, config: Config):
 
 
 if __name__ == "__main__":
-
     import yaml
 
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "OFF"
     options.clean = "always"
-    with open("/nas0/ayoub/Impicit-Solvent-DDM/config_files/no_restraints.yaml") as fH:
+    with open("/nas0/ayoub/Impicit-Solvent-DDM/config_files/run_basic_md.yaml") as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:
-
         config = Config.from_config(yaml_config)
         # # print(config)
         # # config.endstate_files.get_inital_coordinate()

@@ -1,3 +1,4 @@
+.. _ddm_cycle-label:
 
 Implementation Details
 ==============================================
