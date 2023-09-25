@@ -5,7 +5,6 @@ import subprocess as sp
 import sys
 from datetime import datetime
 from string import Template
-
 from typing import Optional, TypedDict, Union
 
 from toil.common import Toil
