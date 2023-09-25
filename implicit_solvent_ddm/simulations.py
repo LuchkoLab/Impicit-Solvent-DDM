@@ -130,11 +130,11 @@ class Calculation(Job):
                     traj_files.append(str(output_file))
 
                 elif not self.debug and re.match(
-                    r"(rem.log)?|(equilibrate)?(remd)?.mdout\..*", name
+                    r"(rem.log)|(equilibrate)?(remd)?\.mdout\.\d*", name
                 ):
-                    # fileStore.logToMaster(
-                    #     f"checking the name that is not exporting {name}"
-                    # )
+                    fileStore.logToMaster(
+                        f"checking the name that is not exporting {name}"
+                    )
                     continue
 
                 else:

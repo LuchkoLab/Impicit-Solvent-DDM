@@ -442,35 +442,18 @@ class IntermidateRunner(Job):
 
     @staticmethod
     def _get_md_traj(simulation: Simulation, fileStore):
-        try:
-            return os.path.join(
-                simulation.output_dir,
-                list(
-                    filter(
-                        lambda file: re.match(r"^.*\.nc$", file),
-                        os.listdir(simulation.output_dir),
-                    )
-                )[0],
-            )
-        except:
-            fileStore.logToMaster(f"except clause: ")
-            fileStore.logToMaster(f"old output dir {simulation.output_dir}")
+        """Return an absolute path to completed AMBER (.nc) trajectory filename.
 
-            if re.search(r"-0.2857142857142864", simulation.output_dir):
-                simulation.output_dir = re.sub(
-                    r"-0.2857142857142864",
-                    "-0.2857142857142865",
-                    simulation.output_dir,
-                )
-            else:
-                simulation.output_dir = re.sub(
-                    r"-0.2857142857142865",
-                    "-0.2857142857142864",
-                    simulation.output_dir,
-                )
-
-        fileStore.logToMaster(f"new output dir {simulation.output_dir}")
-
+        Parameters
+        ----------
+        simulation: Simulation
+            Simulation class object which contains all required MD input arguments.
+        fileStore: job.fileStore
+            Toil interface to read and write files.
+        Returns
+        -------
+        Filepath to AMBER trajectory (.nc) file.
+        """
         return os.path.join(
             simulation.output_dir,
             list(
