@@ -1,3 +1,6 @@
+"""
+Classes for Boresch, FlatBottom and conformational restraints. 
+"""
 import itertools
 import math
 import os
@@ -10,36 +13,18 @@ import numpy as np
 import pandas as pd
 import parmed as pmd
 import pytraj as pt
-from toil.common import Toil, FileID
+from toil.common import FileID, Toil
 from toil.job import Job
 
 from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.restraint_helper import (
-    compute_dihedral_angle,
-    create_atom_neighbor_array,
-    distance_calculator,
-    find_angle,
-    norm_distance,
-    refactor_find_heavy_bonds,
-    screen_for_distance_restraints,
-    shortest_distance_between_molecules,
-)
+    compute_dihedral_angle, create_atom_neighbor_array, distance_calculator,
+    find_angle, norm_distance, refactor_find_heavy_bonds,
+    screen_for_distance_restraints, shortest_distance_between_molecules)
 
 
 class FlatBottom(Job):
-    def __init__(
-        self,
-        config: Config,
-        memory: Optional[Union[int, str]] = None,
-        cores: Optional[Union[int, float, str]] = None,
-        disk: Optional[Union[int, str]] = None,
-        preemptable: Optional[Union[bool, int, str]] = None,
-        unitName: Optional[str] = "",
-        checkpoint: Optional[bool] = False,
-        displayName: Optional[str] = "",
-        descriptionClass: Optional[str] = None,
-    ) -> None:
-        """A receptor-ligand restraint using a flat potential well with harmonic walls.
+    """A receptor-ligand restraint using a flat potential well with harmonic walls.
 
         A receptor-ligand restraint that uses flat potential inside the
         host/protein volume with harmonic restrainting walls. It will
@@ -93,7 +78,20 @@ class FlatBottom(Job):
             The complex paramter (.parm7) filepath.
         complex_coordinate: toil.fileStores.FileID
             The complex coordinate (.ncrst, rst7, ect) filepath.
-        """
+    """
+    def __init__(
+        self,
+        config: Config,
+        memory: Optional[Union[int, str]] = None,
+        cores: Optional[Union[int, float, str]] = None,
+        disk: Optional[Union[int, str]] = None,
+        preemptable: Optional[Union[bool, int, str]] = None,
+        unitName: Optional[str] = "",
+        checkpoint: Optional[bool] = False,
+        displayName: Optional[str] = "",
+        descriptionClass: Optional[str] = None,
+    ) -> None:
+
         super().__init__(
             memory,
             cores,

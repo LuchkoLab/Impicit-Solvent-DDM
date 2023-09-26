@@ -1,3 +1,6 @@
+"""
+Functions to parse an mdout file into a pandas Dataframe. 
+"""
 import pprint as pp
 import re
 from typing import Type

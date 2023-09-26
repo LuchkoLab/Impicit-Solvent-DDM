@@ -1,3 +1,7 @@
+"""
+Dataclass to make life a little easier, which defines config properties, sub-properties, and types in a config.py file.
+Using a dataclass rather a dictionary ensures all key values pairs are read in (YAML config) before initiating the workflow.
+"""
 import os
 import random
 import re
@@ -57,6 +61,15 @@ class NumberOfCoresPerSystem:
     host, guest and complex simulation.
     User can specify the number of cores required to
     run each system simulation.
+    
+    Attributes:
+    -----------
+    complex_ncores: int
+        Number of processors to be used for a single complex intermediate molecular dynamics simulation.
+    ligand_ncores: int 
+        Number of processors to be used for a single ligand intermediate molecular dynamics simulation. 
+    receptor_ncores: int 
+        Number of processors to be used for a single receptor intermediate molecular dynamics simulation. 
     """
 
     complex_ncores: int
@@ -273,7 +286,15 @@ class ParameterFiles:
 
 @dataclass
 class AmberMasks:
-    """AMBER masks to denote receptor/host and guest atoms"""
+    """AMBER masks to denote receptor/host and guest atoms
+    
+    Attributes:
+    -----------
+    receptor_mask: str
+        Amber mask syntax to select receptor atoms
+    ligand_mask: str
+        Amber mask syntax to select ligand atoms
+    """
 
     receptor_mask: str
     ligand_mask: str
@@ -413,7 +434,7 @@ class BasicMD:
 class FlatBottomRestraints:
     """Paramters for flat bottom restraints
 
-      Attributes
+    Attributes
     ----------
     restrained_receptor_atoms : iterable of int, int, or str, optional
         The indices of the receptor atoms to restrain, an
@@ -461,6 +482,21 @@ class FlatBottomRestraints:
 
 @dataclass
 class EndStateMethod:
+    """
+    Denotes the specifed endstate simulation type. 
+    User can choose to run either REMD or one long MD simulation at the endstates. 
+    
+    Attributes
+    ----------
+    endstate_method_type: Union[str, int]
+        User specifies the type of endstate simulation. REMD, basic_md or user_defined=0
+    remd_args: REMD
+        Arguments required to run REMD at the endstate.
+    basic_md_args: BasicMD
+        Arguments required to run one lond MD simulation at the endstate.
+    flat_bottom: FlatBottomRestraints
+        Arugments for flat bottom restraints. 
+    """
     endstate_method_type: Union[str, int]
     remd_args: REMD
     basic_md_args: BasicMD
@@ -500,6 +536,9 @@ class EndStateMethod:
 
 @dataclass
 class IntermidateStatesArgs:
+    """
+    Parameter arguments used for the intermidate simulation steps within the thermodynamic cycle.
+    """
     exponent_conformational_forces: List[float]
     exponent_orientational_forces: List[float]
     restraint_type: int

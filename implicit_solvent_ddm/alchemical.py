@@ -1,3 +1,6 @@
+"""
+Functions that perform alchemical transformations. 
+"""
 import os
 
 import parmed as pmd

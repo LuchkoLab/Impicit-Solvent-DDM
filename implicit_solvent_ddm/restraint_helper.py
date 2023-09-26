@@ -1,3 +1,6 @@
+"""
+Helper functions used to construct conformational and orientational restraints.
+"""
 import itertools
 import time
 
@@ -41,6 +44,25 @@ def compute_dihedral_angle(atom1, atom2, atom3, atom4):
 
 # barton source code
 def norm_distance(point_a, point_b, point_c):
+    """Compute normal distance between 3 atom positions
+
+    Parameters
+    ----------
+    point_a: numpy.ndarray
+        The selected distance restraint atom position. 
+    point_b: 
+        Potential selection of heavy atom
+    point_c: 
+        Potential selection of heavy atom
+    
+    Returns 
+    -------
+    norm_distance: ndarray
+        The computed norm distance between 3 atoms. 
+
+    Returns:
+        _type_: _description_
+    """
     p1 = np.array(point_a)
     p2 = np.array(point_b)
     p3 = np.array(point_c)
@@ -243,6 +265,16 @@ def find_angle(point_a, point_b, point_c):
 
 
 def refactor_find_heavy_bonds(parmed_traj_bonds):
+    """Find heavy atoms that are covalently bonded to another heavy atom (i.e. NOT hydrogens)
+    Iterate through list of parmed Atom descriptions and return a list of boolean expression 
+    whether the atom has more than one heavy atom bounded to it.
+    parmed_traj_bonds: list[parmed.topologyobjects.Atom]
+        AtomList instances.
+
+    Returns: 
+    --------
+        Checks whether a heavy atom has more than one heavy atom bounded to it.
+    """
 
     num_total_bonds = len(parmed_traj_bonds.bonds)
 

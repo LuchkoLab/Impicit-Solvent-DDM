@@ -1,13 +1,18 @@
+"""
+A collection of functions that performs simple iterative proceess to improve space phase overlap between adjecent states. 
+"""
+import copy
+from typing import Optional
+
 import numpy as np
 import pandas as pd
-import copy
+
 import implicit_solvent_ddm.pandasmbar as pdmbar
+from implicit_solvent_ddm.alchemical import alter_topology
 from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.matrix_order import CycleSteps
 from implicit_solvent_ddm.restraints import write_restraint_forces
 from implicit_solvent_ddm.runner import IntermidateRunner
-from implicit_solvent_ddm.alchemical import alter_topology
-from typing import Optional
 
 AVAGADRO = 6.0221367e23
 BOLTZMAN = 1.380658e-23
@@ -615,15 +620,21 @@ def run_exponential_averaging(
     system_runner: IntermidateRunner,
     temperature: float,
 ):
-    """_summary_
+    """Execute exponential averaging
 
-    Args:
-        job (_type_): _description_
-        system_runner (IntermidateRunner): _description_
-        temparture (float): _description_
+    Parameters
+    ----------
+    system_runner: IntermidateRunner
+        A runner class that handles system specific simulations. 
+    temperature: float
+        Specified simulation temperature
 
     Returns:
-        _type_: _description_
+    --------
+    pdmbar.mbar(df_subsampled): tuple[DataFrame, DataFrame, MBAR]
+        DataFrames for the free energies differences (Deltaf_ij), error estimates in free energy difference (dDeltaf_ij), and the pyMBAR object.
+    df_mbar: pd.DataFrame
+        An formated and chronological arrange DataFrame before any MBAR analysis was performed. (Which can be used to create pdfs of MBAR matrix).
     """
     return compute_mbar(
         simulation_data=system_runner.post_output,
