@@ -1,3 +1,6 @@
+"""
+Classes to setup different types of simulations (i.e. remd, basic md).
+"""
 import os
 import re
 import shutil

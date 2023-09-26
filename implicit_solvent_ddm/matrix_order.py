@@ -4,6 +4,9 @@ from typing import Union
 
 @dataclass
 class CycleSteps:
+    """
+    Simple dataclass that arranges all the thermodyamic steps in the correct chronological order for the given system (i.e. complex, ligand, receptor). 
+    """
     conformation_forces: list[Union[int, float]]
     orientational_forces: list[Union[int, float]]
     charges_windows: list[float]

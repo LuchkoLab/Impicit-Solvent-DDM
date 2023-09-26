@@ -1,17 +1,15 @@
+"""
+Functions that setup REMD, Basic MD or user defind endstate simulations. 
+"""
+import copy
 # from implicit_solvent_ddm.remd import run_remd
 import os
 import os.path
-import copy
-
 
 from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.mdin import generate_replica_mdin
-
-from implicit_solvent_ddm.simulations import (
-    ExtractTrajectories,
-    REMDSimulation,
-    Simulation,
-)
+from implicit_solvent_ddm.simulations import (ExtractTrajectories,
+                                              REMDSimulation, Simulation)
 
 working_directory = os.getcwd()
 

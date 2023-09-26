@@ -1,3 +1,6 @@
+"""
+Simple functions to create all the required MD input files (i.e. 'mdin').
+"""
 import itertools
 import os
 import random

@@ -1,3 +1,4 @@
+
 import os
 import re
 from email import message
@@ -18,6 +19,10 @@ from implicit_solvent_ddm.simulations import Simulation
 
 
 class IntermidateRunner(Job):
+    """
+    Runner class that will initiate all MD simulations for the respected system (i.e. complex, ligand or receptor)
+    IntermidateRunner is responsible for handling all the Simulations and collecting the output dataframes. 
+    """
     # simulations: dict[Simulation, int]
     def __init__(
         self,
