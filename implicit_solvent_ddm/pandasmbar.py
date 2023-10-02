@@ -1,11 +1,11 @@
-'''Functions to make applying pyMBAR to Pandas DataFrames easier.
+"""Functions to make applying pyMBAR to Pandas DataFrames easier.
 
 The simplest way to use this is 
 
     import pandasmbar as pdmbar
     
-    equil_info = pdmbar.detectEquilibration(df)
-    df_subsampled = pdmbar.subsampleCorrelatedData(df, equil_info)
+    equil_info = pdmbar.detect_equilibration(df)
+    df_subsampled = pdmbar.subsample_correlated_data(df, equil_info)
     results = pdmbar.mbar(df_subsampled)
 
 With this procedure, equilibration frames from the trajectory are
@@ -62,15 +62,15 @@ evaluated at the same states. For example, we may have data such as
 Where there are two sets of data, 'a' and 'b'.
 
 
-    equil_info = df.groupby('group').apply(lambda x : pdmbar.detectEquilibration(x, nskip=n))
-    df_subsampled = pdmbar.subsampleCorrelatedData(df, equil_info)
+    equil_info = df.groupby('group').apply(lambda x : pdmbar.detect_equilibration(x, nskip=n))
+    df_subsampled = pdmbar.subsample_correlated_data(df, equil_info)
     results = pdmbar.mbar(df_subsampled, 'group')
 
 Notice that the first line directly uses Pandas groupby method, the
 last line supplies the group columns as an argument, and the middle
 line does not directly use groups.
 
-'''
+"""
 from sys import excepthook
 
 import pandas as pd
@@ -78,7 +78,7 @@ import pymbar
 
 
 def mbar(df, groupby=None, solver_protocol=None):
-    '''Applies mbar() to grouped or ungrouped data.  
+    """Applies mbar() to grouped or ungrouped data.
 
     *Ungrouped data*
 
@@ -91,7 +91,7 @@ def mbar(df, groupby=None, solver_protocol=None):
     Format of the DataFrame should be as in this example:
 
               (1.0, 0.0)  (2.0, 1.0)  (4.0, 2.0)  (8.0, 3.0)  (16.0, 4.0)
-    K_k  O_k                                                             
+    K_k  O_k
     1.0  0.0    0.886561    0.109950    0.893553   11.134414    56.963445
          0.0    0.255812    0.081066    3.301016   20.879801    86.315138
          0.0    1.194131    6.479063   25.139726   82.642655   246.011715
@@ -116,7 +116,7 @@ def mbar(df, groupby=None, solver_protocol=None):
 
     Free energies are calculated for all column headings.  The number of
     samples (configurations) from each state is determined by the
-    index. 
+    index.
 
     Missing Data
     ------------
@@ -125,7 +125,7 @@ def mbar(df, groupby=None, solver_protocol=None):
     evaluated at all states for MBAR. I.e., no NaN values.
 
     *Grouped Data*
-    
+
     This is useful where there are many systems being analyzed with
     the same states.  E.g., the solvation free energy of many
     molecules is calculated from the vacuum energy and solvated
@@ -142,9 +142,9 @@ def mbar(df, groupby=None, solver_protocol=None):
     of MBAR objects is also return, with the groups as the index.
 
     Format of the DataFrame should be as in this example:
-    
+
                   1.0       2.0       3.0
-    K_k O_k                              
+    K_k O_k
     1.0 0.0  0.210076  0.420153  0.630229
     2.0 0.0  0.393268  0.786536  1.179805
         0.0  0.060052  0.120105  0.180157
@@ -162,7 +162,7 @@ def mbar(df, groupby=None, solver_protocol=None):
     state and matches the evaluated states in the column headings.
 
     Args:
-        df : 
+        df :
             (DataFrame) dataframe to process
         groupby :
             (sequence) column/index headings to groupby
@@ -176,11 +176,11 @@ def mbar(df, groupby=None, solver_protocol=None):
         column in the index.  E.g.,
 
                                                       mbar
-        O_k                                               
+        O_k
         0.0    <pymbar.mbar.MBAR object at 0x2ad5d6f97470>
         1.0    <pymbar.mbar.MBAR object at 0x2ad5de36f9e8>
 
-    '''
+    """
 
     if groupby is None:
         return _mbar(df)
@@ -201,30 +201,31 @@ def mbar(df, groupby=None, solver_protocol=None):
         for name, group in groups:
             name = list(name)
             # drop the groupby columns since mbar doesn't want to see them
-            group = group.drop(groupby, axis='columns')
+            group = group.drop(groupby, axis="columns")
             fe, err, mb = _mbar(group)
             # add the groupy info back in
             for frame in [fe, err]:
-                frame[groupby] = pd.DataFrame([name], index = frame.index)
+                frame[groupby] = pd.DataFrame([name], index=frame.index)
             free_energies.append(fe)
             errors.append(err)
             # create a data frame for the MBAR objects with groupy info
             mbars.append(pd.DataFrame([name], columns=groupby))
-            mbars[-1]['mbar'] = mb 
+            mbars[-1]["mbar"] = mb
         # create the dataframe to be returned and reset the index to what we got as input
         free_energies = pd.concat(free_energies).reset_index().set_index(df.index.names)
         errors = pd.concat(errors).reset_index().set_index(df.index.names)
         if len(groupby_in_index) != 0:
             mbars = pd.concat(mbars).set_index(list(set(df.index.names) & set(groupby)))
-        
+
         return free_energies, errors, mbars
-        
+
+
 def _mbar(df):
-    '''Applies MBAR (pyMBAR) to the DataFrame. Does not handle grouping.
+    """Applies MBAR (pyMBAR) to the DataFrame. Does not handle grouping.
 
     See `mbar()`.
     Args:
-        df : 
+        df :
             (DataFrame) dataframe to process
     Returns:
         (DataFrame, DataFrame, MBAR) DataFrames for the free energies
@@ -237,60 +238,73 @@ def _mbar(df):
         should look something like
 
                   (1.0, 0.0)  (2.0, 1.0)  (4.0, 2.0)  (8.0, 3.0)  (16.0, 4.0)
-        K_k  O_k                                                             
+        K_k  O_k
         1.0  0.0    0.000000    0.310918    0.662005    0.936818     1.212012
         2.0  1.0   -0.310918    0.000000    0.351087    0.625900     0.901094
         4.0  2.0   -0.662005   -0.351087    0.000000    0.274813     0.550007
         8.0  3.0   -0.936818   -0.625900   -0.274813    0.000000     0.275194
         16.0 4.0   -1.212012   -0.901094   -0.550007   -0.275194     0.000000
-    '''
+    """
     # count the number samples from each state
-    N_k = df.groupby(df.index.names).count().iloc[:,[0]]
-    
+    N_k = df.groupby(df.index.names).count().iloc[:, [0]]
+
     # check for states with no samples since these are not
-    # counted. 
-    
+    # counted.
+
     # flatten the index so it matches the column names
     N_k.index = N_k.index.tolist()
 
     # merge this with a dataframe that has the states from the columns
     # as the index. 'outer' means that any states without samples will
     # now have a count of NaN.
-    N_k = pd.merge(pd.DataFrame(index=df.columns), N_k, 
-                   left_index = True, right_index = True, how = 'outer')
-    
+    N_k = pd.merge(
+        pd.DataFrame(index=df.columns),
+        N_k,
+        left_index=True,
+        right_index=True,
+        how="outer",
+    )
+
     # replace the NaNs with 0 and match the order of the column states
     N_k = N_k.fillna(0).reindex(df.columns)
-    
 
-    #solver_protocol= (dict(method="L-BFGS-B"), )
+    # solver_protocol= (dict(method="L-BFGS-B"), )
     try:
+        #try to use 'hybr' solver 
         mbar = pymbar.MBAR(df.values.T, N_k.values.flatten())
-        free_energies, errors  = mbar.getFreeEnergyDifferences()
+        results = mbar.compute_free_energy_differences()
     except:
-        mbar = pymbar.MBAR(df.values.T, N_k.values.flatten(), solver_protocol= (dict(method="L-BFGS-B"), ))
-        free_energies, errors  = mbar.getFreeEnergyDifferences()
-        
-    free_energies = pd.DataFrame(free_energies, columns=df.columns.values)
+        # fails to solve switch to `robust` solver 
+        mbar = pymbar.MBAR(
+            df.values.T,
+            N_k.values.flatten(),
+            solver_protocol="robust",
+        )
+        results = mbar.compute_free_energy_differences()
+
+    free_energies = pd.DataFrame(results["Delta_f"], columns=df.columns.values)
     try:
-        free_energies.index = pd.MultiIndex.from_tuples(df.columns, names = df.index.names)
+        free_energies.index = pd.MultiIndex.from_tuples(
+            df.columns, names=df.index.names
+        )
     except:
-        free_energies.index = pd.Index(df.columns, name = df.index.name)
+        free_energies.index = pd.Index(df.columns, name=df.index.name)
     # free_energies.index = df.columns
     # free_energies.index.names = ['states']
 
-    errors = pd.DataFrame(errors, columns=df.columns)
+    errors = pd.DataFrame(results["dDelta_f"], columns=df.columns)
     try:
-        errors.index = pd.MultiIndex.from_tuples(df.columns, names = df.index.names)
+        errors.index = pd.MultiIndex.from_tuples(df.columns, names=df.index.names)
     except:
-        errors.index = pd.Index(df.columns, name = df.index.name)
+        errors.index = pd.Index(df.columns, name=df.index.name)
     # errors.index = df.columns
     # errors.index.names = ['states']
 
     return free_energies, errors, mbar
-            
-def detectEquilibration(df, nskip=1):
-    '''Apply pyMBAR equilibration detection of time series to a DataFrame. 
+
+
+def detect_equilibration(df, nskip=1):
+    """Apply pyMBAR equilibration detection of time series to a DataFrame.
 
     Data is expected to have the same format as is used for pyMBAR.
 
@@ -300,7 +314,7 @@ def detectEquilibration(df, nskip=1):
     Format of the DataFrame should be as in this example:
 
                  (data1, a)  (data2, b)  (data3, a)
-    state group                                    
+    state group
     data1 a        0.712948    0.619528    0.283933
           a        0.810213    0.871656    0.602021
           a        0.712010    0.347209    0.212972
@@ -322,7 +336,7 @@ def detectEquilibration(df, nskip=1):
     data column associated with it.  The output in this case may look like
 
                      t          g    Neff_max
-    state group                              
+    state group
     data1 a        0.0  23.096191   43.340481
     data2 b        0.0  18.703865  106.983238
     data3 a      330.0   9.135793   18.717588
@@ -330,10 +344,10 @@ def detectEquilibration(df, nskip=1):
 
     Groupby can be applied as in
 
-    equil = df.groupby(columns).apply(lambda x : detectEquilibration(x, nskip=n))
+    equil = df.groupby(columns).apply(lambda x : detect_equilibration(x, nskip=n))
 
     Args:
-        nskip : 
+        nskip :
             (int) use this stride between samples to reduce the number
             of samples and total computation time.
 
@@ -342,23 +356,26 @@ def detectEquilibration(df, nskip=1):
         index that equilibrate data starts from, (g) statistical
         inefficiency of the data, and (Neff_max) number of
         uncorrelated samples.
-    '''
-    
+    """
+
     groupby = df.groupby(df.index)
 
     # for each index group, run equilibration detection on the column that matches the name
     equil_info = {}
     for name, group in groupby:
-        equil_info[name] = pymbar.timeseries.detectEquilibration(group[name].values, nskip = nskip)
-            
+        equil_info[name] = pymbar.timeseries.detect_equilibration(
+            group[name].values, nskip=nskip
+        )
+
     # build the output dataframe
-    equil_info = pd.DataFrame(equil_info, index=['t','g','Neff_max']).T
-    equil_info.t = equil_info.t.astype('int')
+    equil_info = pd.DataFrame(equil_info, index=["t", "g", "Neff_max"]).T
+    equil_info.t = equil_info.t.astype("int")
     equil_info.index.names = df.index.names
     return equil_info
 
-def subsampleCorrelatedData(df, equil_info=None, conservative=False):
-    '''Apply pyMBAR subsampling of time series to a DataFrame. 
+
+def subsample_correlated_data(df, equil_info=None, conservative=False):
+    """Apply pyMBAR subsampling of time series to a DataFrame.
 
     Data is expected to have the same format as is used for pyMBAR.
 
@@ -368,7 +385,7 @@ def subsampleCorrelatedData(df, equil_info=None, conservative=False):
     Format of the DataFrame should be as in this example:
 
                  (data1, a)  (data2, b)  (data3, a)
-    state group                                    
+    state group
     data1 a        0.712948    0.619528    0.283933
           a        0.810213    0.871656    0.602021
           a        0.712010    0.347209    0.212972
@@ -392,11 +409,11 @@ def subsampleCorrelatedData(df, equil_info=None, conservative=False):
     removed, consistent with the `equil_info` parameter.
 
     Args:
-        equil_info : 
+        equil_info :
             (dataframe) The index should have same columns as the
             input dataframe, with one row for each sampled state.  It
             should have 't' (starting index) and 'g' (sampling
-            inefficiency) columns.  `detectEquilibration()` generates
+            inefficiency) columns.  `detect_equilibration()` generates
             a dataframe of the correct format.
         conservative :
             (bool) sample uniformly with an interval of `ceil(g)` if
@@ -409,20 +426,24 @@ def subsampleCorrelatedData(df, equil_info=None, conservative=False):
         inefficiency of the data, and (Neff_max) number of
         uncorrelated samples.
 
-    '''
+    """
     groupby = df.groupby(df.index)
 
     if equil_info is None:
-        equil_info = pd.DataFrame({'t':[0]*len(groupby), 'g':[None]*len(groupby)}, index=groupby.groups)
-    
-    # for each index group, subsample the trajectory (rows) 
+        equil_info = pd.DataFrame(
+            {"t": [0] * len(groupby), "g": [None] * len(groupby)}, index=groupby.groups
+        )
+
+    # for each index group, subsample the trajectory (rows)
     subsampled = []
     for name, group in groupby:
-        indices = pymbar.timeseries.subsampleCorrelatedData(
-            group[name].values[equil_info.t.loc(axis=0)[name]:], # get the values for the column that matches 'name', select points starting from t
-            g=equil_info.g.loc(axis=0)[name], # use the supplied sampling inefficiency
-            conservative=conservative)
+        indices = pymbar.timeseries.subsample_correlated_data(
+            group[name].values[
+                equil_info.t.loc(axis=0)[name] :
+            ],  # get the values for the column that matches 'name', select points starting from t
+            g=equil_info.g.loc(axis=0)[name],  # use the supplied sampling inefficiency
+            conservative=conservative,
+        )
         subsampled.append(group.iloc[indices])
     # build the output dataframe
     return pd.concat(subsampled, sort=False)
-    
