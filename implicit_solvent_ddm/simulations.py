@@ -129,7 +129,7 @@ class Calculation(Job):
                     output_file = fileStore.writeGlobalFile(name, cleanup=True)
                     restart_files.append(str(output_file))
                 elif re.match(r".*\.nc.*", name):
-                    output_file = fileStore.writeGlobalFile(name, cleanup=True)
+                    output_file = fileStore.writeGlobalFile(name)  # cleanup=True
                     traj_files.append(str(output_file))
 
                 elif not self.debug and re.match(
@@ -311,7 +311,17 @@ class Simulation(Calculation):
         displayName: Optional[str] = "",
         descriptionClass: Optional[str] = None,
     ):
-        Job.__init__(self, memory=memory, cores=num_cores, disk=disk)
+        Job.__init__(
+            self,
+            memory=memory,
+            cores=num_cores,
+            disk=disk,
+            preemptible="false",
+            unitName=unitName,
+            checkpoint=checkpoint,
+            displayName=displayName,
+        )
+
         Calculation.__init__(
             self,
             executable,
@@ -390,16 +400,14 @@ class Simulation(Calculation):
             self.input_file,
             userPath=os.path.join(tempDir, os.path.basename(self.input_file)),
         )
+
         if self._inptraj is not None:
             fileStore.logToMaster(f"READING inputraj: {self._inptraj}")
-            try:
-                self.read_files["inptraj"] = fileStore.readGlobalFile(
-                    self._inptraj[0],
-                    userPath=os.path.join(tempDir, os.path.basename(self._inptraj[0])),
-                )
-            except:
-                fileStore.logToMaster(f"FAILED inptraj: {self._inptraj}")
-                sys.exit(1)
+            self.read_files["inptraj"] = fileStore.readGlobalFile(
+                self._inptraj[0],
+                userPath=os.path.join(tempDir, os.path.basename(self._inptraj[0])),
+            )
+
         if isinstance(self.restraint_file, RestraintMaker):
             # fileStore.logToMaster(f"RESTRAINT {self.restraint_file}")
             # fileStore.logToMaster(f"RESTRAINT {self.restraint_file.restraints}")
@@ -459,7 +467,17 @@ class REMDSimulation(Calculation):
         displayName: Optional[str] = "",
         descriptionClass: Optional[str] = None,
     ):
-        Job.__init__(self, memory=memory, cores=num_cores, disk=disk)
+        Job.__init__(
+            self,
+            memory=memory,
+            cores=num_cores,
+            disk=disk,
+            preemptible="false",
+            unitName=unitName,
+            checkpoint=checkpoint,
+            displayName=displayName,
+        )
+
         Calculation.__init__(
             self,
             executable,
@@ -493,10 +511,10 @@ class REMDSimulation(Calculation):
         self.calc_setup = True
 
     def _groupfile(self, fileStore):
-        scratch_file = fileStore.getLocalTempFile()
+        # scratch_file = fileStore.getLocalTempFile()
         # fileStore.logToMaster(f"self.input_file {self.input_file}")
         # create groupfile mdin
-        with open(scratch_file, "w") as group:
+        with open("group.groupfile", "w") as group:
             for count, mdin in enumerate(self.input_file, start=1):
                 # fileStore.logToMaster(f"mdin for remd {mdin}")
                 read_mdin = fileStore.readGlobalFile(
@@ -522,6 +540,9 @@ class REMDSimulation(Calculation):
                             "\n", ""
                         )
                         + "\n"
+                    )
+                    fileStore.logToMaster(
+                        f"Writing -O -rem 0 -i {local_mdin} -p {self.read_files['prmtop']} -c {self.read_files['incrd']} "
                     )
 
                 elif self.runtype == "remd":
@@ -552,9 +573,14 @@ class REMDSimulation(Calculation):
                         + "\n"
                     )
 
-            groupfile_ID = fileStore.writeGlobalFile(scratch_file)
+        groupfile_ID = fileStore.writeGlobalFile("group.groupfile")
 
         self.read_files["groupfile"] = fileStore.readGlobalFile(groupfile_ID)
+
+        with open(self.read_files["groupfile"], "r") as output:
+            data = output.readlines()
+        fileStore.logToMaster(f"GROUP FILE lines: {data}")
+        fileStore.logToMaster(f"GROUP FILE NAME: {groupfile_ID}")
 
     def run(self, fileStore):
         tempDir = self.tempDir
@@ -593,7 +619,14 @@ class ExtractTrajectories(Job):
     """
 
     def __init__(self, solute_topology, trajectory_files, target_temp=0.0):
-        Job.__init__(self, memory="2G", cores=1, disk="3G")
+        Job.__init__(
+            self,
+            memory="2G",
+            cores=1,
+            disk="3G",
+            preemptible="false",
+        )
+
         self.solute_topology = solute_topology
         self.trajectory_files = trajectory_files
         self.target_temp = target_temp
@@ -630,6 +663,9 @@ class ExtractTrajectories(Job):
 
         # basic MD was performed
         elif isinstance(self.trajectory_files, list):
+            fileStore.logToMaster(
+                f"Extraction BASIC MD READ {os.path.basename(self.trajectory_files[0])}"
+            )
             read_target_traj = fileStore.readGlobalFile(
                 self.trajectory_files[0],
                 userPath=os.path.join(
