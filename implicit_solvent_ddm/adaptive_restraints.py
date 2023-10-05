@@ -114,9 +114,9 @@ def compute_mbar(
     else:
         df_mbar = df_mbar[matrix_order.receptor_order]
 
-    equil_info = pdmbar.detectEquilibration(df_mbar)
+    equil_info = pdmbar.detect_equilibration(df_mbar)
 
-    df_subsampled = pdmbar.subsampleCorrelatedData(df_mbar, equil_info=equil_info)
+    df_subsampled = pdmbar.subsample_correlated_data(df_mbar, equil_info=equil_info)
 
     print("performing MBAR")
     return pdmbar.mbar(df_subsampled), df_mbar
@@ -185,7 +185,7 @@ def adaptive_lambda_windows(
         updated_config.intermidate_args.exponent_conformational_forces.sort()
     # Get all averaged space phase overlap values for all restraint windows
     averages = overlap_average(
-        results[0][-1].computeOverlap()["matrix"],
+        results[0][-1].compute_overlap()["matrix"],
         matrix_start,
         end=matrix_end,
     )
@@ -230,7 +230,7 @@ def adaptive_lambda_windows(
         )
 
         charge_averages = overlap_average(
-            results[0][-1].computeOverlap()["matrix"],
+            results[0][-1].compute_overlap()["matrix"],
             matrix_start,
             end=matrix_end,
         )
