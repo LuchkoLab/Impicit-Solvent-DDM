@@ -5,13 +5,14 @@ from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.restraints import RestraintMaker
 from implicit_solvent_ddm.simulations import Simulation
 from toil.common import FileID
+from toil.job import Promise
 
 
 @dataclass
 class SimulationSetup:
     config: Config
     system_type: str
-    restraints: RestraintMaker
+    restraints: Union[RestraintMaker, Promise]
     binding_mode: FileID
     endstate_traj: FileID
     simulations: list = field(default_factory=list)
