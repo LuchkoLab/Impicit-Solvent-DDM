@@ -18,67 +18,74 @@ from toil.job import Job
 
 from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.restraint_helper import (
-    compute_dihedral_angle, create_atom_neighbor_array, distance_calculator,
-    find_angle, norm_distance, refactor_find_heavy_bonds,
-    screen_for_distance_restraints, shortest_distance_between_molecules)
+    compute_dihedral_angle,
+    create_atom_neighbor_array,
+    distance_calculator,
+    find_angle,
+    norm_distance,
+    refactor_find_heavy_bonds,
+    screen_for_distance_restraints,
+    shortest_distance_between_molecules,
+)
 
 
 class FlatBottom(Job):
     """A receptor-ligand restraint using a flat potential well with harmonic walls.
 
-        A receptor-ligand restraint that uses flat potential inside the
-        host/protein volume with harmonic restrainting walls. It will
-        prevent the ligand drifting too far from the receptor during
-        implicit solvent calculations. The ligand will be allow
-        for free movement in the “bound” region and sample still different
-        binding modes. The restriant will be applied between the groups of
-        atoms that belong to the receptor and ligand respectively.
+    A receptor-ligand restraint that uses flat potential inside the
+    host/protein volume with harmonic restrainting walls. It will
+    prevent the ligand drifting too far from the receptor during
+    implicit solvent calculations. The ligand will be allow
+    for free movement in the “bound” region and sample still different
+    binding modes. The restriant will be applied between the groups of
+    atoms that belong to the receptor and ligand respectively.
 
-        Parameters
-        ----------
-        config : Config
-            The config is an configuration file containing
-            user input values
+    Parameters
+    ----------
+    config : Config
+        The config is an configuration file containing
+        user input values
 
-        Attributes
-        ----------
-        well_radius : simtk.unit.Quantity, optional
-            The distance r0 (see energy expression above) at which the harmonic
-            restraint is imposed in units of distance (default is None).
-        restrained_receptor_atoms : iterable of int, int, or str, optional
-            The indices of the receptor atoms to restrain, an
-            This can temporarily be left undefined, but ``_missing_parameters()``
-            will be called which will define receptor atoms by the provided AMBER masks.
-        restrained_ligand_atoms : iterable of int, int, or str, optional
-            The indices of the ligand atoms to restrain.
-            This can temporarily be left undefined, but ``_missing_parameters()``
-            will be called which will define ligand atoms by the provided AMBER masks.
-        flat_bottom_width: float, optional
-            The distance r0  at which the harmonic restraint is imposed.
-            The well with a square bottom between r2 and r3, with parabolic sides out
-            to a defined distance. This has an default value of 5 Å if not provided.
-        harmonic_restraint: float, optional
-            The upper bound parabolic sides out to define distance
-            (r1 and r4 for lower and upper bounds, respectively),
-            and linear sides beyond that distance. This has an default
-            value of 10 Å, if not provided.
-        spring_constant: float
-            The spring constant K in units compatible
-            with kJ/mol*nm^2 f (default is 1 kJ/mol*nm^2).
-        flat_bottom_restraints: dict, optional
-            User provided {r1, r2, r3, r4, rk2, rk3} restraint
-            parameters. This can be temporily left undefined, but
-            ``_missing_parameters()`` will be called which which would
-            define all the restraint parameters. See example down below.
-        receptor_mask: str
-            An AMBER mask which denotes all receptor atoms.
-        ligand_mask: str
-            An AMBER mask which denotes all ligand atoms.
-        complex_topology: toil.fileStores.FileID
-            The complex paramter (.parm7) filepath.
-        complex_coordinate: toil.fileStores.FileID
-            The complex coordinate (.ncrst, rst7, ect) filepath.
+    Attributes
+    ----------
+    well_radius : simtk.unit.Quantity, optional
+        The distance r0 (see energy expression above) at which the harmonic
+        restraint is imposed in units of distance (default is None).
+    restrained_receptor_atoms : iterable of int, int, or str, optional
+        The indices of the receptor atoms to restrain, an
+        This can temporarily be left undefined, but ``_missing_parameters()``
+        will be called which will define receptor atoms by the provided AMBER masks.
+    restrained_ligand_atoms : iterable of int, int, or str, optional
+        The indices of the ligand atoms to restrain.
+        This can temporarily be left undefined, but ``_missing_parameters()``
+        will be called which will define ligand atoms by the provided AMBER masks.
+    flat_bottom_width: float, optional
+        The distance r0  at which the harmonic restraint is imposed.
+        The well with a square bottom between r2 and r3, with parabolic sides out
+        to a defined distance. This has an default value of 5 Å if not provided.
+    harmonic_restraint: float, optional
+        The upper bound parabolic sides out to define distance
+        (r1 and r4 for lower and upper bounds, respectively),
+        and linear sides beyond that distance. This has an default
+        value of 10 Å, if not provided.
+    spring_constant: float
+        The spring constant K in units compatible
+        with kJ/mol*nm^2 f (default is 1 kJ/mol*nm^2).
+    flat_bottom_restraints: dict, optional
+        User provided {r1, r2, r3, r4, rk2, rk3} restraint
+        parameters. This can be temporily left undefined, but
+        ``_missing_parameters()`` will be called which which would
+        define all the restraint parameters. See example down below.
+    receptor_mask: str
+        An AMBER mask which denotes all receptor atoms.
+    ligand_mask: str
+        An AMBER mask which denotes all ligand atoms.
+    complex_topology: toil.fileStores.FileID
+        The complex paramter (.parm7) filepath.
+    complex_coordinate: toil.fileStores.FileID
+        The complex coordinate (.ncrst, rst7, ect) filepath.
     """
+
     def __init__(
         self,
         config: Config,
@@ -91,17 +98,17 @@ class FlatBottom(Job):
         displayName: Optional[str] = "",
         descriptionClass: Optional[str] = None,
     ) -> None:
-
         super().__init__(
             memory,
             cores,
             disk,
-            preemptable,
-            unitName,
-            checkpoint,
-            displayName,
-            descriptionClass,
+            accelerators=None,
+            preemptible="false",
+            unitName=unitName,
+            checkpoint=checkpoint,
+            displayName=displayName,
         )
+
         # restraint parameters
         self.restrained_receptor_atoms = (
             config.endstate_method.flat_bottom.restrained_receptor_atoms
@@ -414,11 +421,11 @@ class BoreschRestraints(Job):
             memory,
             cores,
             disk,
-            preemptable,
-            unitName,
-            checkpoint,
-            displayName,
-            descriptionClass,
+            accelerators=None,
+            preemptible="false",
+            unitName=unitName,
+            checkpoint=checkpoint,
+            displayName=displayName,
         )
         self.complex_prmtop = complex_prmtop
         self.complex_coordinate = complex_coordinate
@@ -920,8 +927,25 @@ class RestraintMaker(Job):
         flat_bottom: FileID,
         conformational_template=None,
         orientational_template=None,
+        memory: Optional[Union[int, str]] = None,
+        cores: Optional[Union[int, float, str]] = None,
+        disk: Optional[Union[int, str]] = None,
+        preemptable: Optional[Union[bool, int, str]] = None,
+        unitName: Optional[str] = "",
+        checkpoint: Optional[bool] = False,
+        displayName: Optional[str] = "",
+        descriptionClass: Optional[str] = None,
     ) -> None:
-        super().__init__()
+        super().__init__(
+            memory,
+            cores,
+            disk,
+            accelerators=None,
+            preemptible="false",
+            unitName=unitName,
+            checkpoint=checkpoint,
+            displayName=displayName,
+        )
         self.complex_binding_mode = complex_binding_mode
         self.flat_bottom = flat_bottom
         self.complex_restraint_file = config.intermidate_args.complex_restraint_files

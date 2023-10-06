@@ -11,6 +11,7 @@ from implicit_solvent_ddm.get_dirstruct import Dirstruct
 from implicit_solvent_ddm.mdout import min_to_dataframe
 
 from implicit_solvent_ddm.restraints import RestraintMaker
+from typing import Union, Optional
 
 WORKDIR = os.getcwd()
 
@@ -34,8 +35,26 @@ class ConsolidateData(Job):
         complex_filename,
         ligand_filename,
         receptor_filename,
+        memory: Optional[Union[int, str]] = None,
+        cores: Optional[Union[int, float, str]] = None,
+        disk: Optional[Union[int, str]] = None,
+        preemptable: Optional[Union[bool, int, str]] = None,
+        unitName: Optional[str] = "",
+        checkpoint: Optional[bool] = False,
+        displayName: Optional[str] = "",
+        descriptionClass: Optional[str] = None,
     ):
-        Job.__init__(self, memory="2G", cores=2, disk="3G")
+        Job.__init__(
+            self,
+            memory="2G",
+            cores=2,
+            disk="3G",
+            accelerators=None,
+            preemptible="false",
+            unitName=unitName,
+            checkpoint=checkpoint,
+            displayName=displayName,
+        )
         self.temp = temperature
         self.complex_adative_run = complex_adative_run
         self.receptor_adaptive_run = receptor_adaptive_run
