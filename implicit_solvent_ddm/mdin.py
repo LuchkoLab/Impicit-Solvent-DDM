@@ -7,26 +7,22 @@ import random
 from dataclasses import dataclass
 from string import Template
 from tkinter import Y
-
+import re
 import yaml
 from toil.common import FileID
 
-DEFAULT_MDIN_ARGS = {
-    "nstlim": 5000000,
-    "dt": 0.002,
-    "saltcom": 0.3,
-    "rgbmax": 999.0,
-    "igb": 2,
-    "gbsa": 0,
-    "temp0": 298,
-    "ntpr": 250,
-    "ntwx": 250,
-    "cut": 999,
-    "ntc": 2,
-}
+
+def generate_extdiel_mdin(job, user_mdin_ID: FileID, gb_extdiel: float) -> FileID:
+    """Write an mdin with unique external dielectric for generalize Born solvent"""
+
+    mdin_global = job.fileStore.readGlobalFile(user_mdin_ID)
+
+    return job.fileStore.writeGlobalFile(
+        make_mdin_file(mdin_global, "gb_extdiel_mdin", gb_extdiel=gb_extdiel)
+    )
 
 
-def get_mdins(job, user_mdin_args):
+def get_mdins(job, user_mdin_ID: FileID):
     """Writes all mdins for intermidate states
 
     Parameters
@@ -42,33 +38,37 @@ def get_mdins(job, user_mdin_args):
     post_nosolv:
     """
 
-    default_mdin = job.fileStore.writeGlobalFile(
-        make_mdin_file(user_mdin_args, "_mdin")
-    )
+    mdin_global = job.fileStore.readGlobalFile(user_mdin_ID)
+
+    default_mdin = job.fileStore.writeGlobalFile(make_mdin_file(mdin_global, "_mdin"))
     no_solvent_mdin = job.fileStore.writeGlobalFile(
-        make_mdin_file(user_mdin_args, "no_solv_mdin", turn_off_solvent=True)
+        make_mdin_file(mdin_global, "no_solv_mdin", turn_off_solvent=True)
     )
     post_mdin = job.fileStore.writeGlobalFile(
-        make_mdin_file(user_mdin_args, "post_mdin", post_process=True)
+        make_mdin_file(mdin_global, "post_mdin", post_process=True)
     )
     post_nosolv = job.fileStore.writeGlobalFile(
         make_mdin_file(
-            user_mdin_args, "post_nosolv_mdin", turn_off_solvent=True, post_process=True
+            mdin_global, "post_nosolv_mdin", turn_off_solvent=True, post_process=True
         )
     )
 
     return (default_mdin, no_solvent_mdin, post_mdin, post_nosolv)
 
 
-def make_mdin_file(mdin_args, mdin_name, turn_off_solvent=False, post_process=False):
-    """Creates an AMBER format input file
-
-    Function will fill a template and write an MD input file
+def make_mdin_file(
+    user_mdin_file,
+    mdin_name,
+    gb_extdiel=78.5,
+    turn_off_solvent=False,
+    post_process=False,
+):
+    """Rewrite users AMBER mdin file for specific thermodynamic states
 
     Parameters
     ----------
-    mdin_args: dict
-        A user specified yaml file which contains mdin args
+    user_mdin_file: FileID
+        User provided mdin for thermodyamic states
     mdin_name: str
         A unique mdin filename
     turn_off_solvent: bool
@@ -83,162 +83,47 @@ def make_mdin_file(mdin_args, mdin_name, turn_off_solvent=False, post_process=Fa
     # with open(yaml_args) as fH:
     #     mdin_args = yaml.safe_load(fH)
 
-    mdin_path = os.path.abspath(
-        os.path.dirname(os.path.realpath(__file__)) + "/templates/mdgb.mdin"
-    )
-
-    temp_mdin_args = DEFAULT_MDIN_ARGS.copy()
-    temp_mdin_args.update(mdin_args)
-
     # general setting
-    imin = 0
-    ioutfm = 0
+    imin = "imin = 0"
+    ioutfm = "ioutfm = 0"
+    ntx = "ntx=1"
+    irest = "irest=0"
+    extdiel = f"extdiel={gb_extdiel}"
+    # arguments for post-analysis
     if post_process:
-        imin = 5
-        ioutfm = 1
-    with open(mdin_path) as t:
-        template = Template(t.read())
-    if turn_off_solvent:
-        final_template = template.substitute(
-            imin=imin,
-            nstlim=temp_mdin_args["nstlim"],
-            ntx=1,
-            irest=0,
-            ioutfm=ioutfm,
-            dt=temp_mdin_args["dt"],
-            igb=6,
-            saltcon=0.0,
-            extdiel=0.0,
-            rgbmax=temp_mdin_args["rgbmax"],
-            gbsa=temp_mdin_args["gbsa"],
-            temp0=temp_mdin_args["temp0"],
-            ntpr=temp_mdin_args["ntpr"],
-            ntwx=temp_mdin_args["ntwx"],
-            cut=temp_mdin_args["cut"],
-            ntc=temp_mdin_args["ntc"],
-            nmropt=1,
-            restraint="$restraint",
-        )
+        imin = "imin = 5"
+        ioutfm = "ioutfm = 1"
 
-    else:
-        final_template = template.substitute(
-            imin=imin,
-            nstlim=temp_mdin_args["nstlim"],
-            extdiel=78.5,
-            ntx=1,
-            irest=0,
-            ioutfm=ioutfm,
-            dt=temp_mdin_args["dt"],
-            igb=temp_mdin_args["igb"],
-            saltcon=temp_mdin_args["saltcon"],
-            rgbmax=temp_mdin_args["rgbmax"],
-            gbsa=temp_mdin_args["gbsa"],
-            temp0=temp_mdin_args["temp0"],
-            ntpr=temp_mdin_args["ntpr"],
-            ntwx=temp_mdin_args["ntwx"],
-            cut=temp_mdin_args["cut"],
-            ntc=temp_mdin_args["ntc"],
-            nmropt=1,
-            restraint="$restraint",
-        )
+    with open(user_mdin_file, "r") as output:
+        data = output.readlines()
+
+    new_mdin = ""
+    for line in data:
+        line = re.sub(r"extdiel\s*=\s*\$extdiel", extdiel, line)
+        # Vacuum state
+        if turn_off_solvent:
+            line = re.sub(r"saltcon\s*=\s*\d+\.?\d+", "saltcon=0.0", line)
+            line = re.sub(r"igb\s*=\s*\d+", "igb=6", line)
+            line = re.sub(r"extdiel\s*=\s*\$extdiel", "extdiel=0.0", line)
+
+        if "imin" in line:
+            line = re.sub(r"imin\s*=\s*\d+", imin, line)
+        if "ioutfm" in line:
+            line = re.sub(r"ioutfm\s*=\s*\d+", ioutfm, line)
+        if "irest" in line:
+            line = re.sub(r"irest\s*=\s*\d+", irest, line)
+        if "ntx" in line:
+            line = re.sub(r"ntx\s*=\s*\d+", ntx, line)
+
+        new_mdin += line
 
     with open(mdin_name, "w") as output:
-        output.write(final_template)
+        output.write(new_mdin)
     return os.path.abspath(mdin_name)
 
 
-def make_mdin(job, mdin_args, extdiel=78.5, turn_off_solvent=False, post_process=False):
-    """Creates an AMBER format input file
-
-    Function will fill a template and write an MD input file
-
-    Parameters
-    ----------
-    mdin_args: dict
-        A user specified yaml file which contains mdin args
-    mdin_name: str
-        A unique mdin filename
-    turn_off_solvent: bool
-        Set igb=6 if turn_off_solvent=True
-    post_process: bool
-        Set imin=5 and ntx=5 if post_process=True
-    Returns
-    -------
-    mdin: str
-        Absolute path where the MD input file was created.
-    """
-    # with open(yaml_args) as fH:
-    #     mdin_args = yaml.safe_load(fH)
-    scratchFile = job.fileStore.getLocalTempFile()
-    
-    mdin_path = os.path.abspath(
-        os.path.dirname(os.path.realpath(__file__)) + "/templates/mdgb.mdin"
-    )
-
-    temp_mdin_args = DEFAULT_MDIN_ARGS.copy()
-    temp_mdin_args.update(mdin_args)
-
-    # general setting
-    imin = 0
-    ioutfm = 0
-    if post_process:
-        imin = 5
-        ioutfm = 1
-    with open(mdin_path) as t:
-        template = Template(t.read())
-    if turn_off_solvent:
-        final_template = template.substitute(
-            imin=imin,
-            extdiel=0.0,
-            nstlim=temp_mdin_args["nstlim"],
-            ntx=1,
-            irest=0,
-            ioutfm=ioutfm,
-            dt=temp_mdin_args["dt"],
-            igb=6,
-            saltcon=0.0,
-            rgbmax=temp_mdin_args["rgbmax"],
-            gbsa=temp_mdin_args["gbsa"],
-            temp0=temp_mdin_args["temp0"],
-            ntpr=temp_mdin_args["ntpr"],
-            ntwx=temp_mdin_args["ntwx"],
-            cut=temp_mdin_args["cut"],
-            ntc=temp_mdin_args["ntc"],
-            nmropt=1,
-            restraint="$restraint",
-        )
-
-    else:
-        final_template = template.substitute(
-            imin=imin,
-            extdiel=extdiel,
-            nstlim=temp_mdin_args["nstlim"],
-            ntx=1,
-            irest=0,
-            ioutfm=ioutfm,
-            dt=temp_mdin_args["dt"],
-            igb=temp_mdin_args["igb"],
-            saltcon=temp_mdin_args["saltcon"],
-            rgbmax=temp_mdin_args["rgbmax"],
-            gbsa=temp_mdin_args["gbsa"],
-            temp0=temp_mdin_args["temp0"],
-            ntpr=temp_mdin_args["ntpr"],
-            ntwx=temp_mdin_args["ntwx"],
-            cut=temp_mdin_args["cut"],
-            ntc=temp_mdin_args["ntc"],
-            nmropt=1,
-            restraint="$restraint",
-        )
-
-    with open(scratchFile, "w") as output:
-        output.write(final_template)
-    
-    return job.fileStore.writeGlobalFile(scratchFile)
-
-
-
 def generate_replica_mdin(
-    job, mdin_input: FileID, temperatures: list,  runtype="remd"
+    job, mdin_input: FileID, temperatures: list, runtype="remd"
 ) -> list[FileID]:
     """Writes a series of equilibration/relaxtions and production/remd AMBER mdin files.
 
@@ -246,9 +131,9 @@ def generate_replica_mdin(
     ----------
     job: toil.job
     mdin_input: FileID
-        mdin template for REMD simulation 
+        mdin template for REMD simulation
     temperatures: list[int]
-        a list of temperatures for each replica mdin   
+        a list of temperatures for each replica mdin
     Returns:
         list[FileID]: _description_
     """
@@ -259,7 +144,6 @@ def generate_replica_mdin(
         mdin_input, userPath=os.path.join(tempdir, os.path.basename(mdin_input))
     )
 
-    
     replica_mdin_IDs = []
     generated_seeds = []
 
@@ -268,7 +152,6 @@ def generate_replica_mdin(
         template = Template(temp.read())
 
     for index, temperature in enumerate(temperatures, start=1):
-
         # get unique random seed
         ig = generate_random_seeds(generated_seeds)
         # append to exisiting random seeds
@@ -289,24 +172,21 @@ def generate_replica_mdin(
             job.fileStore.writeGlobalFile(os.path.abspath(mdin_filename))
         )
     job.fileStore.logToMaster(f"replica mdins {replica_mdin_IDs}")
-    
-    return replica_mdin_IDs
 
-    
-   
+    return replica_mdin_IDs
 
 
 def generate_random_seeds(seeds: list):
-    """Random seed generator 
-    Generates unique random integer to used used in replica exchange MDIN. 
-    
+    """Random seed generator
+    Generates unique random integer to used used in replica exchange MDIN.
+
     Parameters:
     -----------
     list_seeds: list[int]
         A list of unique generated intger values
     Returns:
-        new_seed: int 
-        A unique random generated integer value.  
+        new_seed: int
+        A unique random generated integer value.
     """
     new_seed = random.randrange(0, 32767)
 
