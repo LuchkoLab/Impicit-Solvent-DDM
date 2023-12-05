@@ -31,7 +31,7 @@ workflow:
   endstate_method: 0 #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates)endstate_method: REMD #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates) 
   
   intermidate_states_arguments:
-    mdin_intermidate_config: implicit_solvent_ddm/tests/input_files/inter.yaml #intermidate mdins required states 3-8
+    mdin_intermidate_file: implicit_solvent_ddm/tests/input_files/intermidate_mdin #intermidate mdins required states 3-8
     igb_solvent: 2 #igb [1,2,3,7,8]
     exponent_conformational_forces: [-8, -2, 4] # list exponent values 2**p 
     exponent_orientational_forces: [-4, 2, 8] # list exponent values 2**p 
