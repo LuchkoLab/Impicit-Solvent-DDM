@@ -24,7 +24,7 @@ from implicit_solvent_ddm.run_endstate import (
     user_defined_endstate,
 )
 from implicit_solvent_ddm.setup_simulations import SimulationSetup
-from implicit_solvent_ddm.mdin import get_mdins, make_mdin
+from implicit_solvent_ddm.mdin import get_mdins, generate_extdiel_mdin
 from implicit_solvent_ddm.postTreatment import ConsolidateData
 from implicit_solvent_ddm.restraints import (
     BoreschRestraints,
@@ -66,9 +66,7 @@ def ddm_workflow(
 
     workflow = config.workflow
     # set intermidate mdin files
-    mdins = job.addChildJobFn(
-        get_mdins, config.intermidate_args.mdin_intermidate_config
-    )
+    mdins = job.addChildJobFn(get_mdins, config.intermidate_args.mdin_intermidate_file)
     # fill in intermidate mdin
     config.inputs["default_mdin"] = mdins.rv(0)
     config.inputs["no_solvent_mdin"] = mdins.rv(1)
@@ -264,12 +262,12 @@ def ddm_workflow(
             complex_simulations.setup_gb_external_dielectric(
                 restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
                 prmtop=complex_ligand_no_charge,
-                mdin=runner_jobs.addChildJobFn(
-                    make_mdin,
-                    mdin_args=config.intermidate_args.mdin_intermidate_config,
-                    extdiel=dielectric,
-                ).rv(),
                 extdiel=dielectric,
+                mdin=runner_jobs.addChildJobFn(
+                    generate_extdiel_mdin,
+                    user_mdin_ID=config.intermidate_args.mdin_intermidate_file,
+                    gb_extdiel=dielectric,
+                ).rv(),
             )
 
     # lambda window interate through conformational and orientational restraint forces
@@ -514,7 +512,7 @@ def main():
 
         if not toil.options.restart:
             config.endstate_files.toil_import_parmeters(toil=toil)
-
+            config.intermidate_args.toil_import_user_mdin(toil=toil)
             # if the user doesn't provide there own endstate simulation
             if config.endstate_method.endstate_method_type != 0:
                 # import files for remd

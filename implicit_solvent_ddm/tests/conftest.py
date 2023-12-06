@@ -46,6 +46,7 @@ def run_workflow():
         config.workflow.ignore_receptor_endstate = False
 
         config.endstate_files.toil_import_parmeters(toil=toil)
+        config.intermidate_args.toil_import_user_mdin(toil=toil)
         config.inputs["min_mdin"] = str(
             toil.import_file(
                 "file://"

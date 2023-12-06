@@ -61,15 +61,15 @@ class NumberOfCoresPerSystem:
     host, guest and complex simulation.
     User can specify the number of cores required to
     run each system simulation.
-    
+
     Attributes:
     -----------
     complex_ncores: int
         Number of processors to be used for a single complex intermediate molecular dynamics simulation.
-    ligand_ncores: int 
-        Number of processors to be used for a single ligand intermediate molecular dynamics simulation. 
-    receptor_ncores: int 
-        Number of processors to be used for a single receptor intermediate molecular dynamics simulation. 
+    ligand_ncores: int
+        Number of processors to be used for a single ligand intermediate molecular dynamics simulation.
+    receptor_ncores: int
+        Number of processors to be used for a single receptor intermediate molecular dynamics simulation.
     """
 
     complex_ncores: int
@@ -287,7 +287,7 @@ class ParameterFiles:
 @dataclass
 class AmberMasks:
     """AMBER masks to denote receptor/host and guest atoms
-    
+
     Attributes:
     -----------
     receptor_mask: str
@@ -483,9 +483,9 @@ class FlatBottomRestraints:
 @dataclass
 class EndStateMethod:
     """
-    Denotes the specifed endstate simulation type. 
-    User can choose to run either REMD or one long MD simulation at the endstates. 
-    
+    Denotes the specifed endstate simulation type.
+    User can choose to run either REMD or one long MD simulation at the endstates.
+
     Attributes
     ----------
     endstate_method_type: Union[str, int]
@@ -495,8 +495,9 @@ class EndStateMethod:
     basic_md_args: BasicMD
         Arguments required to run one lond MD simulation at the endstate.
     flat_bottom: FlatBottomRestraints
-        Arugments for flat bottom restraints. 
+        Arugments for flat bottom restraints.
     """
+
     endstate_method_type: Union[str, int]
     remd_args: REMD
     basic_md_args: BasicMD
@@ -539,11 +540,12 @@ class IntermidateStatesArgs:
     """
     Parameter arguments used for the intermidate simulation steps within the thermodynamic cycle.
     """
+
     exponent_conformational_forces: List[float]
     exponent_orientational_forces: List[float]
     restraint_type: int
     igb_solvent: int
-    mdin_intermidate_config: str
+    mdin_intermidate_file: str
     temperature: float
     charges_lambda_window: List[float] = field(default_factory=list)
     gb_extdiel_windows: List[float] = field(default_factory=list)
@@ -598,10 +600,7 @@ class IntermidateStatesArgs:
         self.max_conformational_restraint = max(self.conformational_restraints_forces)
         self.max_orientational_restraint = max(self.orientational_restriant_forces)
 
-        self.mdin_intermidate_config = os.path.abspath(self.mdin_intermidate_config)
-
-        with open(self.mdin_intermidate_config) as mdin_args:
-            self.mdin_intermidate_config = yaml.safe_load(mdin_args)
+        self.mdin_intermidate_file = os.path.abspath(self.mdin_intermidate_file)
 
         if (
             self.guest_restraint_template
@@ -626,6 +625,31 @@ class IntermidateStatesArgs:
     @classmethod
     def from_config(cls: Type["IntermidateStatesArgs"], obj: dict):
         return cls(**obj)
+
+    def _sanity_check_mdin(self):
+        """check the user provided the required mdin arguments"""
+
+        required_args = ["igb", "$restraint", "$extdiel", "nmropt"]
+        # open the user intermidate mdin file
+        with open(self.mdin_intermidate_file, "r") as f:
+            data = f.read()
+
+        # read in all requirment mdin arguments
+        read_in_keys = re.findall(r"igb|\$extdiel|\$restraint|nmropt", data)
+
+        # check if any required key is missing
+        missing_keys = [
+            missing_key
+            for missing_key in required_args
+            if missing_key not in read_in_keys
+        ]
+
+        if len(missing_keys) != 0:
+            # if a key is missing terminate
+            raise ValueError(
+                f"""Missing required mdin arguments: {missing_keys}. 
+                Please add these key arguments in your {self.mdin_intermidate_file}."""
+            )
 
     def write_ligand_restraint(self, conformational_force):
         filename = re.sub(r"\..*", "", os.path.basename(self.guest_restraint_template))  # type: ignore
@@ -710,7 +734,11 @@ class IntermidateStatesArgs:
             self.receptor_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(receptor_rest)))  # type: ignore
             self.complex_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(complex_rest)))  # type: ignore
 
-        # self.tempdir.cleanup()
+    def toil_import_user_mdin(self, toil: Toil):
+        """import users intermidate states mdin file."""
+        self.mdin_intermidate_file = toil.import_file(
+            "file://" + os.path.abspath(self.mdin_intermidate_file)
+        )
 
 
 @dataclass
@@ -756,6 +784,7 @@ class Config:
         self._check_endstate_method()
         self._check_missing_flatbottom_parameters()
         self._remd_target_temperature()
+        self.intermidate_args._sanity_check_mdin()
 
     def _check_endstate_method(self):
         if self.endstate_method.endstate_method_type == 0:
@@ -902,7 +931,9 @@ if __name__ == "__main__":
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "OFF"
     options.clean = "always"
-    with open("/nas0/ayoub/Impicit-Solvent-DDM/config_files/run_basic_md.yaml") as fH:
+    with open(
+        "/nas0/ayoub/Impicit-Solvent-DDM/Example_runs/config_files/run_basic_md.yaml"
+    ) as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:
@@ -917,9 +948,11 @@ if __name__ == "__main__":
 
         # config.endstate_files.toil_import_parmeters(toil=toil)
         # config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
-
+        config.intermidate_args.toil_import_user_mdin(toil=toil)
+        print(config.intermidate_args.mdin_intermidate_file)
         print(config.intermidate_args)
         print(config.endstate_method.remd_args)
+
         # config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
         # boresch_p = list(config.boresch_parameters.__dict__.values())
 

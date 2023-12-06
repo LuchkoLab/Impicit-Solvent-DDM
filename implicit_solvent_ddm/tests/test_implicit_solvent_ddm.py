@@ -125,15 +125,11 @@ def test_complex_exclusions(load_exclusions_no_charge):
 )
 def test_no_solvent_complex(no_igb_path):
     for root, dirs, files in os.walk(no_igb_path):
-        no_igb = False
         for name in files:
             if "mdout" == name:
                 with open(os.path.join(root, name)) as output:
-                    data = output.readlines()
-                for line in data:
-                    if "igb = 6" in line:
-                        no_igb = True
-                assert no_igb
+                    data = output.read()
+                assert bool(re.search(r"igb\s*=\s*6", data))
 
 
 def assert_exclusions_charges(output, correct_output):

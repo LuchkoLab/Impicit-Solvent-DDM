@@ -1,0 +1,41 @@
+
+&cntrl
+  imin=0            ! MD
+  nstlim = 100     ! # of steps
+  nscm = 0             ! don't removed COM translations
+  nrespa = 1           ! don't use MTS
+  ntx = 1           ! read in velocities or not
+  irest = 1       ! restart
+  dt = 0.002
+  ioutfm = 1
+  ntb = 0
+  
+  igb = 2, saltcon=0.3
+  gbsa = 0
+  rgbmax= 999.0
+  cut = 999
+
+  ntt = 3
+  ig = -1
+  gamma_ln=1
+  temp0 = 300
+
+  ntc = 2              ! SHAKE all hydrogen bonds
+  ntf = 2
+
+  nmropt = 1
+  
+  ntxo=2,ioutfm=1    ! binary restart and trajectories
+  ntpr=10         ! print energies 
+  ntwx=10         ! write to trajectory
+  
+  extdiel = $extdiel  
+
+/
+
+
+&wt type='END'
+
+/
+
+DISANG = $restraint
