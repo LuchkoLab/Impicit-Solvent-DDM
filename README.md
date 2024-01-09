@@ -49,12 +49,12 @@ workflow:
     nthreads_ligand: 8
     ngroups: 8 
     target_temperature: 300 # list of temperatures or temp.dat file
-    remd_template_mdin: remd.template
-    equilibrate_mdin_template: equil.template
+    remd_template_mdin: remd.mdin
+    equilibrate_mdin_template: equil.mdin
     temperatures: [300.00, 327.32, 356.62, 388.05, 421.77, 457.91, 496.70, 500.00]
 
   intermidate_states_arguments:
-    mdin_intermidate_config: intermidate_args.yaml #intermidate mdins required states 3-8
+    mdin_intermidate_file: intermidate_args.mdin #intermidate mdins required states 3-8
     igb_solvent: 2 #igb [1,2,3,7,8]
     temperature: 300
     exponent_conformational_forces: [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 2.584963, 3, 3.584963, 4] # list exponent values 2**p 
@@ -64,27 +64,54 @@ workflow:
     gb_extdiel_windows: [0.1, 0.2, 0.5]
 
 ```
-## intermidate mdin arguments (mdin_intermidate_config)^^
-  For intermidate MD parameters use an .yml file 
-```yaml
-#mdin required input parameters for intermidates 
-nstlim: 1000
-dt: 0.002
-igb: 2
-saltcon: 0.3
-rgbmax: 999.0
-gbsa: 0
-temp0: 298
-ntpr: 10
-ntwx: 10
-cut: 999
-ntc: 2  
+## Intermidate mdin example (mdin_intermidate_file)
+  The current version only supports AMBER mdin input. Please note that `nmropt = 1` and `$restraint` are required for every mdin input. The restraint files for both conformational and orientational restraints will be created during the workflow.
+```text
+#mdin required for intermidate states
+
+&cntrl
+  imin=0            ! MD
+  nstlim = 2500000     ! # of steps
+  nscm = 0             ! don't removed COM translations
+  nrespa = 1           ! don't use MTS
+  ntx = 1           ! read in velocities or not
+  irest = 1       ! restart
+  dt = 0.004
+  ioutfm = 1
+  ntb = 0
+  
+  igb = 2, saltcon=0.3
+  gbsa = 0
+  rgbmax= 999.0
+  cut = 999
+
+  ntt = 3
+  ig = -1
+  gamma_ln=1
+  temp0 = 298
+
+  ntc = 2              ! SHAKE all hydrogen bonds
+  ntf = 2
+
+  nmropt = 1
+  
+  ntxo=2,ioutfm=1    ! binary restart and trajectories
+  ntpr=250         ! print energies 
+  ntwx=250        ! write to trajectory
+  
+/
+
+
+&wt type='END'
+
+/
+
+DISANG = $restraint
+
 ```
   
-## Equilibration example Template  
-The number of input files(len(temperatures)) will be generated automatically for the user. Only requirment is an template for equil and remd-production. 
-User must  placed a $ig and $restraint key within both template as shown below. 
-The number of temperature specify within the config file will generate the number of corresponding input files. 
+## Equilibration mdin example (equilibrate_mdin_template)
+All MDINs for temperature replica exchange will be generated automatically for the user. The user only needs to provide an MDIN with all necessary argument keys for running equilibration. The user must place the `$ig` and `$restraint` keys within both templates as shown below. All the temperature values specified in the configuration file will be inserted into the generated MDINs. 
 ```text 
  Equilibration (example)
  &cntrl
@@ -104,6 +131,7 @@ The number of temperature specify within the config file will generate the numbe
 DISANG=$restraint
 
 ```
+## REMD mdin example (remd_template_mdin)
 ```text 
 TREMD (example)
  &cntrl
