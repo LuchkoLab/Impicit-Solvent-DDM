@@ -18,11 +18,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        solver: ["libmamba"]
-        os: [ubuntu-latest]
+        os: [macOS-latest, ubuntu-latest, windows-latest]
         python-version: ["3.10"]
-
-    steps:
+        # solver: ["libmamba"]
+    steps:  
     - uses: actions/checkout@v4
 
     - name: Additional info about the build
@@ -35,15 +34,12 @@ jobs:
      # More info on options: https://github.com/marketplace/actions/setup-micromamba
     - uses: mamba-org/setup-micromamba@v1
       with: 
-        auto-update-conda: true
-        conda-solver: ${{ matrix.solver }}
-        activate-environment: test
-        auto-activate-base: false
-        show-channel-urls: true
-
         python-version: ${{ matrix.python-version }}
         environment-file: devtools/conda-envs/test_env.yaml
-        channels: conda-forge,defaults
+        condarc: |
+          channels:
+            - conda-forge
+            - defaults
 
 
     - name: Install package

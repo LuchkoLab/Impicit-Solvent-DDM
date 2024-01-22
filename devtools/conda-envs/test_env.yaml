@@ -4,6 +4,7 @@ channels:
   - omnia
   - defaults
 dependencies:
+  - python=3.10
   - pandas[performance] 
   - pip
   - fastparquet
