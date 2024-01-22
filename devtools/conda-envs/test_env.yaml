@@ -5,6 +5,7 @@ channels:
   - defaults
 dependencies:
   - pandas[performance] 
+  - python=3.10
   - pip
   - fastparquet
   - pyarrow
