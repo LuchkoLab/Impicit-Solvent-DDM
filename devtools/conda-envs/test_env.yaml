@@ -1,23 +1,22 @@
 name: isddm_env
 channels:
   - conda-forge
+  - omnia
   - defaults
 dependencies:
-  - python==3.9
-  - ambertools>=21.11
-  - more-itertools>=8.12.0
-  - pylint>=2.13.8
-  - pymbar>=3.0.7
-  - pyopenssl>=21.0.0
-  - pysocks>=1.7.1
-  - pytables>=3.7.0
-  - pytest>=6.2.5
-  - pytest-cov>=3.0.0
+  - pandas[performance] 
+  - python=3.10
   - pip
+  - fastparquet
+  - pyarrow
+  - ambertools
   - ipython
-  - pip:
-    - fastparquet
-    - pyarrow
-    - pandas[performance]
-
-prefix: /home/ayoub/.conda/envs/isddm_env
+  - more-itertools
+  - pylint
+  - pymbar
+  - pyopenssl
+  - pysocks
+  - pytables
+  - pytest
+  - pytest-cov
+# prefix: /home/ayoub/.conda/envs/isddm_depen_env
