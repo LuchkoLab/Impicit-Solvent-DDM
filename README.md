@@ -221,7 +221,7 @@ run_implicit_ddm.py file:/scratch/my-job-store --config_file script_examples/con
 
 ### Copyright
 
-Copyright (c) 2021, LuckoLab
+Copyright (c) 2024, Steven Ayoub, Tyler Luchko, Michael Barton 
 
 
 #### Acknowledgements
