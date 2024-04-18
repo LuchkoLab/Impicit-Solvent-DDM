@@ -19,4 +19,5 @@ dependencies:
   - pytables
   - pytest
   - pytest-cov
+  - alchemlyb
 # prefix: /home/ayoub/.conda/envs/isddm_depen_env

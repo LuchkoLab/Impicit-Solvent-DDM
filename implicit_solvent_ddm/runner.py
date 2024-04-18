@@ -142,9 +142,6 @@ class IntermidateRunner(Job):
                     self._loaded_dataframe.append(post_simulation.output_dir)
 
                 self.post_output.append(data_frame.rv())
-                fileStore.logToMaster(
-                    f"First runs loaded data frames: {self._loaded_dataframe}"
-                )
 
         # iterate and submit all intermidate simulations. Then followup with post-process
         for simulation in self.simulations:
@@ -152,7 +149,6 @@ class IntermidateRunner(Job):
 
             # only post analysis
 
-            fileStore.logToMaster(f"loaded dataframe: {self._loaded_dataframe}\n")
             fileStore.logToMaster(f"simulations args {simulation.directory_args}\n")
             if simulation.directory_args["state_label"] == "no_flat_bottom":
                 continue
@@ -270,7 +266,7 @@ class IntermidateRunner(Job):
                     f"Adapative restraints Is TRUE therefore {post_process_job.output_dir} is already loaded\n"
                 )
                 fileStore.logToMaster(
-                    f"simulations output that were loaded \n {self._loaded_dataframe}"
+                    f"simulations output that were loaded \n {post_process_job.output_dir}"
                 )
                 continue
 
