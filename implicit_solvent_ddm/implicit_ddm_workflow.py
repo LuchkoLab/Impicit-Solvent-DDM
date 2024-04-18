@@ -401,6 +401,7 @@ def ddm_workflow(
                     ligand_filename=config.endstate_files.ligand_parameter_filename,
                     receptor_filename=config.endstate_files.receptor_parameter_filename,
                     working_path=config.system_settings.working_directory,
+                    plot_overlap_matrix=config.workflow.plot_overlap_matrix,
                 )
             )
 
