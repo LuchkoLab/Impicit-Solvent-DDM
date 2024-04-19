@@ -1,6 +1,7 @@
 """
 Classes to setup different types of simulations (i.e. remd, basic md).
 """
+
 import os
 import re
 import shutil
@@ -106,7 +107,13 @@ class Calculation(Job):
 
         with open(mdin) as temp:
             template = Template(temp.read())
-        final_template = template.substitute(restraint=restraint_file)
+
+        if not self.post_analysis:
+            final_template = template.substitute(restraint=restraint_file)
+        else:
+            final_template = template.substitute(
+                restraint=restraint_file, extdiel=self.directory_args["extdiel"]
+            )
 
         with open(scratch_mdin, "w") as temp_mdin:
             temp_mdin.write(final_template)
