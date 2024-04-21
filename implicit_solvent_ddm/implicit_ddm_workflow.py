@@ -361,19 +361,43 @@ def ddm_workflow(
     # Improve any poor space phase overlap between adjacent windows
     # adaptive process for restraints and ligand charge scaling.
     if workflow.run_adaptive_windows:
-        complex_adaptive_job = intermidate_complex.addFollowOnJobFn(
+
+        complex_adaptive_restraints_job = intermidate_complex.addFollowOnJobFn(
             adaptive_lambda_windows,
             intermidate_complex.rv(),
             updated_config,
             "complex",
+            restraints_scaling=True,
+        )
+
+        complex_adaptive_charge_job = complex_adaptive_restraints_job.addFollowOnJobFn(
+            adaptive_lambda_windows,
+            complex_adaptive_restraints_job.rv(2),
+            complex_adaptive_restraints_job.rv(1),
+            "complex",
             charge_scaling=True,
         )
 
+        complex_adaptive_gb_extdiel_job = complex_adaptive_charge_job.addFollowOnJobFn(
+            adaptive_lambda_windows,
+            complex_adaptive_charge_job.rv(2),
+            complex_adaptive_charge_job.rv(1),
+            "complex",
+            gb_scaling=True,
+        )
+
         # adaptive process for restraints and ligand charge scaling for ligand system steps.
-        ligand_restraints_adaptive_job = intermidate_ligand.addFollowOnJobFn(
+        ligand_adaptive_restraints_job = intermidate_ligand.addFollowOnJobFn(
             adaptive_lambda_windows,
             intermidate_ligand.rv(),
             updated_config,
+            "ligand",
+            restraints_scaling=True,
+        )
+        ligand_adaptive_charges_job = ligand_adaptive_restraints_job.addFollowOnJobFn(
+            adaptive_lambda_windows,
+            ligand_adaptive_restraints_job.rv(2),
+            ligand_adaptive_restraints_job.rv(1),
             "ligand",
             charge_scaling=True,
         )
@@ -383,14 +407,14 @@ def ddm_workflow(
             intermidate_receptor.rv(),
             updated_config,
             "receptor",
-            charge_scaling=False,
+            restraints_scaling=True,
         )
         # Once reached, we are done just export results :)
         if workflow.consolidate_output:
             job.addFollowOn(
                 ConsolidateData(
-                    complex_adative_run=complex_adaptive_job.rv(0),
-                    ligand_adaptive_run=ligand_restraints_adaptive_job.rv(0),
+                    complex_adative_run=complex_adaptive_gb_extdiel_job.rv(0),
+                    ligand_adaptive_run=ligand_adaptive_charges_job.rv(0),
                     receptor_adaptive_run=receptor_adaptive_job.rv(0),
                     flat_botton_run=flat_bottom_exp.rv(),
                     temperature=config.intermidate_args.temperature,
@@ -404,10 +428,9 @@ def ddm_workflow(
                     plot_overlap_matrix=config.workflow.plot_overlap_matrix,
                 )
             )
-
         return (
-            complex_adaptive_job.rv(1),
-            ligand_restraints_adaptive_job.rv(1),
+            complex_adaptive_gb_extdiel_job.rv(1),
+            ligand_adaptive_charges_job.rv(1),
             receptor_adaptive_job.rv(1),
         )
 
