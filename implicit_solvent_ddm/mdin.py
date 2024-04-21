@@ -1,6 +1,7 @@
 """
 Simple functions to create all the required MD input files (i.e. 'mdin').
 """
+
 import itertools
 import os
 import random
@@ -99,13 +100,12 @@ def make_mdin_file(
 
     new_mdin = ""
     for line in data:
-        line = re.sub(r"extdiel\s*=\s*\$extdiel", extdiel, line)
+
         # Vacuum state
         if turn_off_solvent:
             line = re.sub(r"saltcon\s*=\s*\d+\.?\d+", "saltcon=0.0", line)
             line = re.sub(r"igb\s*=\s*\d+", "igb=6", line)
             line = re.sub(r"extdiel\s*=\s*\$extdiel", "extdiel=0.0", line)
-
         if "imin" in line:
             line = re.sub(r"imin\s*=\s*\d+", imin, line)
         if "ioutfm" in line:
@@ -114,7 +114,8 @@ def make_mdin_file(
             line = re.sub(r"irest\s*=\s*\d+", irest, line)
         if "ntx" in line:
             line = re.sub(r"ntx\s*=\s*\d+", ntx, line)
-
+        if not post_process:
+            line = re.sub(r"extdiel\s*=\s*\$extdiel", extdiel, line)
         new_mdin += line
 
     with open(mdin_name, "w") as output:
