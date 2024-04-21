@@ -359,8 +359,14 @@ class Simulation(Calculation):
             self.exec_list.pop(0)
             self.exec_list.append(re.sub(r"\..*", "", self.executable))
         else:
-            self.exec_list.append("--exclusive")
-            self.exec_list.extend(("-n", str(self.num_cores)))
+            if self.mpi_command in ["mpiexec", "mpirun"]:
+
+                self.exec_list.extend(("-np", str(self.num_cores)))
+            # assume slurm
+            else:
+                self.exec_list.append("--exclusive")
+                self.exec_list.extend(("-n", str(self.num_cores)))
+
             self.exec_list.append(self.executable)
 
         solu = re.sub(r"\..*", "", os.path.basename(str(self.prmtop)))
