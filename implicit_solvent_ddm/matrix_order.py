@@ -5,8 +5,9 @@ from typing import Union
 @dataclass
 class CycleSteps:
     """
-    Simple dataclass that arranges all the thermodyamic steps in the correct chronological order for the given system (i.e. complex, ligand, receptor). 
+    Simple dataclass that arranges all the thermodyamic steps in the correct chronological order for the given system (i.e. complex, ligand, receptor).
     """
+
     conformation_forces: list[Union[int, float]]
     orientational_forces: list[Union[int, float]]
     charges_windows: list[float]
@@ -143,6 +144,10 @@ class CycleSteps:
             + len(self.interations)
             + len(self.external_dielectic)
         )
+
+    @property
+    def start_gb_extdiel_matrix(self):
+        return len(self.no_interactions)
 
     @property
     def apo_end_restraint_matrix(self) -> int:

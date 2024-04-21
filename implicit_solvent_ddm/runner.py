@@ -121,6 +121,7 @@ class IntermidateRunner(Job):
                         inptraj=input_traj,
                         post_analysis=True,
                         restraint_key=post_simulation.restraint_key,
+                        sim_debug=True,
                     )
                     job.addChild(post_process_job)
 
@@ -217,6 +218,7 @@ class IntermidateRunner(Job):
                 inptraj=md_traj,
                 post_analysis=True,
                 restraint_key=post_simulation.restraint_key,
+                sim_debug=True,
             )
 
             if completed_sim.directory_args["runtype"] == "lambda_window":
@@ -294,6 +296,7 @@ class IntermidateRunner(Job):
         restraint_file,
         charge=1.0,
         charge_parm=None,
+        gb_extdiel=None,
     ):
         con_force = float(round(conformational, 3))
         orient_force = float(round(orientational, 3))
@@ -315,10 +318,20 @@ class IntermidateRunner(Job):
         )
 
         parm_file = self.config.endstate_files.complex_parameter_filename
+
+        # scaling GB external dielectric
+        if gb_extdiel is not None:
+            # prmtop was create with charge = 0
+            parm_file = charge_parm.rv()  # type: ignore
+            dirs_args[0].update({"state_label": "gb_dielectric"})
+            dirs_args[0].update({"extdiel": gb_extdiel})
+
+        # scaling ligand charge windows
         if charge_parm is not None:
             parm_file = charge_parm.rv()
             dirs_args[0].update({"state_label": "electrostatics"})  # type: ignore
 
+        # scaling restraint windows
         else:
             restraint_file = restraint_file.rv()
 
