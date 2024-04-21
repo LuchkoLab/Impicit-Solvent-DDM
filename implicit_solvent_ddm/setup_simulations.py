@@ -97,6 +97,7 @@ class SimulationSetup:
                 working_directory=self.config.system_settings.working_directory,
                 memory=self.config.system_settings.memory,
                 disk=self.config.system_settings.disk,
+                sim_debug=self.config.workflow.debug,
             )
         )
 
@@ -119,18 +120,19 @@ class SimulationSetup:
             temp_args["filename"] = "state_7b_prod"
             temp_args["igb_value"] = self.config.intermidate_args.igb_solvent
             temp_args["orientational_restraints"] = self.max_orientational_exponent
-            temp_args[
-                "runtype"
-            ] = "Running production simulation in state 7b: Turning back on ligand charges, still in vacuum"
+            temp_args["runtype"] = (
+                "Running production simulation in state 7b: Turning back on ligand charges, still in vacuum"
+            )
+        # scale ligand charge
         else:
             mdin_file = self.config.inputs["no_solvent_mdin"]
             temp_args["igb"] = "igb_6"
             temp_args["extdiel"] = 0.0
             temp_args["filename"] = "state_4_prod"
-            temp_args["igb_value"] = f"igb_{self.config.intermidate_args.igb_solvent}"
-            temp_args[
-                "runtype"
-            ] = f"Running production Simulation in state 4 (No GB). Max conformational force: {self.max_conformational_exponent}"
+            temp_args["igb_value"] = 6
+            temp_args["runtype"] = (
+                f"Running production Simulation in state 4 (No GB). Max conformational force: {self.max_conformational_exponent}"
+            )
 
         self.simulations.append(
             Simulation(
@@ -148,6 +150,7 @@ class SimulationSetup:
                 working_directory=self.config.system_settings.working_directory,
                 memory=self.config.system_settings.memory,
                 disk=self.config.system_settings.disk,
+                sim_debug=self.config.workflow.debug,
             )
         )
 
@@ -161,9 +164,9 @@ class SimulationSetup:
             temp_args["state_label"] = "no_gb"
             temp_args["charge"] = 1.0
             temp_args["filename"] = "state_4_prod"
-            temp_args[
-                "runtype"
-            ] = "Running production simulation in state 4: Receptor only"
+            temp_args["runtype"] = (
+                "Running production simulation in state 4: Receptor only"
+            )
 
         else:
             dirstruct_args = "dirstruct_halo"
@@ -184,6 +187,7 @@ class SimulationSetup:
                 restraint_key=restraint_key,
                 memory=self.config.system_settings.memory,
                 disk=self.config.system_settings.disk,
+                sim_debug=self.config.workflow.debug,
             )
         )
 
@@ -197,9 +201,9 @@ class SimulationSetup:
         temp_args = copy(self.no_gb_args)
         temp_args["state_label"] = "interactions"
         temp_args["filename"] = "state_7a_prod"
-        temp_args[
-            "runtype"
-        ] = "Running production simulation in state 7a: Turing back on interactions with recetor and guest in vacuum"
+        temp_args["runtype"] = (
+            "Running production simulation in state 7a: Turing back on interactions with recetor and guest in vacuum"
+        )
 
         self.simulations.append(
             Simulation(
@@ -217,6 +221,7 @@ class SimulationSetup:
                 restraint_key=restraint_key,
                 memory=self.config.system_settings.memory,
                 disk=self.config.system_settings.disk,
+                sim_debug=self.config.workflow.debug,
             )
         )
 
@@ -236,9 +241,9 @@ class SimulationSetup:
         temp_args["extdiel"] = extdiel
         temp_args["igb"] = f"igb_{self.config.intermidate_args.igb_solvent}"
         temp_args["igb_value"] = f"igb_{self.config.intermidate_args.igb_solvent}"
-        temp_args[
-            "runtype"
-        ] = f"Running production Simulation in state 8. Changing extdiel to: {extdiel}."
+        temp_args["runtype"] = (
+            f"Running production Simulation in state 8. Changing extdiel to: {extdiel}."
+        )
 
         self.simulations.append(
             Simulation(
@@ -256,6 +261,7 @@ class SimulationSetup:
                 restraint_key=restraint_key,
                 memory=self.config.system_settings.memory,
                 disk=self.config.system_settings.disk,
+                sim_debug=self.config.workflow.debug,
             )
         )
 
@@ -273,17 +279,17 @@ class SimulationSetup:
         temp_args["filename"] = f"state_2_{exponent_conformational}_prod"
         temp_args["igb"] = f"igb_{self.config.intermidate_args.igb_solvent}"
         temp_args["igb_value"] = self.config.intermidate_args.igb_solvent
-        temp_args[
-            "runtype"
-        ] = f"Running restraint window. Conformational restraint: {exponent_conformational}"
+        temp_args["runtype"] = (
+            f"Running restraint window. Conformational restraint: {exponent_conformational}"
+        )
         temp_args["conformational_restraint"] = exponent_conformational
         dirstruct_type = "dirstruct_apo"
 
         if exponent_orientational is not None:
             temp_args["orientational_restraints"] = exponent_orientational
-            temp_args[
-                "filename"
-            ] = f"state_8_{exponent_conformational}_{exponent_orientational}_prod"
+            temp_args["filename"] = (
+                f"state_8_{exponent_conformational}_{exponent_orientational}_prod"
+            )
             dirstruct_type = "dirstruct_halo"
 
         self.simulations.append(
@@ -302,6 +308,7 @@ class SimulationSetup:
                 restraint_key=restraint_key,
                 memory=self.config.system_settings.memory,
                 disk=self.config.system_settings.disk,
+                sim_debug=self.config.workflow.debug,
             )
         )
 
