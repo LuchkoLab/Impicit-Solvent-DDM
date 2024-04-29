@@ -1,15 +1,20 @@
 """
 Functions that setup REMD, Basic MD or user defind endstate simulations. 
 """
+
 import copy
+
 # from implicit_solvent_ddm.remd import run_remd
 import os
 import os.path
 
 from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.mdin import generate_replica_mdin
-from implicit_solvent_ddm.simulations import (ExtractTrajectories,
-                                              REMDSimulation, Simulation)
+from implicit_solvent_ddm.simulations import (
+    ExtractTrajectories,
+    REMDSimulation,
+    Simulation,
+)
 
 working_directory = os.getcwd()
 
@@ -112,7 +117,7 @@ def run_remd(job, user_config: Config):
     user_config.inputs["endstate_complex_lastframe"] = extract_complex.rv(1)
 
     # run minimization at the end states for ligand system only
-    minimization_ligand = remd_complex.addChild(
+    minimization_ligand = minimization_complex.addFollowOn(
         Simulation(
             executable=user_config.system_settings.executable,
             mpi_command=user_config.system_settings.mpi_command,
@@ -198,7 +203,7 @@ def run_remd(job, user_config: Config):
     user_config.inputs["endstate_ligand_lastframe"] = extract_ligand_traj.rv(1)
 
     if not user_config.workflow.ignore_receptor_endstate:
-        minimization_receptor = remd_complex.addChild(
+        minimization_receptor = minimization_complex.addFollowOn(
             Simulation(
                 executable=user_config.system_settings.executable,
                 mpi_command=user_config.system_settings.mpi_command,
@@ -320,6 +325,7 @@ def run_basic_md(job, user_config: Config):
                 "topdir": user_config.system_settings.top_directory_path,
             },
             working_directory=user_config.system_settings.working_directory,
+            sim_debug=user_config.workflow.debug,
         )
     )
 
@@ -341,6 +347,7 @@ def run_basic_md(job, user_config: Config):
             },
             memory=user_config.system_settings.memory,
             disk=user_config.system_settings.disk,
+            sim_debug=user_config.workflow.debug,
         )
     )
     # extact target temparture trajetory and last frame
@@ -354,7 +361,7 @@ def run_basic_md(job, user_config: Config):
     user_config.inputs["endstate_complex_lastframe"] = extract_complex.rv(1)
 
     # run minimization at the end states for ligand system only
-    minimization_ligand = endstate_complex.addChild(
+    minimization_ligand = minimization_complex.addFollowOn(
         Simulation(
             executable=user_config.system_settings.executable,
             mpi_command=user_config.system_settings.mpi_command,
@@ -372,6 +379,7 @@ def run_basic_md(job, user_config: Config):
             working_directory=user_config.system_settings.working_directory,
             memory=user_config.system_settings.memory,
             disk=user_config.system_settings.disk,
+            sim_debug=user_config.workflow.debug,
         )
     )
 
@@ -393,6 +401,7 @@ def run_basic_md(job, user_config: Config):
             working_directory=user_config.system_settings.working_directory,
             memory=user_config.system_settings.memory,
             disk=user_config.system_settings.disk,
+            sim_debug=user_config.workflow.debug,
         )
     )
     # extact target temparture trajetory and last frame
@@ -406,7 +415,7 @@ def run_basic_md(job, user_config: Config):
     user_config.inputs["endstate_ligand_lastframe"] = extract_ligand_traj.rv(1)
 
     if not user_config.workflow.ignore_receptor_endstate:
-        minimization_receptor = endstate_complex.addChild(
+        minimization_receptor = minimization_complex.addFollowOn(
             Simulation(
                 executable=user_config.system_settings.executable,
                 mpi_command=user_config.system_settings.mpi_command,
@@ -424,6 +433,7 @@ def run_basic_md(job, user_config: Config):
                 working_directory=user_config.system_settings.working_directory,
                 memory=user_config.system_settings.memory,
                 disk=user_config.system_settings.disk,
+                sim_debug=user_config.workflow.debug,
             )
         )
 
@@ -445,6 +455,7 @@ def run_basic_md(job, user_config: Config):
                 working_directory=user_config.system_settings.working_directory,
                 memory=user_config.system_settings.memory,
                 disk=user_config.system_settings.disk,
+                sim_debug=user_config.workflow.debug,
             )
         )
         # extact target temparture trajetory and last frame
@@ -509,15 +520,15 @@ def user_defined_endstate(job, user_config: Config):
             user_config.endstate_files.receptor_coordinate_filename,
         )
     )
-    user_config.inputs[
-        "endstate_receptor_traj"
-    ] = user_config.endstate_files.receptor_coordinate_filename
+    user_config.inputs["endstate_receptor_traj"] = (
+        user_config.endstate_files.receptor_coordinate_filename
+    )
     user_config.inputs["endstate_receptor_lastframe"] = extract_receptor_traj.rv(1)
 
     if user_config.workflow.vina_dock:
-        user_config.inputs[
-            "endstate_complex_lastframe"
-        ] = user_config.endstate_files.complex_coordinate_filename
+        user_config.inputs["endstate_complex_lastframe"] = (
+            user_config.endstate_files.complex_coordinate_filename
+        )
 
     return (
         extract_complex.rv(1),

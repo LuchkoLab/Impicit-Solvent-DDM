@@ -362,30 +362,30 @@ def ddm_workflow(
     # adaptive process for restraints and ligand charge scaling.
     if workflow.run_adaptive_windows:
 
-        complex_adaptive_restraints_job = intermidate_complex.addFollowOnJobFn(
+        # first scale gb external dielectric
+        complex_adaptive_gb_extdiel_job = intermidate_complex.addFollowOnJobFn(
             adaptive_lambda_windows,
             intermidate_complex.rv(),
             updated_config,
             "complex",
-            restraints_scaling=True,
+            gb_scaling=True,
         )
-
-        complex_adaptive_charge_job = complex_adaptive_restraints_job.addFollowOnJobFn(
+        # then scale restraints
+        complex_adaptive_charge_job = complex_adaptive_gb_extdiel_job.addFollowOnJobFn(
             adaptive_lambda_windows,
-            complex_adaptive_restraints_job.rv(2),
-            complex_adaptive_restraints_job.rv(1),
+            complex_adaptive_gb_extdiel_job.rv(2),
+            complex_adaptive_gb_extdiel_job.rv(1),
             "complex",
             charge_scaling=True,
         )
-
-        complex_adaptive_gb_extdiel_job = complex_adaptive_charge_job.addFollowOnJobFn(
+        # finally scale restraints
+        complex_adaptive_restraints_job = complex_adaptive_charge_job.addFollowOnJobFn(
             adaptive_lambda_windows,
             complex_adaptive_charge_job.rv(2),
             complex_adaptive_charge_job.rv(1),
             "complex",
-            gb_scaling=True,
+            restraints_scaling=True,
         )
-
         # adaptive process for restraints and ligand charge scaling for ligand system steps.
         ligand_adaptive_restraints_job = intermidate_ligand.addFollowOnJobFn(
             adaptive_lambda_windows,
@@ -413,7 +413,7 @@ def ddm_workflow(
         if workflow.consolidate_output:
             job.addFollowOn(
                 ConsolidateData(
-                    complex_adative_run=complex_adaptive_gb_extdiel_job.rv(0),
+                    complex_adative_run=complex_adaptive_restraints_job.rv(0),
                     ligand_adaptive_run=ligand_adaptive_charges_job.rv(0),
                     receptor_adaptive_run=receptor_adaptive_job.rv(0),
                     flat_botton_run=flat_bottom_exp.rv(),

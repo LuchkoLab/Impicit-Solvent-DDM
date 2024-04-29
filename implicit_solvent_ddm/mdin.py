@@ -86,7 +86,7 @@ def make_mdin_file(
 
     # general setting
     imin = "imin = 0"
-    ioutfm = "ioutfm = 0"
+    ioutfm = "ioutfm = 1"
     ntx = "ntx=1"
     irest = "irest=0"
     extdiel = f"extdiel={gb_extdiel}"

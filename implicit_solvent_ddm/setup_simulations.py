@@ -241,6 +241,7 @@ class SimulationSetup:
         temp_args["extdiel"] = extdiel
         temp_args["igb"] = f"igb_{self.config.intermidate_args.igb_solvent}"
         temp_args["igb_value"] = f"igb_{self.config.intermidate_args.igb_solvent}"
+        temp_args["charge"] = 0.0
         temp_args["runtype"] = (
             f"Running production Simulation in state 8. Changing extdiel to: {extdiel}."
         )

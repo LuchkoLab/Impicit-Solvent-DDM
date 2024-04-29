@@ -545,6 +545,8 @@ def improve_charge_scaling(
     config: Config
         An updated configuration file with new inserted states.
     """
+    # init job scaling job
+    charge_job = job.addChildJobFn(initilized_jobs)
     charges = config.intermidate_args.charges_lambda_window.copy()
 
     job.log(f"Interating over windows {avg_overlap}")
@@ -572,7 +574,7 @@ def improve_charge_scaling(
                 mdin=config.inputs["default_mdin"],
                 restraint_file=runner.restraints.max_complex_restraint,
                 charge=new_charge,
-                charge_parm=job.addChildJobFn(
+                charge_parm=charge_job.addChildJobFn(
                     alter_topology,
                     solute_amber_parm=config.endstate_files.complex_parameter_filename,
                     solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
@@ -590,7 +592,7 @@ def improve_charge_scaling(
                 mdin=config.inputs["no_solvent_mdin"],
                 restraint_file=runner.restraints.max_ligand_conformational_restraint,
                 charge=new_charge,
-                charge_parm=job.addChildJobFn(
+                charge_parm=charge_job.addChildJobFn(
                     alter_topology,
                     solute_amber_parm=config.endstate_files.ligand_parameter_filename,
                     solute_amber_coordinate=config.endstate_files.ligand_coordinate_filename,
@@ -600,8 +602,9 @@ def improve_charge_scaling(
                 ),
             )
 
+    charges_done = charge_job.addFollowOnJobFn(initilized_jobs)
     return (
-        job.addFollowOn(runner.new_runner(config, runner.__dict__)).rv(),
+        charges_done.addChild(runner.new_runner(config, runner.__dict__)).rv(),
         config,
     )
 
@@ -622,6 +625,9 @@ def improve_gb_dielectric(
         config (Config): _description_
         system_type (str): _description_
     """
+    # init gb external dielectric
+    gb_dielectric_job = job.addChildJobFn(initilized_jobs)
+
     lower_upper_bound = [0.0, 78.5]
 
     gb_dielectric = config.intermidate_args.gb_extdiel_windows.copy()
@@ -641,6 +647,9 @@ def improve_gb_dielectric(
             new_gb_dielectric = bisect_between(
                 gb_dielectric[index], gb_dielectric[index + 1]
             )
+            job.log(
+                f"bisecting between {gb_dielectric[index]} & {gb_dielectric[index + 1]} = {new_gb_dielectric}"
+            )
         # append new dielectric
         config.intermidate_args.gb_extdiel_windows.append(new_gb_dielectric)
 
@@ -648,13 +657,13 @@ def improve_gb_dielectric(
         runner._add_complex_simulation(
             conformational=max(config.intermidate_args.exponent_conformational_forces),
             orientational=max(config.intermidate_args.exponent_orientational_forces),
-            mdin=job.addChildJobFn(
+            mdin=gb_dielectric_job.addChildJobFn(
                 generate_extdiel_mdin,
                 user_mdin_ID=config.intermidate_args.mdin_intermidate_file,
                 gb_extdiel=new_gb_dielectric,
             ).rv(),
             restraint_file=runner.restraints.max_complex_restraint,
-            charge_parm=job.addChildJobFn(
+            charge_parm=gb_dielectric_job.addChildJobFn(
                 alter_topology,
                 solute_amber_parm=config.endstate_files.complex_parameter_filename,
                 solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
@@ -662,13 +671,18 @@ def improve_gb_dielectric(
                 receptor_mask=config.amber_masks.receptor_mask,
                 set_charge=0.0,
             ),
+            charge=0.0,
             gb_extdiel=new_gb_dielectric,
         )
+
     # sort the new added windows
     config.intermidate_args.gb_extdiel_windows.sort()
 
+    # gb scaling done
+    gb_scaling_done = gb_dielectric_job.addFollowOnJobFn(initilized_jobs)
+
     return (
-        job.addFollowOn(runner.new_runner(config, runner.__dict__)).rv(),
+        gb_scaling_done.addChild(runner.new_runner(config, runner.__dict__)).rv(),
         config,
     )
 
