@@ -325,9 +325,9 @@ class IntermidateRunner(Job):
             parm_file = charge_parm.rv()  # type: ignore
             dirs_args[0].update({"state_label": "gb_dielectric"})
             dirs_args[0].update({"extdiel": gb_extdiel})
-
+            dirs_args[0].update({"charge": charge})
         # scaling ligand charge windows
-        if charge_parm is not None:
+        elif charge_parm is not None:
             parm_file = charge_parm.rv()
             dirs_args[0].update({"state_label": "electrostatics"})  # type: ignore
 
