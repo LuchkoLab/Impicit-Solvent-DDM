@@ -215,8 +215,8 @@ class ConsolidateData(Job):
         """Get the flat bottom restraints free energy contribution for DeltaG"""
         return self.flat_bottom_fe.loc[
             (
-                ("endstate", "78.5", "1.0", "0.0_0.0"),
-                [("no_flat_bottom", "78.5", "1.0", "0.0_0.0")],
+                ("no_flat_bottom", "78.5", "1.0", "0.0_0.0"),
+                [("endstate", "78.5", "1.0", "0.0_0.0")],
             )
         ].values[0]
 
