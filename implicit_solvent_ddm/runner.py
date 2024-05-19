@@ -219,6 +219,7 @@ class IntermidateRunner(Job):
                 directory_args=directory_args,
                 dirstruct=post_dirstruct,
                 inptraj=md_traj,
+                xvv=post_simulation.xvv,
                 post_analysis=True,
                 restraint_key=post_simulation.restraint_key,
                 sim_debug=True,
@@ -235,7 +236,22 @@ class IntermidateRunner(Job):
             )
             fileStore.logToMaster(f"mdout_parse: {mdout_parse}\n")
             fileStore.logToMaster(f"ADAPTIVE {self.adaptive}")
-
+            # check hmc post analysis evaluated itself
+            # hmc_check = all(
+            #     [
+            #         post_simulation.directory_args["state_label"] == "bookended_HMC",
+            #         completed_sim.directory_args["state_label"] == "bookended_HMC",
+            #     ]
+            # )
+            # # if user ran hmc analysis already just load the dataframe
+            # if hmc_check and completed_sim.loaded_df is not None:
+            #     data_frame = post_process_job.addFollowOnJobFn(
+            #         create_mdout_dataframe,
+            #         post_process_job.directory_args,
+            #         post_process_job.dirstruct,
+            #         post_process_job.output_dir,
+            #         completed_df=completed_sim.loaded_df,
+            #     )
             if not "simulation_mdout.parquet.gzip" in os.listdir(
                 post_process_job.output_dir
             ):
@@ -252,7 +268,6 @@ class IntermidateRunner(Job):
                 fileStore.logToMaster(
                     f"State potential energy {post_simulation.directory_args['state_label']}"
                 )
-                # fileStore.logToMaster(f"state args: {post_simulation.directory_args}")
 
                 self.addChild(post_process_job)
 

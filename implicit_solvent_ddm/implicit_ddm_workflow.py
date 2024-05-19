@@ -140,16 +140,20 @@ def ddm_workflow(
             binding_mode=split_job.rv(0),
             endstate_traj=endstate_job.rv(2),
         )
-        # set up complex correction simulations
-        hmc_complex_correction.setup_post_GB_bookended_simulation()
+        # Set up GB post-analysis simulation
+        # if re.match(r"igb*", config.hmc_args.hmc_model):
+        hmc_complex_correction.setup_post_bookended_hmc_simulation()
         hmc_complex_correction.setup_post_endstate_simulation(flat_bottom=True)
         # set up receptor only correction
-        hmc_receptor_corrections.setup_post_GB_bookended_simulation()
+        hmc_receptor_corrections.setup_post_bookended_hmc_simulation()
         hmc_receptor_corrections.setup_post_endstate_simulation()
         # set up ligand only correction
-        hmc_ligand_correction.setup_post_GB_bookended_simulation()
+        hmc_ligand_correction.setup_post_bookended_hmc_simulation()
         hmc_ligand_correction.setup_post_endstate_simulation()
-        # Flat bottom contribution
+
+        # set up RISM post-analysis simulation
+        # if config.hmc_args.hmc_model == "3drism":
+        #     pass
 
         complex_hmc_bookened = HMC_correction.addChild(
             IntermidateRunner(

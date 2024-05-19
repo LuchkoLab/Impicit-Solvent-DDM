@@ -507,6 +507,7 @@ class BookendedHMC:
             self.hmc_endstate_analysis_dataframe = pd.read_csv(self.hmc_dataframe_path)[
                 [self.total_energy_column]
             ]
+            self.hmc_endstate_analysis_dataframe.columns = ["ENERGY"]
 
     @classmethod
     def from_config(cls: Type["BookendedHMC"], obj: dict):
@@ -584,8 +585,11 @@ class BookendedHMC:
         self.ligand_endstate_trajectory = toil.import_file(
             "file://" + os.path.abspath(self.ligand_endstate_trajectory)
         )
-
+        # import mdin
         self.mdin_HMC = toil.import_file("file://" + os.path.abspath(self.mdin_HMC))
+        # import xvv if provided
+        if self.rism_xvv is not None:
+            self.rism_xvv = toil.import_file("file://" + os.path.abspath(self.rism_xvv))
 
 
 @dataclass
@@ -1113,7 +1117,7 @@ if __name__ == "__main__":
     options.logLevel = "OFF"
     options.clean = "always"
     with open(
-        "/nas0/ayoub/Impicit-Solvent-DDM/Example_runs/config_files/restart_basic_md.yaml"
+        "/nas0/ayoub/Impicit-Solvent-DDM/Example_runs/config_files/restart_basic_md_rism.yaml"
     ) as fH:
         yaml_config = yaml.safe_load(fH)
 

@@ -102,7 +102,7 @@ class SimulationSetup:
             )
         )
 
-    def setup_post_GB_bookended_simulation(self):
+    def setup_post_bookended_hmc_simulation(self):
         """Setup up Simulation to bookend in GB model"""
 
         temp_args = copy(self.gb_bookended_dirstructut)
@@ -151,6 +151,7 @@ class SimulationSetup:
                 dirstruct=dirstruct_type,
                 inptraj=[inptraj],
                 post_analysis=True,
+                xvv=self.config.hmc_args.rism_xvv,
                 working_directory=self.config.system_settings.working_directory,
                 memory=self.config.system_settings.memory,
                 disk=self.config.system_settings.disk,

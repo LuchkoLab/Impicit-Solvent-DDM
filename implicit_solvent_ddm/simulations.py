@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess as sp
 import sys
+import pandas as pd
 from datetime import datetime
 from string import Template
 from typing import Optional, TypedDict, Union
@@ -302,6 +303,8 @@ class Simulation(Calculation):
         restraint_file: Union[RestraintMaker, str],
         working_directory,
         directory_args,
+        xvv: Optional[str] = None,
+        loaded_df: Optional[pd.DataFrame] = None,
         system_type: Optional[str] = None,
         conformational_force=None,
         orientational_force=None,
@@ -347,6 +350,8 @@ class Simulation(Calculation):
         )
         self.restraint_key = restraint_key
         self.system_type = system_type
+        self.xvv = xvv
+        self.loaded_df = loaded_df
 
     def setup(self):
         """
@@ -379,6 +384,9 @@ class Simulation(Calculation):
         self.exec_list.extend(("-r", f"{restart_filename}.rst7"))
         self.exec_list.extend(("-x", f"{trajector_filename}.nc"))
         self.exec_list.extend(("-o", "mdout"))  # output file flag
+        # if rism xvv file was passed
+        if self.xvv is not None:
+            self.exec_list.extend(("-xvv", self.read_files["xvv"]))
         if self._inptraj is not None:
             self.exec_list.extend(
                 ("-y", self.read_files["inptraj"])
@@ -419,6 +427,12 @@ class Simulation(Calculation):
             self.read_files["inptraj"] = fileStore.readGlobalFile(
                 self._inptraj[0],
                 userPath=os.path.join(tempDir, os.path.basename(self._inptraj[0])),
+            )
+        if self.xvv is not None:
+            fileStore.logToMaster(f"READING RISM XVV: {self.xvv}")
+            self.read_files["xvv"] = fileStore.readGlobalFile(
+                self.xvv,
+                userPath=os.path.join(tempDir, os.path.basename(self.xvv)),
             )
 
         if isinstance(self.restraint_file, RestraintMaker):
@@ -622,6 +636,70 @@ class REMDSimulation(Calculation):
 
         self._setup()
         return Calculation.run(self, fileStore)
+
+
+class RISMSimulation(Calculation):
+    """Setup a RISM calculation
+    Currently limited on RISM arguments,
+    expects the user to write RISM flags within the mdin file.
+    """
+
+    def __init__(
+        self,
+        executable,
+        mpi_command,
+        num_cores,
+        prmtop,
+        incrd,
+        input_file,
+        restraint_file: Union[RestraintMaker, str],
+        working_directory,
+        directory_args,
+        xvv,
+        dirstruct="dirstruct",
+        inptraj=None,
+        post_analysis=False,
+        sim_debug: bool = False,
+        memory: Optional[Union[int, str]] = None,
+        disk: Optional[Union[int, str]] = None,
+        preemptable: Optional[Union[bool, int, str]] = None,
+        unitName: Optional[str] = "",
+        checkpoint: Optional[bool] = False,
+        displayName: Optional[str] = "",
+        descriptionClass: Optional[str] = None,
+    ):
+        Job.__init__(
+            self,
+            memory=memory,
+            cores=num_cores,
+            disk=disk,
+            preemptible="false",
+            unitName=unitName,
+            checkpoint=checkpoint,
+            displayName=displayName,
+        )
+        Calculation.__init__(
+            self,
+            executable,
+            mpi_command,
+            num_cores,
+            prmtop,
+            incrd,
+            input_file,
+            working_directory,
+            restraint_file,
+            directory_args,
+            dirstruct=dirstruct,
+            inptraj=inptraj,
+            post_analysis=post_analysis,
+            debug=sim_debug,
+        )
+        self.xvv = xvv
+
+    def setup(self):
+        """
+        Sets up the command-line arguments for RISM calculation.
+        """
 
 
 class ExtractTrajectories(Job):
