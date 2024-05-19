@@ -27,7 +27,7 @@ class IntermidateRunner(Job):
     def __init__(
         self,
         simulations: list[Simulation],
-        restraints: RestraintMaker,
+        restraints: Union[RestraintMaker, str],
         post_process_no_solv_mdin: FileID,
         post_process_mdin: FileID,
         post_process_distruct: str,
@@ -84,7 +84,8 @@ class IntermidateRunner(Job):
 
                 if post_simulation.directory_args["igb_value"] == 6:
                     mdin = self.no_solvent_mdin
-
+                if post_simulation.directory_args["state_label"] == "bookended_HMC":
+                    mdin = post_simulation.input_file
                 # run simulation if its not endstate with endstate
                 # if post_simulation.post:
                 if (
@@ -199,7 +200,9 @@ class IntermidateRunner(Job):
             mdin = self.mdin
             if post_simulation.directory_args["igb_value"] == 6:
                 mdin = self.no_solvent_mdin
-
+            # Use HMC mdin if provided
+            if post_simulation.directory_args["state_label"] == "bookended_HMC":
+                mdin = post_simulation.input_file
             # run simulation if its not endstate with endstate
             post_dirstruct = self.get_system_dirs(post_simulation.system_type)
             fileStore.logToMaster(f"post dirstruct {post_dirstruct}\n")

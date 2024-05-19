@@ -87,6 +87,7 @@ class ConsolidateData(Job):
         ligand_filename,
         receptor_filename,
         plot_overlap_matrix: bool = False,
+        hmc_correction_df: Optional[pd.DataFrame] = None,
         memory: Optional[Union[int, str]] = None,
         cores: Optional[Union[int, float, str]] = None,
         disk: Optional[Union[int, str]] = None,
@@ -115,6 +116,7 @@ class ConsolidateData(Job):
         self.max_con_force = str(max_conformation_force)
         self.max_orien_force = str(max_orientational_force)
         self.boresch = boresch_df
+        self.hmc_correction_df = hmc_correction_df
         self.complex_name = re.sub(r"\..*", "", os.path.basename(complex_filename))
         self.ligand_name = re.sub(r"\..*", "", os.path.basename(ligand_filename))
         self.receptor_name = re.sub(r"\..*", "", os.path.basename(receptor_filename))
@@ -321,6 +323,17 @@ class ConsolidateData(Job):
         ]
         deltaG_df["deltaG"] = [self.compute_binding_deltaG]
 
+        # check if HMC correction was passed
+        fileStore.logToMaster(
+            f"TYPE of HMC_correction DF: {self.hmc_correction_df}: {type(self.hmc_correction_df)}"
+        )
+        if isinstance(self.hmc_correction_df, pd.DataFrame):
+            correction = self.hmc_correction_df.sum(axis=1).values[0]
+            deltaG_df["deltaG_HMC_correction"] = [
+                self.compute_binding_deltaG + correction
+            ]
+            deltaG_df["Contribution_HMC_endstate_correction"] = [correction]
+
         deltaG_df.to_hdf(
             f"{output_path}/deltaG_{self.complex_name}.h5", key="df", mode="w"
         )
@@ -377,7 +390,7 @@ def create_mdout_dataframe(
         )
         # data.to_parquet(f"{output_dir}/simulation_mdout.zip",  compression="gzip")
 
-    if os.path.exists(mdout):
-        os.remove(mdout)
+    # if os.path.exists(mdout):
+    #     os.remove(mdout)
 
     return data

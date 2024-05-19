@@ -3,8 +3,9 @@ A collection of functions that performs simple iterative proceess to improve spa
 """
 
 import copy
+import os
 from typing import Optional
-
+from re import sub as re_sub
 import numpy as np
 import pandas as pd
 
@@ -730,6 +731,75 @@ def run_exponential_averaging(
         matrix_order=None,
         system="free_flat_bottom",
     )
+
+
+def parse_out_endstate_correction(
+    job,
+    complex_endstate_correction,
+    receptor_endstate_correction,
+    ligand_endstate_correction,
+    config: Config,
+):
+    workdir = config.system_settings.working_directory
+    job.log(
+        f"complex_basename: {os.path.basename(config.endstate_files.complex_parameter_filename)}"
+    )
+    solu = os.path.basename(config.endstate_files.complex_parameter_filename)
+    solu = re_sub(r"\.parm7", "", solu)
+
+    output_directory = os.path.join(
+        workdir, f"hmc_correction/hmc_model{config.hmc_args.hmc_model}/{solu}"
+    )
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+
+    kcals_per_Kt = ((BOLTZMAN * (AVAGADRO)) / JOULES_PER_KCAL) * 298
+    # get deltaG free energy difference
+    complex_fe = complex_endstate_correction[0][0] * kcals_per_Kt
+    receptor_fe = receptor_endstate_correction[0][0] * kcals_per_Kt
+    ligand_fe = ligand_endstate_correction[0][0] * kcals_per_Kt
+    # get MBAR uncertainty deltaG free energy difference
+    complex_error = complex_endstate_correction[0][1] * kcals_per_Kt
+    receptor_error = receptor_endstate_correction[0][1] * kcals_per_Kt
+    ligand_error = ligand_endstate_correction[0][1] * kcals_per_Kt
+
+    # parse out free energies differences
+    complex_fe.to_hdf(f"{output_directory}/complex_fe.h5", mode="w", key="df")
+    receptor_fe.to_hdf(f"{output_directory}/receptor_fe.h5", mode="w", key="df")
+    ligand_fe.to_hdf(f"{output_directory}/ligand_fe.h5", mode="w", key="df")
+    # parse out free energies differences
+    complex_error.to_hdf(f"{output_directory}/complex_error.h5", mode="w", key="df")
+    receptor_error.to_hdf(f"{output_directory}/receptor_error.h5", mode="w", key="df")
+    ligand_error.to_hdf(f"{output_directory}/ligand_error.h5", mode="w", key="df")
+    df = pd.DataFrame()
+
+    df[
+        f"complex_igb{config.intermidate_args.igb_solvent}->HMC_correction_{config.hmc_args.hmc_model}"
+    ] = [
+        complex_fe.loc[
+            ("endstate", "78.5", "1.0", "0.0_0.0"),
+            [("bookended_HMC", "78.5", "1.0", "0.0_0.0")],
+        ].values[0]
+    ]
+    df[
+        f"receptor_igb{config.intermidate_args.igb_solvent}->HMC_correction_{config.hmc_args.hmc_model}"
+    ] = [
+        receptor_fe.loc[
+            ("endstate", "78.5", "1.0", "0.0"),
+            [("bookended_HMC", "78.5", "1.0", "0.0")],
+        ].values[0]
+    ]
+    df[
+        f"ligand_igb{config.intermidate_args.igb_solvent}->HMC_correction_{config.hmc_args.hmc_model}"
+    ] = [
+        ligand_fe.loc[
+            ("endstate", "78.5", "1.0", "0.0"),
+            [("bookended_HMC", "78.5", "1.0", "0.0")],
+        ].values[0]
+    ]
+    df.to_hdf(f"{output_directory}/results.h5", mode="w", key="df")
+
+    return df
 
 
 def initilized_jobs(job):

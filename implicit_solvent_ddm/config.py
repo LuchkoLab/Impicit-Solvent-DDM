@@ -2,6 +2,7 @@
 Dataclass to make life a little easier, which defines config properties, sub-properties, and types in a config.py file.
 Using a dataclass rather a dictionary ensures all key values pairs are read in (YAML config) before initiating the workflow.
 """
+
 import os
 import random
 import re
@@ -10,7 +11,7 @@ import string
 import tempfile
 from dataclasses import dataclass, field
 from typing import List, Optional, Type, Union
-
+import pandas as pd
 import numpy as np
 import parmed as pmd
 import pytraj as pt
@@ -25,6 +26,8 @@ WORKDIR = os.getcwd()
 class Workflow:
     """Base workflow procedure."""
 
+    run_hmc: bool = False
+    run_hmc_bookended_only: bool = False
     setup_workflow: bool = True
     consolidate_output: bool = True
     run_endstate_method: bool = True
@@ -42,7 +45,7 @@ class Workflow:
     complex_turn_on_GB_enviroment: bool = True
     complex_remove_restraint: bool = True
     run_adaptive_windows: bool = True
-    plot_overlap_matrix: bool = False 
+    plot_overlap_matrix: bool = False
     post_analysis_only: bool = False
     vina_dock: bool = False
     restart: bool = False
@@ -432,6 +435,160 @@ class BasicMD:
 
 
 @dataclass
+class BookendedHMC:
+    """Input aruguments for HMC simulaitons
+
+    Attributes
+    ----------
+    complex_endstate_trajectory: str
+        Completed complex HMC trajectory file (AMBER .nc file)
+    receptor_endstate_trajectory: str
+        Completed receptor HMC trajectory file (AMBER .nc file)
+    ligand_endstate_trajectory: str
+        Completed ligand HMC trajectory file (AMBER .nc file)
+    mdin_HMC: str
+        AMBER MDIN to evaluate in HMC potential for post-analysis.
+    total_energy_column:
+    total_energy_column: str
+        Column
+        AMBER trajecotry file
+        NameError: _description_
+        ValueError: _description_
+        ValueError: _description_
+        RuntimeError: _description_
+        RuntimeError: _description_
+
+    Returns:
+        _type_: _description_
+    """
+
+    complex_endstate_trajectory: Union[str, FileID]
+    receptor_endstate_trajectory: Union[str, FileID]
+    ligand_endstate_trajectory: Union[str, FileID]
+    mdin_HMC: Union[str, FileID]
+    # SAMPLING METHOD and eval method
+    hmc_model: str
+    hmc_dataframe_path: Optional[str]
+    hmc_endstate_analysis_dataframe: Optional[pd.DataFrame] = None
+    total_energy_column: str = "Etot"
+
+    # optional restraint file
+    hmc_restraint_file: Optional[str] = None
+    # RISM INPUTS
+    rism_xvv: Optional[str] = None
+    # optional intial coordinates
+    complex_endstate_initial_trajectory: Union[str, FileID, None] = None
+    receptor_endstate_initial_trajectory: Union[str, FileID, None] = None
+    ligand_endstate_initial_trajectory: Union[str, FileID, None] = None
+
+    def __post_init__(self):
+        # check hmc model is supported
+        self.hmc_model = self.hmc_model.lower()
+
+        supported_models = [
+            "igb1",
+            "igb2",
+            "igb5",
+            "igb7",
+            "igb8",
+            "3drism",
+            "gbnsr6",
+        ]
+
+        if self.hmc_model not in supported_models:
+            raise RuntimeError(
+                f"The HMC model provided {self.hmc_model} is not supported: {supported_models}"
+            )
+
+        if self.hmc_model == "3drism" and self.rism_xvv is None:
+            raise RuntimeError(f"Please provide an `.xvv` file if hmc_model is 3drism")
+
+        if self.hmc_dataframe_path is not None:
+            self.hmc_endstate_analysis_dataframe = pd.read_csv(self.hmc_dataframe_path)[
+                [self.total_energy_column]
+            ]
+
+    @classmethod
+    def from_config(cls: Type["BookendedHMC"], obj: dict):
+        # check for hmc_arguments in the config file
+        if "hmc_arguments" in obj.keys():
+            return cls(**obj["hmc_arguments"])
+        # else user didn't provide any
+        return cls(
+            complex_endstate_trajectory="complex.ncrst",
+            receptor_endstate_trajectory="receptor.ncrst",
+            ligand_endstate_trajectory="ligand.ncrst",
+            mdin_HMC="mdin",
+            hmc_dataframe_path=None,
+            hmc_model="igb2",
+        )
+
+    def toil_import_hmc_files(self, toil: Toil):
+        """Import all required HMC files into Toil.jobstore"""
+        # export initial trajectories in baselevel directory
+
+        if isinstance(self.complex_endstate_initial_trajectory, pt.Trajectory):
+            dirname = os.path.dirname(self.complex_endstate_trajectory)
+            complex_solu = os.path.basename(self.complex_endstate_trajectory)
+            pt.write_traj(
+                os.path.join(dirname, f"{complex_solu}_init_traj.ncrst"),
+                self.complex_endstate_initial_trajectory,
+                overwrite=True,
+            )
+            self.complex_endstate_initial_trajectory = os.path.join(
+                dirname, f"{complex_solu}_init_traj.ncrst.1"
+            )
+
+        if isinstance(self.receptor_endstate_initial_trajectory, pt.Trajectory):
+            dirname = os.path.dirname(self.receptor_endstate_trajectory)
+            receptor_solu = os.path.basename(self.receptor_endstate_trajectory)
+            pt.write_traj(
+                os.path.join(dirname, f"{receptor_solu}_init_traj.ncrst"),
+                self.receptor_endstate_initial_trajectory,
+                overwrite=True,
+            )
+            self.receptor_endstate_initial_trajectory = os.path.join(
+                dirname, f"{receptor_solu}_init_traj.ncrst.1"
+            )
+
+        if isinstance(self.ligand_endstate_initial_trajectory, pt.Trajectory):
+            dirname = os.path.dirname(self.ligand_endstate_trajectory)
+            ligand_solu = os.path.basename(self.ligand_endstate_trajectory)
+            pt.write_traj(
+                os.path.join(dirname, f"{ligand_solu}_init_traj.ncrst"),
+                self.ligand_endstate_initial_trajectory,
+                overwrite=True,
+            )
+            self.ligand_endstate_initial_trajectory = os.path.join(
+                dirname, f"{ligand_solu}_init_traj.ncrst.1"
+            )
+
+        # Import into jobstore
+        self.complex_endstate_initial_trajectory = toil.import_file(
+            "file://" + os.path.abspath(self.complex_endstate_initial_trajectory)
+        )
+        self.receptor_endstate_initial_trajectory = toil.import_file(
+            "file://" + os.path.abspath(self.receptor_endstate_initial_trajectory)
+        )
+        self.ligand_endstate_initial_trajectory = toil.import_file(
+            "file://" + os.path.abspath(self.ligand_endstate_initial_trajectory)
+        )
+        self.complex_endstate_trajectory = toil.import_file(
+            "file://" + os.path.abspath(self.complex_endstate_trajectory)
+        )
+
+        self.receptor_endstate_trajectory = toil.import_file(
+            "file://" + os.path.abspath(self.receptor_endstate_trajectory)
+        )
+
+        self.ligand_endstate_trajectory = toil.import_file(
+            "file://" + os.path.abspath(self.ligand_endstate_trajectory)
+        )
+
+        self.mdin_HMC = toil.import_file("file://" + os.path.abspath(self.mdin_HMC))
+
+
+@dataclass
 class FlatBottomRestraints:
     """Paramters for flat bottom restraints
 
@@ -469,9 +626,9 @@ class FlatBottomRestraints:
     spring_constant: float = 1.0
     restrained_receptor_atoms: Optional[List[int]] = None
     restrained_ligand_atoms: Optional[List[int]] = None
-    flat_bottom_restraints: Optional[
-        dict[str, float]
-    ] = None  # {r1: 0, r2: 0, r3: 10, r4: 20, rk2: 0.1, rk3: 0.1}
+    flat_bottom_restraints: Optional[dict[str, float]] = (
+        None  # {r1: 0, r2: 0, r3: 10, r4: 20, rk2: 0.1, rk3: 0.1}
+    )
 
     @classmethod
     def from_config(cls: Type["FlatBottomRestraints"], obj: dict):
@@ -759,6 +916,7 @@ class Config:
     amber_masks: AmberMasks
     endstate_method: EndStateMethod
     intermidate_args: IntermidateStatesArgs
+    hmc_args: BookendedHMC
     inputs: dict
     restraints: dict
     ignore_receptor: bool = False
@@ -778,6 +936,9 @@ class Config:
 
         if self.endstate_files.receptor_coordinate_filename is not None:
             self.ignore_receptor = True
+
+        if self.workflow.run_hmc:
+            self._get_init_coordinates()
 
     def _config_sanitity_check(self):
         # check if the amber mask are valid
@@ -828,6 +989,24 @@ class Config:
                 """
                 )
 
+    def _get_init_coordinates(self):
+
+        self.hmc_args.complex_endstate_initial_trajectory = pt.load(
+            self.hmc_args.complex_endstate_trajectory,
+            self.endstate_files.complex_parameter_filename,
+            frame_indices=[0],
+        )
+        self.hmc_args.receptor_endstate_initial_trajectory = pt.load(
+            self.hmc_args.receptor_endstate_trajectory,
+            self.endstate_files.receptor_parameter_filename,
+            frame_indices=[0],
+        )
+        self.hmc_args.ligand_endstate_initial_trajectory = pt.load(
+            self.hmc_args.ligand_endstate_trajectory,
+            self.endstate_files.ligand_parameter_filename,
+            frame_indices=[0],
+        )
+
     @classmethod
     def from_config(cls: Type["Config"], user_config: dict, ignore_unique_naming=False):
         return cls(
@@ -846,6 +1025,7 @@ class Config:
             intermidate_args=IntermidateStatesArgs.from_config(
                 user_config["workflow"]["intermidate_states_arguments"]
             ),
+            hmc_args=BookendedHMC.from_config(user_config["workflow"]),
             inputs={},
             restraints={},
         )
@@ -933,12 +1113,16 @@ if __name__ == "__main__":
     options.logLevel = "OFF"
     options.clean = "always"
     with open(
-        "/nas0/ayoub/Impicit-Solvent-DDM/Example_runs/config_files/run_basic_md.yaml"
+        "/nas0/ayoub/Impicit-Solvent-DDM/Example_runs/config_files/restart_basic_md.yaml"
     ) as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:
         config = Config.from_config(yaml_config)
+        print("complex")
+
+        print("--" * 20)
+        config.hmc_args.toil_import_hmc_files(toil=toil)  # type: ignore
         # # print(config)
         # # config.endstate_files.get_inital_coordinate()
         # if config.endstate_method.endstate_method_type != 0:
@@ -949,6 +1133,8 @@ if __name__ == "__main__":
 
         # config.endstate_files.toil_import_parmeters(toil=toil)
         # config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
+        print(config.hmc_args)
+        print("-" * 300)
         config.intermidate_args.toil_import_user_mdin(toil=toil)
         print(config.intermidate_args.mdin_intermidate_file)
         print(config.intermidate_args)

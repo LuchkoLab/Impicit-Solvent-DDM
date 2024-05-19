@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional, Union
+import pytraj as pt
 from copy import copy
 from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.restraints import RestraintMaker
@@ -100,6 +101,66 @@ class SimulationSetup:
                 sim_debug=self.config.workflow.debug,
             )
         )
+
+    def setup_post_GB_bookended_simulation(self):
+        """Setup up Simulation to bookend in GB model"""
+
+        temp_args = copy(self.gb_bookended_dirstructut)
+
+        restraint_file = self.config.inputs["empty_restraint"]
+
+        dirstruct_type = "post_process_apo"
+
+        if self.system_type == "complex":
+            dirstruct_type = "post_process_halo"
+            # set inptraj
+            inptraj = self.config.hmc_args.complex_endstate_trajectory
+            # set inital coordinate (frame=0)
+            if self.config.hmc_args.complex_endstate_initial_trajectory is not None:
+                coordinate = self.config.hmc_args.complex_endstate_initial_trajectory
+
+            # set restraint file
+            if self.config.hmc_args.hmc_restraint_file is not None:
+                restraint_file = self.config.hmc_args.hmc_restraint_file
+
+        elif self.system_type == "receptor":
+            # set receptor inptraj from hmc completed simulation
+            inptraj = self.config.hmc_args.receptor_endstate_trajectory
+            if self.config.hmc_args.receptor_endstate_initial_trajectory is not None:
+                coordinate = self.config.hmc_args.receptor_endstate_initial_trajectory
+
+        else:
+            # set ligand inptraj from hmc completed simulation
+            inptraj = self.config.hmc_args.ligand_endstate_trajectory
+            if self.config.hmc_args.ligand_endstate_initial_trajectory is not None:
+                coordinate = self.config.hmc_args.ligand_endstate_initial_trajectory
+
+        temp_args["topology"] = self.topology
+        temp_args
+        self.simulations.append(
+            Simulation(
+                executable="sander.MPI",
+                mpi_command=self.config.system_settings.mpi_command,
+                num_cores=self.num_cores,
+                prmtop=self.topology,
+                incrd=coordinate,
+                input_file=self.config.inputs["post_hmc_mdin"],
+                restraint_file=restraint_file,
+                directory_args=temp_args,
+                system_type=self.system_type,
+                dirstruct=dirstruct_type,
+                inptraj=[inptraj],
+                post_analysis=True,
+                working_directory=self.config.system_settings.working_directory,
+                memory=self.config.system_settings.memory,
+                disk=self.config.system_settings.disk,
+                sim_debug=self.config.workflow.debug,
+            )
+        )
+
+    def setup_RISM_bookended_simulation(self):
+        """Setup a SinglePoint 3D RISM post-analysis simulation"""
+        pass
 
     def setup_ligand_charge_simulation(
         self, prmtop: FileID, charge: float, restraint_key: str
@@ -312,6 +373,33 @@ class SimulationSetup:
                 sim_debug=self.config.workflow.debug,
             )
         )
+
+    @property
+    def gb_bookended_dirstructut(self) -> dict:
+        """Distrcut arguments for GB HMC simulation
+
+        Returns:
+            _type_: _description_
+        """
+        return {
+            "topology": self.topology,
+            "state_label": "bookended_HMC",
+            "charge": 1.0,
+            "extdiel": 78.5,
+            "igb": self.config.hmc_args.hmc_model,
+            "igb_value": self.config.intermidate_args.igb_solvent,
+            "conformational_restraint": 0.0,
+            "orientational_restraints": 0.0,
+            "runtype": "hmc",
+            "traj_state_label": "bookended_HMC",
+            "traj_charge": 1.0,
+            "traj_extdiel": 78.5,
+            "topdir": self.config.system_settings.top_directory_path,
+            "traj_igb": self.config.hmc_args.hmc_model,
+            "filename": "hmc_postprocess",
+            "trajectory_restraint_conrest": 0.0,
+            "trajectory_restraint_orenrest": 0.0,
+        }
 
     @property
     def ligand_charge_args(self) -> dict:

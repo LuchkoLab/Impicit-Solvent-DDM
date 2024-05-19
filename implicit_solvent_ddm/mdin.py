@@ -23,6 +23,15 @@ def generate_extdiel_mdin(job, user_mdin_ID: FileID, gb_extdiel: float) -> FileI
     )
 
 
+def generate_hmc_post_mdin(job, hmc_mdin_id: FileID) -> FileID:
+    """Write an mdin for post analysis within the HMC potential."""
+    mdin_global = job.fileStore.readGlobalFile(hmc_mdin_id)
+
+    return job.fileStore.writeGlobalFile(
+        make_mdin_file(mdin_global, "hmc_post_mdin", post_process=True)
+    )
+
+
 def get_mdins(job, user_mdin_ID: FileID):
     """Writes all mdins for intermidate states
 

@@ -15,6 +15,7 @@ from toil.job import Job, JobFunctionWrappingJob
 from implicit_solvent_ddm.adaptive_restraints import (
     adaptive_lambda_windows,
     run_exponential_averaging,
+    parse_out_endstate_correction,
 )
 from implicit_solvent_ddm.alchemical import alter_topology, split_complex_system
 from implicit_solvent_ddm.config import Config
@@ -24,7 +25,11 @@ from implicit_solvent_ddm.run_endstate import (
     user_defined_endstate,
 )
 from implicit_solvent_ddm.setup_simulations import SimulationSetup
-from implicit_solvent_ddm.mdin import get_mdins, generate_extdiel_mdin
+from implicit_solvent_ddm.mdin import (
+    get_mdins,
+    generate_extdiel_mdin,
+    generate_hmc_post_mdin,
+)
 from implicit_solvent_ddm.postTreatment import ConsolidateData
 from implicit_solvent_ddm.restraints import (
     BoreschRestraints,
@@ -73,6 +78,12 @@ def ddm_workflow(
     config.inputs["post_mdin"] = mdins.rv(2)
     config.inputs["post_nosolv_mdin"] = mdins.rv(3)
 
+    if config.workflow.run_hmc:
+        post_hmc_mdin = mdins.addChildJobFn(
+            generate_hmc_post_mdin, config.hmc_args.mdin_HMC
+        )
+        config.inputs["post_hmc_mdin"] = post_hmc_mdin.rv()
+
     # write empty restraint.RST
     empty_restraint = mdins.addChildJobFn(write_empty_restraint)
     config.inputs["empty_restraint"] = empty_restraint.rv()
@@ -101,6 +112,107 @@ def ddm_workflow(
         config.amber_masks.ligand_mask,
         config.amber_masks.receptor_mask,
     )
+
+    # Check to see if an HMC simulation was given
+    hmc_dataframe = None
+    if config.workflow.run_hmc:
+        # create parent job HMC correction
+        HMC_correction = split_job.addFollowOnJobFn(initilized_jobs)
+
+        hmc_complex_correction = SimulationSetup(
+            config=config,
+            system_type="complex",
+            endstate_traj=endstate_job.rv(1),
+            binding_mode=endstate_job.rv(0),
+            restraints=config.inputs["flat_bottom_restraint"],
+        )
+        hmc_ligand_correction = SimulationSetup(
+            config=config,
+            system_type="ligand",
+            restraints=config.inputs["empty_restraint"],
+            binding_mode=split_job.rv(1),
+            endstate_traj=endstate_job.rv(3),
+        )
+        hmc_receptor_corrections = SimulationSetup(
+            config=config,
+            system_type="receptor",
+            restraints=config.inputs["empty_restraint"],
+            binding_mode=split_job.rv(0),
+            endstate_traj=endstate_job.rv(2),
+        )
+        # set up complex correction simulations
+        hmc_complex_correction.setup_post_GB_bookended_simulation()
+        hmc_complex_correction.setup_post_endstate_simulation(flat_bottom=True)
+        # set up receptor only correction
+        hmc_receptor_corrections.setup_post_GB_bookended_simulation()
+        hmc_receptor_corrections.setup_post_endstate_simulation()
+        # set up ligand only correction
+        hmc_ligand_correction.setup_post_GB_bookended_simulation()
+        hmc_ligand_correction.setup_post_endstate_simulation()
+        # Flat bottom contribution
+
+        complex_hmc_bookened = HMC_correction.addChild(
+            IntermidateRunner(
+                hmc_complex_correction.simulations,
+                "restraints",
+                post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
+                post_process_mdin=config.inputs["post_mdin"],
+                post_process_distruct="post_process_halo",
+                post_only=workflow.post_analysis_only,
+                config=config,
+            )
+        )
+        # receptor bookened
+        receptor_hmc_bookened = HMC_correction.addChild(
+            IntermidateRunner(
+                hmc_receptor_corrections.simulations,
+                "restraints",
+                post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
+                post_process_mdin=config.inputs["post_mdin"],
+                post_process_distruct="post_process_halo",
+                post_only=workflow.post_analysis_only,
+                config=config,
+            )
+        )
+
+        ligand_hmc_bookended = HMC_correction.addChild(
+            IntermidateRunner(
+                hmc_ligand_correction.simulations,
+                "restraints",
+                post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
+                post_process_mdin=config.inputs["post_mdin"],
+                post_process_distruct="post_process_halo",
+                post_only=workflow.post_analysis_only,
+                config=config,
+            )
+        )
+        completed_hmc_runs = HMC_correction.addFollowOnJobFn(initilized_jobs)
+        # perform exponntial averaging -> flat bottom restraint contribution
+        complex_correction = completed_hmc_runs.addChildJobFn(
+            run_exponential_averaging,
+            system_runner=complex_hmc_bookened.rv(),
+            temperature=config.intermidate_args.temperature,
+        )
+        receptor_correction = completed_hmc_runs.addChildJobFn(
+            run_exponential_averaging,
+            system_runner=receptor_hmc_bookened.rv(),
+            temperature=config.intermidate_args.temperature,
+        )
+        ligand_correction = completed_hmc_runs.addChildJobFn(
+            run_exponential_averaging,
+            system_runner=ligand_hmc_bookended.rv(),
+            temperature=config.intermidate_args.temperature,
+        )
+        hmc_dataframe = completed_hmc_runs.addFollowOnJobFn(
+            parse_out_endstate_correction,
+            complex_correction.rv(),
+            receptor_correction.rv(),
+            ligand_correction.rv(),
+            config,
+        ).rv()
+        # only run the endstate correction ignore the rest of the cycle
+        if workflow.run_hmc_bookended_only:
+            return config
 
     # create parent job for flat bottom contribution
     flat_bottom_contribution = split_job.addFollowOnJobFn(initilized_jobs)
@@ -421,6 +533,7 @@ def ddm_workflow(
                     max_conformation_force=max_con_exponent,
                     max_orientational_force=max_orien_exponent,
                     boresch_df=restraints,
+                    hmc_correction_df=hmc_dataframe,
                     complex_filename=config.endstate_files.complex_parameter_filename,
                     ligand_filename=config.endstate_files.ligand_parameter_filename,
                     receptor_filename=config.endstate_files.receptor_parameter_filename,
@@ -550,6 +663,10 @@ def main():
 
             if config.intermidate_args.guest_restraint_files is not None:
                 config.intermidate_args.toil_import_user_restriants(toil=toil)
+
+            # check if HMC inputs were passed then import to job store
+            if config.workflow.run_hmc:
+                config.hmc_args.toil_import_hmc_files(toil=toil)
 
             config.inputs["min_mdin"] = str(
                 toil.import_file(
