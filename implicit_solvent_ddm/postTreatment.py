@@ -353,15 +353,20 @@ def create_mdout_dataframe(
     dirstruct: str,
     output_dir: str,
     compress: bool = True,
+    completed_df: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
+
     sim = Dirstruct("mdgb", directory_args, dirstruct=dirstruct)
+    run_args = sim.dirStruct.fromPath2Dict(output_dir)
+    if completed_df is None:
+        mdout = f"{output_dir}/mdout"
 
-    mdout = f"{output_dir}/mdout"
-
-    job.log(f"List files in postprocess directory {os.listdir(output_dir)}\n")
-    run_args = sim.dirStruct.fromPath2Dict(mdout)
-    data = min_to_dataframe(mdout)
-
+        job.log(f"List files in postprocess directory {os.listdir(output_dir)}\n")
+        run_args = sim.dirStruct.fromPath2Dict(mdout)
+        data = min_to_dataframe(mdout)
+    else:
+        job.log(f"PASSED IN HMC DATAFRAME: {completed_df}")
+        data = completed_df
     # data["traj_state_label"] = run_args["traj_state_label"]
     # data["state_label"] = run_args["state_label"]
 

@@ -110,7 +110,8 @@ class SimulationSetup:
         restraint_file = self.config.inputs["empty_restraint"]
 
         dirstruct_type = "post_process_apo"
-
+        # set load_df =None
+        load_df = None
         if self.system_type == "complex":
             dirstruct_type = "post_process_halo"
             # set inptraj
@@ -123,18 +124,25 @@ class SimulationSetup:
             if self.config.hmc_args.hmc_restraint_file is not None:
                 restraint_file = self.config.hmc_args.hmc_restraint_file
 
+            # check if user proved HMC df
+            if self.config.hmc_args.complex_hmc_endstate_analysis_df is not None:
+                load_df = self.config.hmc_args.complex_hmc_endstate_analysis_df
         elif self.system_type == "receptor":
             # set receptor inptraj from hmc completed simulation
             inptraj = self.config.hmc_args.receptor_endstate_trajectory
             if self.config.hmc_args.receptor_endstate_initial_trajectory is not None:
                 coordinate = self.config.hmc_args.receptor_endstate_initial_trajectory
 
+            if self.config.hmc_args.receptor_hmc_endstate_analysis_df is not None:
+                load_df = self.config.hmc_args.receptor_hmc_endstate_analysis_df
         else:
             # set ligand inptraj from hmc completed simulation
             inptraj = self.config.hmc_args.ligand_endstate_trajectory
             if self.config.hmc_args.ligand_endstate_initial_trajectory is not None:
                 coordinate = self.config.hmc_args.ligand_endstate_initial_trajectory
 
+            if self.config.hmc_args.ligand_hmc_endstate_analysis_df is not None:
+                load_df = self.config.hmc_args.ligand_hmc_endstate_analysis_df
         temp_args["topology"] = self.topology
         temp_args
         self.simulations.append(
@@ -152,6 +160,7 @@ class SimulationSetup:
                 inptraj=[inptraj],
                 post_analysis=True,
                 xvv=self.config.hmc_args.rism_xvv,
+                loaded_df=load_df,
                 working_directory=self.config.system_settings.working_directory,
                 memory=self.config.system_settings.memory,
                 disk=self.config.system_settings.disk,

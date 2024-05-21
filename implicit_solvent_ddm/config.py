@@ -466,10 +466,12 @@ class BookendedHMC:
     receptor_endstate_trajectory: Union[str, FileID]
     ligand_endstate_trajectory: Union[str, FileID]
     mdin_HMC: Union[str, FileID]
-    # SAMPLING METHOD and eval method
+    # HMC method
     hmc_model: str
-    hmc_dataframe_path: Optional[str]
-    hmc_endstate_analysis_dataframe: Optional[pd.DataFrame] = None
+    # HMC post analysis
+    complex_hmc_endstate_analysis_df: Union[str, None, pd.DataFrame] = None
+    receptor_hmc_endstate_analysis_df: Union[str, None, pd.DataFrame] = None
+    ligand_hmc_endstate_analysis_df: Union[str, None, pd.DataFrame] = None
     total_energy_column: str = "Etot"
 
     # optional restraint file
@@ -503,11 +505,35 @@ class BookendedHMC:
         if self.hmc_model == "3drism" and self.rism_xvv is None:
             raise RuntimeError(f"Please provide an `.xvv` file if hmc_model is 3drism")
 
-        if self.hmc_dataframe_path is not None:
-            self.hmc_endstate_analysis_dataframe = pd.read_csv(self.hmc_dataframe_path)[
-                [self.total_energy_column]
-            ]
-            self.hmc_endstate_analysis_dataframe.columns = ["ENERGY"]
+        if self.complex_hmc_endstate_analysis_df is not None:
+            pd_read_fn = self.get_pandas_preference(
+                self.complex_hmc_endstate_analysis_df
+            )
+            self.complex_hmc_endstate_analysis_df = pd_read_fn(
+                self.complex_hmc_endstate_analysis_df
+            )[[self.total_energy_column]]
+
+            self.complex_hmc_endstate_analysis_df.columns = ["ENERGY"]
+
+        if self.receptor_hmc_endstate_analysis_df is not None:
+            pd_read_fn = self.get_pandas_preference(
+                self.receptor_hmc_endstate_analysis_df
+            )
+            self.receptor_hmc_endstate_analysis_df = pd_read_fn(
+                self.receptor_hmc_endstate_analysis_df
+            )[[self.total_energy_column]]
+
+            self.receptor_hmc_endstate_analysis_df.columns = ["ENERGY"]
+
+        if self.ligand_hmc_endstate_analysis_df is not None:
+            pd_read_fn = self.get_pandas_preference(
+                self.ligand_hmc_endstate_analysis_df
+            )
+            self.ligand_hmc_endstate_analysis_df = pd_read_fn(
+                self.ligand_hmc_endstate_analysis_df
+            )[[self.total_energy_column]]
+
+            self.ligand_hmc_endstate_analysis_df.columns = ["ENERGY"]
 
     @classmethod
     def from_config(cls: Type["BookendedHMC"], obj: dict):
@@ -520,15 +546,33 @@ class BookendedHMC:
             receptor_endstate_trajectory="receptor.ncrst",
             ligand_endstate_trajectory="ligand.ncrst",
             mdin_HMC="mdin",
-            hmc_dataframe_path=None,
             hmc_model="igb2",
+        )
+
+    @staticmethod
+    def get_pandas_preference(dataframe_path: str):
+        """Return a pandas function to read provided df"""
+        types_of_df = {
+            "csv": pd.read_csv,
+            "h5": pd.read_hdf,
+            "parquet": pd.read_parquet,
+        }
+        basename = os.path.basename(dataframe_path)
+        matched = re.findall(r"(csv|h5|parquet)", basename)
+
+        if matched:
+            return types_of_df[matched[0]]
+
+        raise ValueError(
+            f"""Current version only supported `.csv`, `.h5`, `.parquet` pandas dataframes.
+                         The dataframe passed was {basename}"""
         )
 
     def toil_import_hmc_files(self, toil: Toil):
         """Import all required HMC files into Toil.jobstore"""
         # export initial trajectories in baselevel directory
 
-        if isinstance(self.complex_endstate_initial_trajectory, pt.Trajectory):
+        if isinstance(self.complex_endstate_initial_trajectory, pt.TrajectoryIterator):
             dirname = os.path.dirname(self.complex_endstate_trajectory)
             complex_solu = os.path.basename(self.complex_endstate_trajectory)
             pt.write_traj(
@@ -540,7 +584,7 @@ class BookendedHMC:
                 dirname, f"{complex_solu}_init_traj.ncrst.1"
             )
 
-        if isinstance(self.receptor_endstate_initial_trajectory, pt.Trajectory):
+        if isinstance(self.receptor_endstate_initial_trajectory, pt.TrajectoryIterator):
             dirname = os.path.dirname(self.receptor_endstate_trajectory)
             receptor_solu = os.path.basename(self.receptor_endstate_trajectory)
             pt.write_traj(
@@ -552,7 +596,7 @@ class BookendedHMC:
                 dirname, f"{receptor_solu}_init_traj.ncrst.1"
             )
 
-        if isinstance(self.ligand_endstate_initial_trajectory, pt.Trajectory):
+        if isinstance(self.ligand_endstate_initial_trajectory, pt.TrajectoryIterator):
             dirname = os.path.dirname(self.ligand_endstate_trajectory)
             ligand_solu = os.path.basename(self.ligand_endstate_trajectory)
             pt.write_traj(
@@ -994,21 +1038,20 @@ class Config:
                 )
 
     def _get_init_coordinates(self):
-
-        self.hmc_args.complex_endstate_initial_trajectory = pt.load(
+        self.hmc_args.complex_endstate_initial_trajectory = pt.iterload(
             self.hmc_args.complex_endstate_trajectory,
             self.endstate_files.complex_parameter_filename,
-            frame_indices=[0],
+            frame_slice=[(0, 1)],
         )
-        self.hmc_args.receptor_endstate_initial_trajectory = pt.load(
+        self.hmc_args.receptor_endstate_initial_trajectory = pt.iterload(
             self.hmc_args.receptor_endstate_trajectory,
             self.endstate_files.receptor_parameter_filename,
-            frame_indices=[0],
+            frame_slice=[(0, 1)],
         )
-        self.hmc_args.ligand_endstate_initial_trajectory = pt.load(
+        self.hmc_args.ligand_endstate_initial_trajectory = pt.iterload(
             self.hmc_args.ligand_endstate_trajectory,
             self.endstate_files.ligand_parameter_filename,
-            frame_indices=[0],
+            frame_slice=[(0, 1)],
         )
 
     @classmethod
@@ -1116,9 +1159,9 @@ if __name__ == "__main__":
     options = Job.Runner.getDefaultOptions("./toilWorkflowRun")
     options.logLevel = "OFF"
     options.clean = "always"
-    with open(
-        "/nas0/ayoub/Impicit-Solvent-DDM/Example_runs/config_files/restart_basic_md_rism.yaml"
-    ) as fH:
+    # cn_file =  "/nas0/ayoub/Impicit-Solvent-DDM/Example_runs/config_files/restart_basic_md_rism.yaml"
+    cn_file = "/nas0/ayoub/different_gb_models/sampl4_cb7/igb_2/test_hmc_endstate/config_files/cb7-mol03.yaml"
+    with open(cn_file) as fH:
         yaml_config = yaml.safe_load(fH)
 
     with Toil(options) as toil:

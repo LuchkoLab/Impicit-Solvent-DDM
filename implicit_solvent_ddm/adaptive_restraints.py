@@ -725,6 +725,7 @@ def run_exponential_averaging(
     df_mbar: pd.DataFrame
         An formated and chronological arrange DataFrame before any MBAR analysis was performed. (Which can be used to create pdfs of MBAR matrix).
     """
+    job.log("running PyMBAR")
     return compute_mbar(
         simulation_data=system_runner.post_output,
         temperature=temperature,

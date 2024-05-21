@@ -237,22 +237,26 @@ class IntermidateRunner(Job):
             fileStore.logToMaster(f"mdout_parse: {mdout_parse}\n")
             fileStore.logToMaster(f"ADAPTIVE {self.adaptive}")
             # check hmc post analysis evaluated itself
-            # hmc_check = all(
-            #     [
-            #         post_simulation.directory_args["state_label"] == "bookended_HMC",
-            #         completed_sim.directory_args["state_label"] == "bookended_HMC",
-            #     ]
-            # )
-            # # if user ran hmc analysis already just load the dataframe
-            # if hmc_check and completed_sim.loaded_df is not None:
-            #     data_frame = post_process_job.addFollowOnJobFn(
-            #         create_mdout_dataframe,
-            #         post_process_job.directory_args,
-            #         post_process_job.dirstruct,
-            #         post_process_job.output_dir,
-            #         completed_df=completed_sim.loaded_df,
-            #     )
-            if not "simulation_mdout.parquet.gzip" in os.listdir(
+            hmc_check = all(
+                [
+                    post_simulation.directory_args["state_label"] == "bookended_HMC",
+                    completed_sim.directory_args["state_label"] == "bookended_HMC",
+                ]
+            )
+            fileStore.logToMaster(f"HMC CHECK IS: {hmc_check}")
+            # if user ran hmc analysis already just load the dataframe
+            if hmc_check and completed_sim.loaded_df is not None:
+                fileStore.logToMaster("LOADING HMC DATAFRAME")
+
+                data_frame = self.addChildJobFn(
+                    create_mdout_dataframe,
+                    post_process_job.directory_args,
+                    post_process_job.dirstruct,
+                    post_process_job.output_dir,
+                    completed_df=completed_sim.loaded_df,
+                )
+                self.post_output.append(data_frame.rv())
+            elif not "simulation_mdout.parquet.gzip" in os.listdir(
                 post_process_job.output_dir
             ):
                 fileStore.logToMaster(
@@ -281,7 +285,7 @@ class IntermidateRunner(Job):
                 self.post_output.append(data_frame.rv())
 
             elif post_process_job.output_dir in self._loaded_dataframe:
-                fileStore.logToMaster(f"ADAPTIVE lambda window set")
+                fileStore.logToMaster("ADAPTIVE lambda window set")
                 fileStore.logToMaster(
                     f"Adapative restraints Is TRUE therefore {post_process_job.output_dir} is already loaded\n"
                 )
