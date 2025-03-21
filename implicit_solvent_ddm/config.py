@@ -23,8 +23,13 @@ WORKDIR = os.getcwd()
 
 @dataclass
 class Workflow:
-    """Base workflow procedure."""
+    """
+    Defines the configuration for a modular computational workflow.
 
+    Each boolean attribute represents whether a particular step or behavior
+    in the workflow is enabled. This class can be initialized directly or
+    constructed from a configuration dictionary using `from_config()`.
+    """
     setup_workflow: bool = True
     consolidate_output: bool = True
     run_endstate_method: bool = True
@@ -50,6 +55,18 @@ class Workflow:
 
     @classmethod
     def from_config(cls: Type["Workflow"], obj: dict):
+        """
+        Create a Workflow instance from a configuration dictionary.
+
+        Expects the dictionary to have a 'workflow_jobs' key containing a
+        sub-dictionary with workflow configuration flags.
+
+        Args:
+            obj (dict): Configuration dictionary, typically parsed from a YAML or JSON file.
+
+        Returns:
+            Workflow: An instance configured according to the input.
+        """
         if "workflow_jobs" in obj.keys():
             return cls(**obj["workflow_jobs"])
         else:
@@ -129,11 +146,24 @@ class SystemSettings:
 @dataclass
 class ParameterFiles:
     """
-    AMBER parameter files for workflow.
-    Requires a complex parameter file (.parm7) and complex coordinate files (AMBER)
-    trajectories (.nc, .ncrst, .rst7 ect)
-    """
+    AMBER parameter and coordinate file management for molecular simulations.
 
+    This class handles loading and validation of AMBER-compatible input files for
+    the complex, ligand, and receptor. It also provides functionality to extract
+    initial coordinates from trajectory files.
+
+    Attributes:
+        complex_parameter_filename: Path or ID to the complex's parameter file (.parm7).
+        complex_coordinate_filename: Path or ID to the complex's coordinate file (.nc, .ncrst, etc).
+        ligand_parameter_filename: Optional path or ID to the ligand's parameter file.
+        ligand_coordinate_filename: Optional path or ID to the ligand's coordinate file.
+        receptor_parameter_filename: Optional path or ID to the receptor's parameter file.
+        receptor_coordinate_filename: Optional path or ID to the receptor's coordinate file.
+        complex_initial_coordinate: Optional path to the generated initial coordinate file for the complex.
+        ligand_initial_coordinate: Optional path to the generated initial coordinate file for the ligand.
+        receptor_initial_coordinate: Optional path to the generated initial coordinate file for the receptor.
+        ignore_unique_naming: If True, skips unique naming enforcement for file IDs.
+    """
     complex_parameter_filename: Union[str, FileID]
     complex_coordinate_filename: Union[str, FileID]
     ligand_parameter_filename: Optional[Union[str, FileID]] = field(default=None)
@@ -148,6 +178,11 @@ class ParameterFiles:
     ignore_unique_naming: bool = False
 
     def __post_init__(self):
+        """
+        Validates the complex structure upon initialization by loading the trajectory
+        and running a structural check. Also initializes a temporary directory for
+        generated coordinate files.
+        """
         self.tempdir = tempfile.TemporaryDirectory()
         # check complex is a valid structure
         # ASK LUCHKO HOW TO CHECK FOR VALID STRUCTURES
@@ -162,9 +197,24 @@ class ParameterFiles:
 
     @classmethod
     def from_config(cls: Type["ParameterFiles"], obj: dict):
+        """
+        Creates a ParameterFiles instance from a configuration dictionary.
+
+        Args:
+            obj (dict): Dictionary with keys matching ParameterFiles attributes.
+
+        Returns:
+            ParameterFiles: An initialized instance of the class.
+        """
         return cls(**obj)
 
     def get_inital_coordinate(self):
+        """
+        Extracts and writes the first frame from complex, receptor, and ligand
+        trajectories to individual coordinate files in a temporary directory.
+
+        Also sets the corresponding initial coordinate attributes.
+        """
         solu_complex = re.sub(
             r"\..*", "", os.path.basename(self.complex_coordinate_filename)
         )
