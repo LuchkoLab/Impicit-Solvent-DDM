@@ -4,20 +4,11 @@
 .. automodule:: implicit_solvent_ddm.config
 
    
-   
-   
-
-   
-   
    .. rubric:: Functions
 
    .. autosummary::
    
       workflow
-   
-   
-
-   
    
    .. rubric:: Classes
 
@@ -35,11 +26,3 @@
       SystemSettings
       Workflow
    
-   
-
-   
-   
-   
-
-
-

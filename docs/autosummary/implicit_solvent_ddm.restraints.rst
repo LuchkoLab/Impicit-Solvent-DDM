@@ -4,11 +4,6 @@
 .. automodule:: implicit_solvent_ddm.restraints
 
    
-   
-   
-
-   
-   
    .. rubric:: Functions
 
    .. autosummary::
@@ -20,10 +15,6 @@
       write_empty_restraint
       write_restraint_forces
    
-   
-
-   
-   
    .. rubric:: Classes
 
    .. autosummary::
@@ -32,11 +23,3 @@
       FlatBottom
       RestraintMaker
    
-   
-
-   
-   
-   
-
-
-

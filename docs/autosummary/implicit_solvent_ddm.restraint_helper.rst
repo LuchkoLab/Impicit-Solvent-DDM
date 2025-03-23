@@ -4,11 +4,6 @@
 .. automodule:: implicit_solvent_ddm.restraint_helper
 
    
-   
-   
-
-   
-   
    .. rubric:: Functions
 
    .. autosummary::
@@ -23,15 +18,3 @@
       screen_for_distance_restraints
       shortest_distance_between_molecules
    
-   
-
-   
-   
-   
-
-   
-   
-   
-
-
-

@@ -40,6 +40,7 @@
       ~IntermidateRunner.log
       ~IntermidateRunner.new_runner
       ~IntermidateRunner.only_post_analysis
+      ~IntermidateRunner.preemptable
       ~IntermidateRunner.prepareForPromiseRegistration
       ~IntermidateRunner.registerPromise
       ~IntermidateRunner.run
@@ -58,13 +59,14 @@
 
    .. autosummary::
    
+      ~IntermidateRunner.accelerators
       ~IntermidateRunner.checkpoint
       ~IntermidateRunner.cores
       ~IntermidateRunner.description
       ~IntermidateRunner.disk
       ~IntermidateRunner.jobStoreID
       ~IntermidateRunner.memory
-      ~IntermidateRunner.preemptable
+      ~IntermidateRunner.preemptible
       ~IntermidateRunner.tempDir
    
    

@@ -4,11 +4,6 @@
 .. automodule:: implicit_solvent_ddm.adaptive_restraints
 
    
-   
-   
-
-   
-   
    .. rubric:: Functions
 
    .. autosummary::
@@ -19,20 +14,9 @@
       good_enough
       group_overlap_neighbors
       improve_charge_scaling
-      improve_overlap
+      improve_gb_dielectric
+      improve_restraints_overlap
       initilized_jobs
       overlap_average
       run_exponential_averaging
    
-   
-
-   
-   
-   
-
-   
-   
-   
-
-
-

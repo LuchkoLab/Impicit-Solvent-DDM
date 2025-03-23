@@ -4,20 +4,11 @@
 .. automodule:: implicit_solvent_ddm.postTreatment
 
    
-   
-   
-
-   
-   
    .. rubric:: Functions
 
    .. autosummary::
    
       create_mdout_dataframe
-   
-   
-
-   
    
    .. rubric:: Classes
 
@@ -25,11 +16,3 @@
    
       ConsolidateData
    
-   
-
-   
-   
-   
-
-
-

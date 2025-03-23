@@ -36,6 +36,7 @@
       ~CycleSteps.receptor_order
       ~CycleSteps.remove_restraints
       ~CycleSteps.start_complex_charge_matrix
+      ~CycleSteps.start_gb_extdiel_matrix
       ~CycleSteps.start_ligand_charge_matrix
       ~CycleSteps.conformation_forces
       ~CycleSteps.orientational_forces

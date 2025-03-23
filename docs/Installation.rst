@@ -5,7 +5,7 @@ To install implicit_solvent_ddm, you will need to create an conda enviroment
 
 1. git pull git@github.com:LuchkoLab/Impicit-Solvent-DDM.git
 2. conda env create -f devtools/conda-envs/test_env.yaml
-3. conda activate mol_ddm_env
+3. conda activate isdmm_env
 4. python setup.py sdist
 5. pip install dist/*
 

@@ -4,28 +4,11 @@
 .. automodule:: implicit_solvent_ddm.pandasmbar
 
    
-   
-   
-
-   
-   
    .. rubric:: Functions
 
    .. autosummary::
    
-      detectEquilibration
+      detect_equilibration
       mbar
-      subsampleCorrelatedData
+      subsample_correlated_data
    
-   
-
-   
-   
-   
-
-   
-   
-   
-
-
-

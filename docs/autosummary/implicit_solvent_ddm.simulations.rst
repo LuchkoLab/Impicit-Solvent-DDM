@@ -4,11 +4,6 @@
 .. automodule:: implicit_solvent_ddm.simulations
 
    
-   
-   
-
-   
-   
    .. rubric:: Functions
 
    .. autosummary::
@@ -16,10 +11,6 @@
       workflow
       write_empty_restraint
       write_mdin
-   
-   
-
-   
    
    .. rubric:: Classes
 
@@ -30,11 +21,3 @@
       REMDSimulation
       Simulation
    
-   
-
-   
-   
-   
-
-
-
