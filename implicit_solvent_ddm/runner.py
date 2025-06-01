@@ -15,12 +15,93 @@ from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.postTreatment import create_mdout_dataframe
 from implicit_solvent_ddm.restraints import RestraintMaker
 from implicit_solvent_ddm.simulations import Simulation
+from itertools import islice
+from numba import cuda
+
+
+def chunked(iterable, size):
+    """Yield successive chunks from iterable of given size."""
+    it = iter(iterable)
+    return iter(lambda: list(islice(it, size)), [])
+
+def get_gpu_count():
+    return len(cuda.gpus)
 
 
 class IntermidateRunner(Job):
     """
-    Runner class that will initiate all MD simulations for the respected system (i.e. complex, ligand or receptor)
-    IntermidateRunner is responsible for handling all the Simulations and collecting the output dataframes.
+    Manages and executes MD simulations and post-analysis steps for a given system phase.
+
+    This runner class handles the full lifecycle for a batch of simulation jobs 
+    (e.g., for ligand, receptor, or complex), including:
+    - Launching intermediate MD simulations (if not already run),
+    - Collecting and caching output data (parsed from mdout),
+    - Running post-analysis jobs (e.g., energy decomposition),
+    - Supporting adaptive workflows and optional "post-only" modes.
+
+    Parameters
+    ----------
+    simulations : list of Simulation
+        List of simulation objects to run. Each one encapsulates the inputs for a ligand, receptor, or complex phase.
+    restraints : RestraintMaker
+        Object that manages creation of restraint files or logic for the simulations.
+    post_process_no_solv_mdin : FileID
+        Input file for post-processing jobs that should exclude implicit solvent (e.g., for igb=6).
+    post_process_mdin : FileID
+        Standard input file for post-analysis energy evaluation (e.g., sander).
+    post_process_distruct : str
+        Directory structure key or identifier used to organize post-processing job outputs.
+    post_only : bool
+        If True, skips MD simulations and runs post-analysis only.
+    config : Config
+        Global configuration object for the workflow.
+    adaptive : bool, optional
+        Enables adaptive lambda window or restraint scheduling if True.
+    loaded_dataframe : list, optional
+        Tracks previously parsed output directories to avoid reprocessing.
+    post_output : list or list of pd.DataFrame, optional
+        Stores collected energy analysis output dataframes from post-processing.
+    memory : int or str, optional
+        Memory allocation for the job (used by the underlying workflow engine).
+    cores : int or float or str, optional
+        Number of CPU cores to request for each job.
+    disk : int or str, optional
+        Disk allocation for the job (used by the underlying workflow engine).
+    preemptable : bool or int or str, optional
+        Flag to mark the job as preemptable (depending on scheduler).
+    unitName : str, optional
+        Name for job unit (optional; used in workflow diagnostics).
+    checkpoint : bool, optional
+        If True, enables checkpointing of the job state.
+    displayName : str, optional
+        Custom name for the job (for logs/monitoring).
+    descriptionClass : str, optional
+        Optional tag or label for job type.
+
+    Attributes
+    ----------
+    post_output : list
+        Contains parsed pandas DataFrames of energy terms from post-analysis jobs.
+    ligand_output : list
+        Placeholder list for ligand-specific outputs.
+    receptor_output : list
+        Placeholder list for receptor-specific outputs.
+    complex_output : list
+        Placeholder list for complex-specific outputs.
+    _loaded_dataframe : list
+        Tracks directories already parsed to prevent duplicate processing.
+
+    Notes
+    -----
+    - Each Simulation object is checked for output; if missing, MD is run first.
+    - If `post_only` is True, only analysis is performed using available trajectories.
+    - Uses `sander.MPI` for post-processing and `create_mdout_dataframe` for parsing outputs.
+    - Designed for use in generalized workflows involving restraint-free energies or DDM.
+
+    Returns
+    -------
+    self : IntermidateRunner
+        Returns itself to support chaining or retrieval in a workflow graph.
     """
 
     # simulations: dict[Simulation, int]
@@ -71,122 +152,135 @@ class IntermidateRunner(Job):
         self.post_process_distruct = post_process_distruct
 
     def run(self, fileStore):
+        """
+        Submits molecular dynamics (MD) or post-processing jobs based on configuration.
+
+        This method checks whether to run MD simulations (`post_only=False`) or to perform
+        post-analysis on previously completed MD runs (`post_only=True`). In MD mode, all 
+        simulations in `self.simulations` are submitted as Toil child jobs. In post-only mode,
+        it checks if the corresponding MD outputs exist, then launches energy analysis jobs
+        using `sander.MPI` and appends the results.
+
+        Parameters
+        ----------
+        fileStore : toil.job.FileStore
+            A Toil file store object for handling file access, logging, and output exporting 
+            within the job store environment.
+
+        Returns
+        -------
+        self : IntermidateRunner
+            The current job instance, after scheduling MD or post-analysis jobs.
+
+        Notes
+        -----
+        - When `post_only` is True, this function will skip simulations for which MD output 
+        is missing or incomplete.
+        - Trajectories from MD runs are imported into the job store before being passed to
+        post-processing steps.
+        - Simulations with `state_label == "no_flat_bottom"` are ignored entirely.
+        - This function should be run twice in a complete workflow: first to schedule MD, then
+        again with `post_only=True` to schedule analysis jobs after MD has completed.
+        """
         fileStore.logToMaster(f"post only is {self.post_only}")
 
-        def run_post_process(job: Job, ran_simulation: Simulation):
-            for post_simulation in self.simulations:
-                directory_args = post_simulation.directory_args.copy()
+        gpu_jobs = []
+        cpu_jobs = []
 
-                directory_args.update(self.update_postprocess_dirstruct(ran_simulation.directory_args))  # type: ignore
-                # fileStore.logToMaster(f"RUNNER directory args {directory_args}\n")
-
-                mdin = self.mdin
-
-                if post_simulation.directory_args["igb_value"] == 6:
-                    mdin = self.no_solvent_mdin
-
-                # run simulation if its not endstate with endstate
-                # if post_simulation.post:
-                if (
-                    post_simulation.inptraj != ran_simulation.inptraj
-                    or post_simulation.inptraj == None
-                ):
-                    # endstate simulation has inptraj attribute
-                    if ran_simulation.inptraj is not None:
-                        input_traj = ran_simulation.inptraj
-
-                    # whereas the intermidate states does not
-                    else:
-                        input_traj = job.rv(1)
-                    # if job -> endstate
-                    # if post is endstate wont access job.rv()
-                    # but if post is not endstate then it will aceess job.rv
-
-                    post_dirstruct = self.get_system_dirs(post_simulation.system_type)
-                    fileStore.logToMaster(
-                        f"get_system_dirs {post_simulation.system_type}"
-                    )
-                    fileStore.logToMaster(f"current dirstruct {post_dirstruct}")
-                    post_process_job = Simulation(
-                        executable="sander.MPI",
-                        mpi_command=post_simulation.mpi_command,
-                        num_cores=post_simulation.num_cores,
-                        prmtop=post_simulation.prmtop,
-                        incrd=post_simulation.incrd,
-                        input_file=mdin,
-                        restraint_file=post_simulation.restraint_file,
-                        working_directory=post_simulation.working_directory,
-                        directory_args=directory_args,
-                        dirstruct=post_dirstruct,
-                        inptraj=input_traj,
-                        post_analysis=True,
-                        restraint_key=post_simulation.restraint_key,
-                        sim_debug=True,
-                    )
-                    job.addChild(post_process_job)
-
-                    data_frame = post_process_job.addFollowOnJobFn(
-                        create_mdout_dataframe,
-                        post_process_job.directory_args,
-                        post_process_job.dirstruct,
-                        post_process_job.output_dir,
-                    )
-                    self._loaded_dataframe.append(post_process_job.output_dir)
-                else:
-                    fileStore.logToMaster(f"parsing endstate post only")
-                    data_frame = job.addFollowOnJobFn(
-                        create_mdout_dataframe,
-                        directory_args,
-                        post_simulation.dirstruct,
-                        post_simulation.output_dir,
-                    )
-                    self._loaded_dataframe.append(post_simulation.output_dir)
-
-                self.post_output.append(data_frame.rv())
-
-        # iterate and submit all intermidate simulations. Then followup with post-process
+        # Separate GPU and non-GPU simulations
         for simulation in self.simulations:
-            # if checking flat bottom constribution don't run
-
-            # only post analysis
-
-            fileStore.logToMaster(f"simulations args {simulation.directory_args}\n")
-            if simulation.directory_args["state_label"] == "no_flat_bottom":
+            if simulation.directory_args.get("state_label") == "no_flat_bottom":
                 continue
 
-            if self._check_mdout(simulation=simulation) or simulation.inptraj != None:
-                fileStore.logToMaster("simulation mdout may exisit?")
-                fileStore.logToMaster(
-                    f"simulation output directory {simulation.output_dir}"
-                )
-
-                if simulation.inptraj == None:
-                    fileStore.logToMaster(
-                        f"get mdtraj at directory:\n {simulation.output_dir}"
+            if self.post_only:
+                # Post-analysis logic
+                if self._check_mdout(simulation) or simulation.inptraj is not None:
+                    if simulation.inptraj is None:
+                        fileStore.logToMaster(f"Importing MD traj from: {simulation.output_dir}")
+                        simulation.inptraj = [
+                            fileStore.import_file(
+                                "file://" + self._get_md_traj(simulation, fileStore)
+                            )
+                        ]
+                    self.only_post_analysis(
+                        completed_sim=simulation,
+                        md_traj=simulation.inptraj,
+                        fileStore=fileStore
                     )
-                    simulation.inptraj = [
-                        fileStore.import_file(
-                            "file://" + self._get_md_traj(simulation, fileStore),
-                        )
-                    ]
-                self.only_post_analysis(
-                    simulation, md_traj=simulation.inptraj, fileStore=fileStore
-                )
-
+                else:
+                    fileStore.logToMaster(
+                        f"[WARNING] Expected MD output missing for {simulation.output_dir}, skipping post-analysis."
+                    )
             else:
-                fileStore.logToMaster(f"RUNNING MD THEN POST")
-                fileStore.logToMaster(
-                    f"mdout does not exist path: {simulation.output_dir}"
-                )
-                run_post_process(
-                    job=self.addChild(simulation), ran_simulation=simulation
-                )
+                # MD execution logic
+                if self._check_mdout(simulation) or simulation.inptraj is not None:
+                    fileStore.logToMaster(f"[SKIP] MD already complete for: {simulation.output_dir}")
+                    continue
+                fileStore.logToMaster(f"Running MD for: {simulation.output_dir}")
+                self.addChild(simulation)
+                # if simulation.CUDA:
+                #     gpu_jobs.append(simulation)
+                # else:
+                #     cpu_jobs.append(simulation)
+
+        # Divide GPU jobs into batches based on available devices
+        # if gpu_jobs:
+        #     num_gpus = get_gpu_count()
+        #     fileStore.logToMaster(f"Detected {num_gpus} GPUs")
+
+        #     previous_batch = None
+        #     for batch in chunked(gpu_jobs, num_gpus):
+        #         job_handles = []
+        #         for gpu_id, sim in zip(range(num_gpus), batch):
+        #             sim.env = os.environ.copy()
+        #             sim.env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+
+        #             if previous_batch is None:
+        #                 job = self.addChild(sim)
+        #             else:
+        #                 job = previous_batch.addChild(sim)
+
+        #             job_handles.append(job)
+
+        #         # Add a no-op Job to wait for all jobs in this batch
+        #         previous_batch = Job.wrapFn(lambda: None)
+        #         for j in job_handles:
+        #             j.addFollowOn(previous_batch)
+
+        # # Submit CPU-only jobs in parallel
+        # for sim in cpu_jobs:
+        #     self.addChild(sim)
 
         return self
-
+    
     def only_post_analysis(self, completed_sim: Simulation, md_traj, fileStore):
-        """Assumes MD has already been completed and will only run post-analysis."""
+        """
+        Run post-analysis calculations on a completed MD simulation.
 
+        This function schedules post-processing jobs that analyze energy terms
+        using existing trajectory and restart files.
+
+        Parameters
+        ----------
+        completed_sim : Simulation
+            A `Simulation` object representing the completed MD run to be analyzed.
+            This provides context such as working directories and system parameters.
+        md_traj : str
+            Path to the input trajectory file (`.nc`, `.dcd`, etc.) generated by the completed MD simulation.
+        fileStore : FileStore-like
+            An object used for logging and managing output and job submission context (e.g., within a workflow engine).
+
+        Returns
+        -------
+        None
+            All results are appended to `self.post_output` and tracked via `self._loaded_dataframe`.
+
+        Notes
+        -----
+        - If analysis output (`simulation_mdout.parquet.gzip`) already exists and is cached, the job is skipped.
+        - Post-analysis jobs are scheduled using `sander.MPI`, and energy data is parsed into pandas DataFrames.
+        - This method does not perform MD; it assumes all dynamics are already complete.
+        """
         fileStore.logToMaster("RUNNING POST only\n")
         fileStore.logToMaster(f"loaded dataframe: {self._loaded_dataframe}")
 
@@ -206,8 +300,9 @@ class IntermidateRunner(Job):
 
             post_process_job = Simulation(
                 executable="sander.MPI",
-                mpi_command=post_simulation.mpi_command,
+                mpi_command=1, #mpi_command=post_simulation.mpi_command,
                 num_cores=post_simulation.num_cores,
+                CUDA=False,
                 prmtop=post_simulation.prmtop,
                 incrd=post_simulation.incrd,
                 input_file=mdin,
@@ -307,8 +402,8 @@ class IntermidateRunner(Job):
                 "state_label": "lambda_window",
                 "extdiel": 78.5,
                 "charge": charge,
-                "igb": f"igb_{self.config.intermidate_args.igb_solvent}",
-                "igb_value": self.config.intermidate_args.igb_solvent,
+                "igb": f"igb_{self.config.intermediate_args.igb_solvent}",
+                "igb_value": self.config.intermediate_args.igb_solvent,
                 "conformational_restraint": con_force,
                 "orientational_restraints": orient_force,
                 "filename": f"state_8_{con_force}_{orient_force}_prod",
@@ -339,6 +434,7 @@ class IntermidateRunner(Job):
             executable=self.config.system_settings.executable,
             mpi_command=self.config.system_settings.mpi_command,
             num_cores=self.config.num_cores_per_system.complex_ncores,
+            CUDA=False,
             prmtop=parm_file,
             incrd=self.config.inputs["endstate_complex_lastframe"],
             input_file=mdin,
@@ -366,10 +462,10 @@ class IntermidateRunner(Job):
                 "topology": self.config.endstate_files.ligand_parameter_filename,
                 "state_label": "lambda_window",
                 "conformational_restraint": con_force,
-                "igb": f"igb_{self.config.intermidate_args.igb_solvent}",
+                "igb": f"igb_{self.config.intermediate_args.igb_solvent}",
                 "extdiel": 78.5,
                 "charge": charge,
-                "igb_value": self.config.intermidate_args.igb_solvent,
+                "igb_value": self.config.intermediate_args.igb_solvent,
                 "filename": f"state_2_{con_force}_prod",
                 "runtype": f"Running restraint window, Conformational restraint: {con_force}",
                 "topdir": self.config.system_settings.top_directory_path,
@@ -394,6 +490,7 @@ class IntermidateRunner(Job):
             executable=self.config.system_settings.executable,
             mpi_command=self.config.system_settings.mpi_command,
             num_cores=self.config.num_cores_per_system.ligand_ncores,
+            CUDA=self.config.system_settings.CUDA,
             prmtop=parm_file,
             incrd=self.config.inputs["ligand_endstate_frame"],
             input_file=mdin,
@@ -412,6 +509,7 @@ class IntermidateRunner(Job):
             executable=self.config.system_settings.executable,
             mpi_command=self.config.system_settings.mpi_command,
             num_cores=self.config.num_cores_per_system.receptor_ncores,
+            CUDA=self.config.system_settings.CUDA,
             prmtop=self.config.endstate_files.receptor_parameter_filename,
             incrd=self.config.inputs["receptor_endstate_frame"],
             input_file=mdin,
@@ -423,8 +521,8 @@ class IntermidateRunner(Job):
                 "state_label": "lambda_window",
                 "extdiel": 78.5,
                 "charge": 1.0,
-                "igb": f"igb_{self.config.intermidate_args.igb_solvent}",
-                "igb_value": self.config.intermidate_args.igb_solvent,
+                "igb": f"igb_{self.config.intermediate_args.igb_solvent}",
+                "igb_value": self.config.intermediate_args.igb_solvent,
                 "conformational_restraint": con_force,
                 "filename": f"state_2_{con_force}_prod",
                 "runtype": f"Running restraint window, Conformational restraint: {con_force}",
