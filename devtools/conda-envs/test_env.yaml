@@ -20,4 +20,5 @@ dependencies:
   - pytest
   - pytest-cov
   - alchemlyb
+  - numba
 # prefix: /home/ayoub/.conda/envs/isddm_depen_env
