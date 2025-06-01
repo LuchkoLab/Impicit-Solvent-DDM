@@ -65,9 +65,9 @@ def ddm_workflow(
     """
 
     workflow = config.workflow
-    # set intermidate mdin files
-    mdins = job.addChildJobFn(get_mdins, config.intermidate_args.mdin_intermidate_file)
-    # fill in intermidate mdin
+    # set intermediate mdin files
+    mdins = job.addChildJobFn(get_mdins, config.intermediate_args.mdin_intermediate_file)
+    # fill in intermediate mdin
     config.inputs["default_mdin"] = mdins.rv(0)
     config.inputs["no_solvent_mdin"] = mdins.rv(1)
     config.inputs["post_mdin"] = mdins.rv(2)
@@ -103,21 +103,21 @@ def ddm_workflow(
     )
 
     # create parent job for flat bottom contribution
-    flat_bottom_contribution = split_job.addFollowOnJobFn(initilized_jobs)
+    flat_bottom_contribution = split_job.addFollowOnJobFn(initilized_jobs, message="Preparing Flat bottom contribution")
     # generate Boresch orientational restraints
     boresh_restraints = split_job.addChild(
         BoreschRestraints(
             complex_prmtop=config.endstate_files.complex_parameter_filename,
             complex_coordinate=endstate_job.rv(0),
-            restraint_type=config.intermidate_args.restraint_type,
+            restraint_type=config.intermediate_args.restraint_type,
             ligand_mask=config.amber_masks.ligand_mask,
             receptor_mask=config.amber_masks.receptor_mask,
-            K_r=config.intermidate_args.max_conformational_restraint,
-            K_thetaA=config.intermidate_args.max_orientational_restraint,
-            K_thetaB=config.intermidate_args.max_orientational_restraint,
-            K_phiA=config.intermidate_args.max_orientational_restraint,
-            K_phiB=config.intermidate_args.max_orientational_restraint,
-            K_phiC=config.intermidate_args.max_orientational_restraint,
+            K_r=config.intermediate_args.max_conformational_restraint,
+            K_thetaA=config.intermediate_args.max_orientational_restraint,
+            K_thetaB=config.intermediate_args.max_orientational_restraint,
+            K_phiA=config.intermediate_args.max_orientational_restraint,
+            K_phiB=config.intermediate_args.max_orientational_restraint,
+            K_phiC=config.intermediate_args.max_orientational_restraint,
         )
     )
     # manage restraints
@@ -130,7 +130,7 @@ def ddm_workflow(
         )
     ).rv()
 
-    runner_jobs = boresh_restraints.addFollowOnJobFn(initilized_jobs)
+    runner_jobs = boresh_restraints.addFollowOnJobFn(initilized_jobs, message="Setup MD simulations")
 
     # setup system dependent cycle steps
     complex_simulations = SimulationSetup(
@@ -173,16 +173,16 @@ def ddm_workflow(
         ligand_simulations.setup_post_endstate_simulation()
 
     # define max conformational and restraint forces
-    max_con_force = max(config.intermidate_args.conformational_restraints_forces)
-    max_orien_force = max(config.intermidate_args.orientational_restriant_forces)
+    max_con_force = max(config.intermediate_args.conformational_restraints_forces)
+    max_orien_force = max(config.intermediate_args.orientational_restriant_forces)
     max_con_exponent = float(
-        round(max(config.intermidate_args.exponent_conformational_forces), 3)
+        round(max(config.intermediate_args.exponent_conformational_forces), 3)
     )
     max_orien_exponent = float(
-        round(max(config.intermidate_args.exponent_orientational_forces), 3)
+        round(max(config.intermediate_args.exponent_orientational_forces), 3)
     )
     # interpolate charges of the ligand
-    for index, charge in enumerate(config.intermidate_args.charges_lambda_window):  # type: ignore
+    for index, charge in enumerate(config.intermediate_args.charges_lambda_window):  # type: ignore
         # IGB=6
         # scale ligand charges
         ligand_simulations.setup_ligand_charge_simulation(
@@ -258,22 +258,22 @@ def ddm_workflow(
             set_charge=0.0,
         ).rv()
         # interpolate GB external dielectric constant
-        for dielectric in config.intermidate_args.gb_extdiel_windows:
+        for dielectric in config.intermediate_args.gb_extdiel_windows:
             complex_simulations.setup_gb_external_dielectric(
                 restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
                 prmtop=complex_ligand_no_charge,
                 extdiel=dielectric,
                 mdin=runner_jobs.addChildJobFn(
                     generate_extdiel_mdin,
-                    user_mdin_ID=config.intermidate_args.mdin_intermidate_file,
+                    user_mdin_ID=config.intermediate_args.mdin_intermediate_file,
                     gb_extdiel=dielectric,
                 ).rv(),
             )
 
     # lambda window interate through conformational and orientational restraint forces
     for con_force, orien_force in zip(
-        config.intermidate_args.conformational_restraints_forces,
-        config.intermidate_args.orientational_restriant_forces,
+        config.intermediate_args.conformational_restraints_forces,
+        config.intermediate_args.orientational_restriant_forces,
     ):
         exponent_conformational = round(np.log2(con_force), 3)
         exponent_orientational = round(np.log2(orien_force), 3)
@@ -316,56 +316,94 @@ def ddm_workflow(
     flat_bottom_exp = flat_bottom_analysis.addFollowOnJobFn(
         run_exponential_averaging,
         system_runner=flat_bottom_analysis.rv(),
-        temperature=config.intermidate_args.temperature,
+        temperature=config.intermediate_args.temperature,
     )
+
     # place the binding models within the config.inputs dictionary
     updated_config = runner_jobs.addChildJobFn(
         update_config, config, endstate_job.rv(0), split_job.rv(0), split_job.rv(1)
     ).rv()
+    md_jobs = runner_jobs.addFollowOnJobFn(initilized_jobs, message="Running MD simulations")
     # Run all initial left and right side MD cycle steps.
-    intermidate_complex = runner_jobs.addFollowOn(
+    intermediate_complex = md_jobs.addChild(
         IntermidateRunner(
             complex_simulations.simulations,
             restraints,
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_halo",
-            post_only=workflow.post_analysis_only,
+            post_only=False,
             config=updated_config,
         )
     )
-    intermidate_receptor = runner_jobs.addFollowOn(
+    intermediate_receptor = md_jobs.addChild(
         IntermidateRunner(
             receptor_simulations.simulations,
             restraints,
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_apo",
-            post_only=workflow.post_analysis_only,
+            post_only=False,
             config=updated_config,
         )
     )
 
-    intermidate_ligand = runner_jobs.addFollowOn(
+    intermediate_ligand = md_jobs.addChild(
         IntermidateRunner(
             ligand_simulations.simulations,
             restraints,
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_apo",
-            post_only=workflow.post_analysis_only,
+            post_only=False,
             config=updated_config,
         )
     )
+    # Job holder for MD jobs completed
+    MD_jobs_completed = md_jobs.addFollowOnJobFn(initilized_jobs, message="Completed MD simulations-moving to post-processing")
 
+    # Once MD jobs are completed, perform post-analysis
+    post_analyses_intermediate_complex = MD_jobs_completed.addChild(
+        IntermidateRunner(
+            complex_simulations.simulations,
+            restraints,
+            post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
+            post_process_mdin=config.inputs["post_mdin"],
+            post_process_distruct="post_process_halo",
+            post_only=True,
+            config=updated_config,
+        )
+    )
+    post_analyses_intermediate_receptor = MD_jobs_completed.addChild(
+        IntermidateRunner(
+            receptor_simulations.simulations,
+            restraints,
+            post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
+            post_process_mdin=config.inputs["post_mdin"],
+            post_process_distruct="post_process_apo",
+            post_only=True,
+            config=updated_config,
+        )
+    )
+    post_analyses_intermediate_ligand = MD_jobs_completed.addChild(
+        IntermidateRunner(
+            ligand_simulations.simulations,
+            restraints,
+            post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
+            post_process_mdin=config.inputs["post_mdin"],
+            post_process_distruct="post_process_apo",
+            post_only=True,
+            config=updated_config,
+        )
+    )
     # Improve any poor space phase overlap between adjacent windows
     # adaptive process for restraints and ligand charge scaling.
     if workflow.run_adaptive_windows:
 
         # first scale gb external dielectric
-        complex_adaptive_gb_extdiel_job = intermidate_complex.addFollowOnJobFn(
+        complex_adaptive_gb_extdiel_job = post_analyses_intermediate_complex.addFollowOnJobFn(
             adaptive_lambda_windows,
-            intermidate_complex.rv(),
+            post_analyses_intermediate_complex.rv(),
             updated_config,
             "complex",
             gb_scaling=True,
@@ -387,9 +425,9 @@ def ddm_workflow(
             restraints_scaling=True,
         )
         # adaptive process for restraints and ligand charge scaling for ligand system steps.
-        ligand_adaptive_restraints_job = intermidate_ligand.addFollowOnJobFn(
+        ligand_adaptive_restraints_job = post_analyses_intermediate_ligand.addFollowOnJobFn(
             adaptive_lambda_windows,
-            intermidate_ligand.rv(),
+            post_analyses_intermediate_ligand.rv(),
             updated_config,
             "ligand",
             restraints_scaling=True,
@@ -402,9 +440,9 @@ def ddm_workflow(
             charge_scaling=True,
         )
         # adaptive process for restraints only.
-        receptor_adaptive_job = intermidate_receptor.addFollowOnJobFn(
+        receptor_adaptive_job = post_analyses_intermediate_receptor.addFollowOnJobFn(
             adaptive_lambda_windows,
-            intermidate_receptor.rv(),
+            post_analyses_intermediate_receptor.rv(),
             updated_config,
             "receptor",
             restraints_scaling=True,
@@ -417,14 +455,14 @@ def ddm_workflow(
                     ligand_adaptive_run=ligand_adaptive_charges_job.rv(0),
                     receptor_adaptive_run=receptor_adaptive_job.rv(0),
                     flat_botton_run=flat_bottom_exp.rv(),
-                    temperature=config.intermidate_args.temperature,
+                    temperature=config.intermediate_args.temperature,
                     max_conformation_force=max_con_exponent,
                     max_orientational_force=max_orien_exponent,
                     boresch_df=restraints,
                     complex_filename=config.endstate_files.complex_parameter_filename,
                     ligand_filename=config.endstate_files.ligand_parameter_filename,
                     receptor_filename=config.endstate_files.receptor_parameter_filename,
-                    working_path=config.system_settings.working_directory,
+                    working_path=config.system_settings.cache_directory_output,
                     plot_overlap_matrix=config.workflow.plot_overlap_matrix,
                 )
             )
@@ -451,8 +489,9 @@ def update_config(
     return config
 
 
-def initilized_jobs(job):
+def initilized_jobs(job, message:str):
     "Place holder to schedule jobs for MD and post-processing"
+    job.fileStore.logToMaster(message)
     return
 
 
@@ -528,7 +567,6 @@ def main():
         logger = logging.getLogger(__name__)
         logger.addHandler(file_handler)
         logger.setLevel(logging.DEBUG)
-
         # if config.endstate_method.endstate_method_type != 0:
         #     config.get_receptor_ligand_topologies()
         # else:
@@ -536,7 +574,7 @@ def main():
 
         if not toil.options.restart:
             config.endstate_files.toil_import_parmeters(toil=toil)
-            config.intermidate_args.toil_import_user_mdin(toil=toil)
+            config.intermediate_args.toil_import_user_mdin(toil=toil)
             # if the user doesn't provide there own endstate simulation
             if config.endstate_method.endstate_method_type != 0:
                 # import files for remd
@@ -548,8 +586,8 @@ def main():
                         toil=toil
                     )
 
-            if config.intermidate_args.guest_restraint_files is not None:
-                config.intermidate_args.toil_import_user_restriants(toil=toil)
+            if config.intermediate_args.guest_restraint_files is not None:
+                config.intermediate_args.toil_import_user_restriants(toil=toil)
 
             config.inputs["min_mdin"] = str(
                 toil.import_file(
@@ -560,19 +598,19 @@ def main():
                     )
                 )
             )
-
+            logger.info(f"config.endstate_files.complex_parameter_filename: {config.endstate_files.complex_parameter_filename}")
             update_config = toil.start(Job.wrapJobFn(ddm_workflow, config))
             logger.info(
                 f" Total workflow time: {time.perf_counter() - start} seconds\n"
             )
             # logger.info(f"options.workDir {options.workDir}")
             # if len(
-            #     update_config.intermidate_args.exponent_conformational_forces
-            # ) != len(config.intermidate_args.exponent_conformational_forces):
+            #     update_config.intermediate_args.exponent_conformational_forces
+            # ) != len(config.intermediate_args.exponent_conformational_forces):
             #     logger.info(
             #         f"""Restraints windows were added to config file: \n
-            #                     original conformational & orientational windows: {config.intermidate_args.exponent_conformational_forces} & {config.intermidate_args.exponent_orientational_forces}\n
-            #                     updated conformational & orientational windows: {update_config.intermidate_args.exponent_conformational_forces} & {update_config.intermidate_args.exponent_orientational_forces}\n
+            #                     original conformational & orientational windows: {config.intermediate_args.exponent_conformational_forces} & {config.intermediate_args.exponent_orientational_forces}\n
+            #                     updated conformational & orientational windows: {update_config.intermediate_args.exponent_conformational_forces} & {update_config.intermediate_args.exponent_orientational_forces}\n
             #                 """
             #     )
 
