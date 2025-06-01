@@ -350,11 +350,10 @@ class REMD:
     nthreads_ligand : int
         Threads per group for ligand/guest simulations.
     """
-
+    method_type: str 
     remd_template_mdin: Union[FileID, str] = "remd.template"
     equil_template_mdin: Union[FileID, str] = "equil.template"
     temperatures: List[int] = field(default_factory=list)
-
     ngroups: int = field(init=False)
     nthreads_complex: int = 0
     nthreads_receptor: int = 0
@@ -363,10 +362,11 @@ class REMD:
     def __post_init__(self):
         # Automatically determine number of groups from the temperature list
         self.ngroups = len(self.temperatures)
-        self._mdin_sanity_check()
+        if self.method_type == "remd":
+            self._mdin_sanity_check()
 
     @classmethod
-    def from_config(cls: Type["REMD"], obj: dict):
+    def from_config(cls: Type["REMD"], obj: dict, method_type: str):
         return cls(
             remd_template_mdin=obj["endstate_arguments"]["remd_template_mdin"],
             equil_template_mdin=obj["endstate_arguments"]["equilibrate_mdin_template"],
@@ -374,33 +374,43 @@ class REMD:
             nthreads_complex=obj["endstate_arguments"]["nthreads_complex"],
             nthreads_receptor=obj["endstate_arguments"]["nthreads_receptor"],
             nthreads_ligand=obj["endstate_arguments"]["nthreads_ligand"],
+            method_type=method_type
         )
+
+
 
     def _mdin_sanity_check(self):
         """
-        Validates that required placeholders ($temp and $restraint) exist in the REMD and equilibration template files.
+        Ensures REMD and equilibration MDIN templates exist
+        and contain the required placeholders: $temp and $restraint.
 
         Raises
         ------
+        FileNotFoundError
+            If a required MDIN template file is missing or invalid.
         RuntimeError
-            If either `$temp` or `$restraint` is missing from the template file.
+            If required placeholders are missing in the MDIN templates.
         """
         required_keys = ["$temp", "$restraint"]
 
-        for mdin_path in [self.equil_template_mdin, self.remd_template_mdin]:
-            mdin_path = Path(mdin_path)
+        mdin_paths = {
+            "REMD template": self.remd_template_mdin,
+            "Equilibration template": self.equil_template_mdin,
+        }
 
-            if not mdin_path.is_file():
-                raise FileNotFoundError(f"MDIN template file not found: {mdin_path}")
+        for label, mdin_path in mdin_paths.items():
+            if not os.path.isfile(mdin_path):
+                raise FileNotFoundError(f"{label} file does not exist or is not a valid file: {mdin_path}")
 
-            contents = mdin_path.read_text()
+            with open(mdin_path, 'r') as f:
+                contents = f.read()
 
             for key in required_keys:
                 if key not in contents:
                     raise RuntimeError(
-                        f"\nMissing required key `{key}` in MDIN template: {mdin_path}\n"
+                        f"\nMissing required key `{key}` in {label}: {mdin_path}\n"
                         f"Please include a line such as `temperature={key}` or `restraint={key}` "
-                        f"so the workflow can fill in values during REMD execution."
+                        f"so the workflow can dynamically insert the correct values."
                     )
 
     def toil_import_replica_mdin(self, toil: "Toil") -> None:
@@ -428,13 +438,15 @@ class BasicMD:
         Path to the MD input template.
     """
 
+    method_type: str #
     md_template_mdin: Union[FileID, str] = "md.template"
-
+   
     def __post_init__(self):
-        self._mdin_sanity_check()
+        if self.method_type == "basic_md":
+            self._mdin_sanity_check()
 
     @classmethod
-    def from_config(cls: Type["BasicMD"], obj: dict) -> "BasicMD":
+    def from_config(cls: Type["BasicMD"], obj: dict, method_type: str) -> "BasicMD":
         """
         Instantiate BasicMD from a configuration dictionary.
 
@@ -449,7 +461,8 @@ class BasicMD:
             A populated instance of the class.
         """
         return cls(
-            md_template_mdin=obj["endstate_arguments"]["md_template_mdin"]
+            md_template_mdin=obj["endstate_arguments"]["md_template_mdin"],
+            method_type=method_type
         )
 
     def _mdin_sanity_check(self):
@@ -590,8 +603,8 @@ class EndStateMethod:
         if method == 0:
             return cls(
                 endstate_method_type=0,
-                remd_args=REMD(),
-                basic_md_args=BasicMD(),
+                remd_args=REMD(method_type=method),
+                basic_md_args=BasicMD(method_type=method),
                 flat_bottom=FlatBottomRestraints.from_config(obj),
             )
 
@@ -599,15 +612,15 @@ class EndStateMethod:
         if method == "remd":
             return cls(
                 endstate_method_type=method,
-                remd_args=REMD.from_config(obj),
-                basic_md_args=BasicMD(),
+                remd_args=REMD.from_config(obj,method_type=method),
+                basic_md_args=BasicMD(method_type=method),
                 flat_bottom=FlatBottomRestraints.from_config(obj),
             )
         else:
             return cls(
                 endstate_method_type=method,
-                remd_args=REMD(),
-                basic_md_args=BasicMD.from_config(obj),
+                remd_args=REMD(method_type=method),
+                basic_md_args=BasicMD.from_config(obj, method_type=method),
                 flat_bottom=FlatBottomRestraints.from_config(obj),
             )
 
@@ -1099,7 +1112,7 @@ if __name__ == "__main__":
     options.logLevel = "OFF"
     options.clean = "always"
     with open(
-        "/nas0/ayoub/Impicit-Solvent-DDM/Example_runs/config_files/run_basic_md.yaml"
+        "script_examples/config_files/basic_md_config.yaml"
     ) as fH:
         yaml_config = yaml.safe_load(fH)
 
