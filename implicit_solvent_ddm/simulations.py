@@ -238,6 +238,7 @@ class Calculation(Job):
 
         # fileStore.logToMaster(f"file in current directory {files_in_current_directory}")
         fileStore.logToMaster(f"exec_list : {self.exec_list}")
+        fileStore.logToMaster(f"output to -> {self.output_dir}")
         self.logger.info(
             f"The files in the current working directory: {files_in_current_directory}\n"
         )

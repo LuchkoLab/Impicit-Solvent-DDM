@@ -300,8 +300,8 @@ class IntermidateRunner(Job):
 
             post_process_job = Simulation(
                 executable="sander.MPI",
-                mpi_command=1, #mpi_command=post_simulation.mpi_command,
-                num_cores=post_simulation.num_cores,
+                mpi_command=post_simulation.mpi_command, #mpi_command=post_simulation.mpi_command,
+                num_cores=1,
                 CUDA=False,
                 prmtop=post_simulation.prmtop,
                 incrd=post_simulation.incrd,

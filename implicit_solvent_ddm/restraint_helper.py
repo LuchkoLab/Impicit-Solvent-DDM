@@ -3,7 +3,7 @@ Helper functions used to construct conformational and orientational restraints.
 """
 import itertools
 import time
-
+from scipy.spatial import cKDTree
 import numpy as np
 
 
@@ -92,41 +92,71 @@ def norm_distance(point_a, point_b, point_c):
     return norm_distance
 
 
-def create_atom_neighbor_array(atom_coordinates):
+def create_atom_neighbor_array(atom_coordinates, cutoff=6.0):
     """
-     Conformational restraints will be applied by creating harmonic distance restraints between every atom and all neighbors within 6 Å that are part of the same molecule
+    Efficiently find all atom pairs within a given cutoff using cKDTree.
 
-     Parameters
-     ----------
-     atom_coordinates: numpy.ndarray
-        An array of atomic coordiantes
+    Parameters
+    ----------
+    atom_coordinates : np.ndarray
+        An (N, 3) array of atomic positions
+    cutoff : float
+        Distance cutoff in angstroms
+
     Returns
     -------
-    atom_neighbor_array: list
-         A list containing the nearest neighbor atoms within 6 angstroms
+    atom_neighbor_array : list
+        A list of (i, j, distance) tuples where distance <= cutoff
     """
-
     start_time = time.time()
 
+    tree = cKDTree(atom_coordinates)
+    pairs = tree.query_pairs(r=cutoff)
+
     atom_neighbor_array = []
-    atoms = [_ for _ in range(1, len(atom_coordinates) + 1)]
-    atom_pairs = list(itertools.combinations(atoms, r=2))
+    for i, j in pairs:
+        dist = np.linalg.norm(atom_coordinates[i] - atom_coordinates[j])
+        atom_neighbor_array.append((i + 1, j + 1, dist))  # optional: 1-based index
 
-    coordinate_pairs = list(itertools.combinations(atom_coordinates, r=2))
-    atom_distances = list(itertools.starmap(distance_calculator, coordinate_pairs))
-    closest_neighbor = list(map(distance_filter, atom_distances))
-
-    for atom_pair_index, neighbors in enumerate(closest_neighbor):
-        if neighbors:
-            atom_neighbor_array.append(
-                [
-                    atom_pairs[atom_pair_index][0],
-                    atom_pairs[atom_pair_index][1],
-                    atom_distances[atom_pair_index],
-                ]
-            )
     print("--- %s seconds ---" % (time.time() - start_time))
     return atom_neighbor_array
+
+# def create_atom_neighbor_array(atom_coordinates):
+# Older slower function that utilizes itertools
+#     """
+#      Conformational restraints will be applied by creating harmonic distance restraints between every atom and all neighbors within 6 Å that are part of the same molecule
+
+#      Parameters
+#      ----------
+#      atom_coordinates: numpy.ndarray
+#         An array of atomic coordiantes
+#     Returns
+#     -------
+#     atom_neighbor_array: list
+#          A list containing the nearest neighbor atoms within 6 angstroms
+#     """
+
+#     start_time = time.time()
+
+#     atom_neighbor_array = []
+#     atoms = [_ for _ in range(1, len(atom_coordinates) + 1)]
+#     atom_pairs = list(itertools.combinations(atoms, r=2))
+
+#     coordinate_pairs = list(itertools.combinations(atom_coordinates, r=2))
+#     atom_distances = list(itertools.starmap(distance_calculator, coordinate_pairs))
+#     closest_neighbor = list(map(distance_filter, atom_distances))
+
+#     for atom_pair_index, neighbors in enumerate(closest_neighbor):
+#         if neighbors:
+#             atom_neighbor_array.append(
+#                 [
+#                     atom_pairs[atom_pair_index][0],
+#                     atom_pairs[atom_pair_index][1],
+#                     atom_distances[atom_pair_index],
+#                 ]
+#             )
+#     print("--- %s seconds ---" % (time.time() - start_time))
+#     return atom_neighbor_array
 
 
 def distance_calculator(point_a, point_b):

@@ -958,7 +958,7 @@ class RestraintMaker(Job):
             config.intermediate_args.conformational_restraints_forces
         )
         self.orientational_forces = (
-            config.intermediate_args.orientational_restriant_forces
+            config.intermediate_args.orientational_restraint_forces
         )
         self.config = config
         self.boresch = boresch_restraints
@@ -1018,7 +1018,7 @@ class RestraintMaker(Job):
         for index, (conformational_force, orientational_force) in enumerate(
             zip(
                 self.config.intermediate_args.conformational_restraints_forces,
-                self.config.intermediate_args.orientational_restriant_forces,
+                self.config.intermediate_args.orientational_restraint_forces,
             )
         ):
             if len(self.ligand_restraint_file) == 0:

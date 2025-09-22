@@ -626,7 +626,7 @@ class EndStateMethod:
 
 
 @dataclass    
-class IntermediateStatesArgs:
+class IntermediateStateArgs:
     """
     Parameter arguments used for intermediate simulation steps within the thermodynamic cycle.
 
@@ -722,18 +722,18 @@ class IntermediateStatesArgs:
                 )
 
     @classmethod
-    def from_config(cls: Type["IntermediateStatesArgs"], obj: dict) -> "IntermediateStatesArgs":
+    def from_config(cls: Type["IntermediateStateArgs"], obj: dict) -> "IntermediateStateArgs":
         """
-        Create an IntermediateStatesArgs instance from a configuration dictionary.
+        Create an IntermediateStateArgs instance from a configuration dictionary.
 
         Parameters
         ----------
         obj : dict
-            Configuration dictionary with fields matching IntermediateStatesArgs.
+            Configuration dictionary with fields matching IntermediateStateArgs.
 
         Returns
         -------
-        IntermediateStatesArgs
+        IntermediateStateArgs
             An initialized instance based on the configuration.
         """
         return cls(**obj)
@@ -891,7 +891,7 @@ class Config:
         Atom masks used to define key regions (e.g., ligand, receptor).
     endstate_method : EndStateMethod
         Specifies whether to use REMD, basic MD, or a custom endstate.
-    intermediate_args : IntermediateStatesArgs
+    intermediate_args : IntermediateStateArgs
         Parameters for the intermediate phase of the thermodynamic cycle.
     inputs : dict
         General inputs parsed from the configuration file.
@@ -907,7 +907,7 @@ class Config:
     num_cores_per_system: NumberOfCoresPerSystem
     amber_masks: AmberMasks
     endstate_method: EndStateMethod
-    intermediate_args: IntermediateStatesArgs
+    intermediate_args: IntermediateStateArgs
     inputs: Dict
     restraints: Dict
     ignore_receptor: bool = False
@@ -919,7 +919,7 @@ class Config:
         if self.endstate_method.endstate_method_type != 0:
             self.get_receptor_ligand_topologies()
         else:
-            self.endstate_files.get_initial_coordinate()
+            self.endstate_files.get_inital_coordinate()
             self.workflow.run_endstate_method = False
 
         # Disable GB dielectric scaling if no windows were specified
@@ -1029,7 +1029,7 @@ class Config:
             num_cores_per_system=NumberOfCoresPerSystem.from_config(user_config["number_of_cores_per_system"]),
             amber_masks=AmberMasks.from_config(user_config["AMBER_masks"]),
             endstate_method=EndStateMethod.from_config(user_config["workflow"]),
-            intermediate_args=IntermediateStatesArgs.from_config(
+            intermediate_args=IntermediateStateArgs.from_config(
                 user_config["workflow"]["intermediate_states_arguments"]
             ),
             inputs={},       # Placeholder; can be populated post-init
@@ -1124,7 +1124,7 @@ if __name__ == "__main__":
         #     config.get_receptor_ligand_topologies()
         # else:
         #     config.endstate_files.get_inital_coordinate()
-        #     config.intermidate_args.toil_import_user_restriants(toil=toil)
+        #     config.intermediate_args.toil_import_user_restriants(toil=toil)
 
         # config.endstate_files.toil_import_parmeters(toil=toil)
         # config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
@@ -1137,4 +1137,4 @@ if __name__ == "__main__":
         # boresch_p = list(config.boresch_parameters.__dict__.values())
 
         # toil.start(Job.wrapJobFn(workflow, config))
-        # print(config.intermidate_args)
+        # print(config.intermediate_args)

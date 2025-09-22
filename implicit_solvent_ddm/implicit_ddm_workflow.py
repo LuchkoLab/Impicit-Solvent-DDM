@@ -34,7 +34,7 @@ from implicit_solvent_ddm.restraints import (
 )
 from implicit_solvent_ddm.runner import IntermidateRunner
 
-
+logger = logging.getLogger(__name__)
 working_directory = os.getcwd()
 
 
@@ -174,7 +174,7 @@ def ddm_workflow(
 
     # define max conformational and restraint forces
     max_con_force = max(config.intermediate_args.conformational_restraints_forces)
-    max_orien_force = max(config.intermediate_args.orientational_restriant_forces)
+    max_orien_force = max(config.intermediate_args.orientational_restraint_forces)
     max_con_exponent = float(
         round(max(config.intermediate_args.exponent_conformational_forces), 3)
     )
@@ -273,7 +273,7 @@ def ddm_workflow(
     # lambda window interate through conformational and orientational restraint forces
     for con_force, orien_force in zip(
         config.intermediate_args.conformational_restraints_forces,
-        config.intermediate_args.orientational_restriant_forces,
+        config.intermediate_args.orientational_restraint_forces,
     ):
         exponent_conformational = round(np.log2(con_force), 3)
         exponent_orientational = round(np.log2(orien_force), 3)
@@ -510,13 +510,13 @@ def main():
         help=" Receptor MD caluculations with not be performed.",
     )
     options = parser.parse_args()
-    options.logLevel = "INFO"
+    options.logLevel = options.clean
     options.clean = "onSuccess"
     config_file = options.config_file[0]
     ignore_receptor = options.ignore_receptor
 
     start = time.perf_counter()
-
+    logger.info("LOADED CONFIG??? ")
     try:
         with open(config_file) as f:
             config_file = yaml.safe_load(f)
@@ -524,7 +524,9 @@ def main():
         print(e)
 
     # setup configuration dataclass
+    logger.info(f'[CONFIG] Loading in config')
     config = Config.from_config(config_file)
+    logger.info(f'[CONFIG] Finished loading in config')
 
     # create top level directory to write output files
     if not os.path.exists(config.system_settings.top_directory_path):
@@ -564,7 +566,7 @@ def main():
             "%(asctime)s~%(levelname)s~%(message)s~module:%(module)s"
         )
         file_handler.setFormatter(formatter)
-        logger = logging.getLogger(__name__)
+        
         logger.addHandler(file_handler)
         logger.setLevel(logging.DEBUG)
         # if config.endstate_method.endstate_method_type != 0:
@@ -573,7 +575,7 @@ def main():
         #     config.endstate_files.get_inital_coordinate()
 
         if not toil.options.restart:
-            config.endstate_files.toil_import_parmeters(toil=toil)
+            config.endstate_files.toil_import_parameters(toil=toil)
             config.intermediate_args.toil_import_user_mdin(toil=toil)
             # if the user doesn't provide there own endstate simulation
             if config.endstate_method.endstate_method_type != 0:
@@ -587,7 +589,7 @@ def main():
                     )
 
             if config.intermediate_args.guest_restraint_files is not None:
-                config.intermediate_args.toil_import_user_restriants(toil=toil)
+                config.intermediate_args.toil_import_user_restraints(toil=toil)
 
             config.inputs["min_mdin"] = str(
                 toil.import_file(
@@ -619,4 +621,5 @@ def main():
 
 
 if __name__ == "__main__":
+    logger.info("EXECUTE MAIN()")
     main()
