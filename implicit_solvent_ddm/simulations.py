@@ -490,6 +490,7 @@ class REMDSimulation(Calculation):
         ngroups,
         directory_args,
         remd_debug: bool,
+        system_type:str, # complex, receptor, ligand
         dirstruct="dirstruct",
         inptraj=None,
         memory: Optional[Union[int, str]] = None,
@@ -513,20 +514,21 @@ class REMDSimulation(Calculation):
 
         Calculation.__init__(
             self,
-            executable,
-            mpi_command,
-            num_cores,
-            prmtop,
-            incrd,
-            input_file,
-            working_directory,
-            restraint_file,
-            directory_args,
+            executable=executable,
+            mpi_command=mpi_command,
+            num_cores=num_cores,
+            prmtop=prmtop,
+            incrd=incrd,
+            input_file=input_file,
+            work_dir=working_directory,
+            restraint_file=restraint_file,
+            directory_args=directory_args,
             dirstruct=dirstruct,
-            inptraj=None,
+            inptraj=inptraj,
             debug=remd_debug,
             CUDA=CUDA,
-        )
+        )   
+        self.system_type = system_type
         self.runtype = runtype
         self.ng = ngroups
         self.nthreads = num_cores

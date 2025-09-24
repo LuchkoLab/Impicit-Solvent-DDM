@@ -167,14 +167,14 @@ def adaptive_lambda_windows(
     # Sort all thermodynamic cycle steps in chronological order
     job.log(f"THE SYSTEM PASSED {system_type}")
     job.log(
-        f"conformational exponets: {updated_config.intermediate_args.exponent_conformational_forces}"
+        f"conformational exponets: {updated_config.intermediate_args.exponent_conformational_forces_list}"
     )
     job.log(
-        f"orientational exponets: {updated_config.intermediate_args.exponent_orientational_forces}"
+        f"orientational exponets: {updated_config.intermediate_args.exponent_orientational_forces_list}"
     )
     cycle_steps = CycleSteps(
-        conformation_forces=updated_config.intermediate_args.exponent_conformational_forces,
-        orientational_forces=updated_config.intermediate_args.exponent_orientational_forces,
+        conformation_forces=updated_config.intermediate_args.exponent_conformational_forces_list,
+        orientational_forces=updated_config.intermediate_args.exponent_orientational_forces_list,
         charges_windows=updated_config.intermediate_args.charges_lambda_window,
         external_dielectic=updated_config.intermediate_args.gb_extdiel_windows,
     )

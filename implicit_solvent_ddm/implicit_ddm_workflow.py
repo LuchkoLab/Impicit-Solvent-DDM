@@ -271,12 +271,20 @@ def ddm_workflow(
             )
 
     # lambda window interate through conformational and orientational restraint forces
+    # create a new list for exponent_conformational_forces and exponent_orientational_forces
+    config.intermediate_args.exponent_conformational_forces_list = []
+    config.intermediate_args.exponent_orientational_forces_list = []
     for con_force, orien_force in zip(
         config.intermediate_args.conformational_restraints_forces,
         config.intermediate_args.orientational_restraint_forces,
     ):
+
+
         exponent_conformational = round(np.log2(con_force), 3)
         exponent_orientational = round(np.log2(orien_force), 3)
+
+        config.intermediate_args.exponent_conformational_forces_list.append(exponent_conformational)
+        config.intermediate_args.exponent_orientational_forces_list.append(exponent_orientational)
 
         # add conformational restraints
         if config.workflow.add_ligand_conformational_restraints:
