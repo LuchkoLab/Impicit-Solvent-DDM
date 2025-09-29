@@ -75,7 +75,7 @@ from sys import excepthook
 
 import pandas as pd
 import pymbar
-
+import numpy as np
 
 def mbar(df, groupby=None, solver_protocol=None):
     """Applies mbar() to grouped or ungrouped data.
@@ -267,20 +267,45 @@ def _mbar(df):
 
     # replace the NaNs with 0 and match the order of the column states
     N_k = N_k.fillna(0).reindex(df.columns)
+    u_kn = df.values.T
+    cols = list(df.columns)
+    f_init = np.zeros(len(cols))
 
-    # solver_protocol= (dict(method="L-BFGS-B"), )
+    # Try 1: default (usually 'adaptive' first internally)
     try:
-        #try to use 'hybr' solver 
-        mbar = pymbar.MBAR(df.values.T, N_k.values.flatten())
+        print("Trying default cascade")
+        mbar = pymbar.MBAR(u_kn, N_k, initial_f_k=f_init)  # default cascade
         results = mbar.compute_free_energy_differences()
-    except:
-        # fails to solve switch to `robust` solver 
-        mbar = pymbar.MBAR(
-            df.values.T,
-            N_k.values.flatten(),
-            solver_protocol="robust",
-        )
-        results = mbar.compute_free_energy_differences()
+        g = getattr(mbar, "final_gradient_norm", None)
+        if (g is not None) and (g > 1e-3):
+            raise RuntimeError(f"default not tight (gnorm={g:.3g})")
+    except Exception as e_default:
+        # Try 2: explicit adaptive (cheap probe)
+        try:
+            print("Trying adaptive")
+            mbar = pymbar.MBAR(
+                u_kn, N_k, initial_f_k=f_init,
+                solver_protocol={"method": "adaptive", "maxiter": 1000, "tol": 1e-10},
+            )
+            results = mbar.compute_free_energy_differences()
+            g = getattr(mbar, "final_gradient_norm", None)
+            if (g is not None) and (g > 1e-3):
+                raise RuntimeError(f"adaptive not tight (gnorm={g:.3g})")
+        except Exception as e_adapt:
+            # Try 3: stable L-BFGS-B (workhorse)
+            try:
+                print("Trying L-BFGS-B")
+                mbar = pymbar.MBAR(
+                    u_kn, N_k, initial_f_k=f_init,
+                    solver_protocol={"method": "L-BFGS-B", "maxiter": 50000, "tol": 1e-12},
+                )
+                results = mbar.compute_free_energy_differences()
+            except Exception as e_lbfgs:
+                # Try 4: ultimate fallback
+                print("Trying robust")
+                mbar = pymbar.MBAR(u_kn, N_k, initial_f_k=f_init, solver_protocol="robust")
+                results = mbar.compute_free_energy_differences()
+                
 
     free_energies = pd.DataFrame(results["Delta_f"], columns=df.columns.values)
     try:
