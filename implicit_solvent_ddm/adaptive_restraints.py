@@ -125,6 +125,30 @@ def compute_mbar(
 
     # return pdmbar.mbar(df_subsampled), df_mbar
 
+def run_compute_mbar(
+    job,
+    system_runner: IntermidateRunner,
+    config: Config,
+    system_type: str,
+):
+    """
+    Run the compute_mbar function.
+    """
+    job.log(f"Running MBAR for {system_type}")
+    cycle_steps = CycleSteps(
+        conformation_forces=config.intermediate_args.exponent_conformational_forces_list,
+        orientational_forces=config.intermediate_args.exponent_orientational_forces_list,
+        charges_windows=config.intermediate_args.charges_lambda_window,
+        external_dielectic=config.intermediate_args.gb_extdiel_windows,
+    )
+    cycle_steps.round(3)
+    
+    return compute_mbar(
+        simulation_data=system_runner.post_output,
+        temperature=config.intermediate_args.temperature,
+        matrix_order=cycle_steps,
+        system=system_type,
+    )
 
 def adaptive_lambda_windows(
     job,
