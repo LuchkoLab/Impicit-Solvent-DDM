@@ -13,7 +13,7 @@ from toil.common import Toil
 from toil.job import Job, JobFunctionWrappingJob
 
 from implicit_solvent_ddm.adaptive_restraints import (
-    adaptive_lambda_windows,
+    run_compute_mbar,
     run_exponential_averaging,
 )
 from implicit_solvent_ddm.alchemical import alter_topology, split_complex_system
@@ -103,7 +103,7 @@ def ddm_workflow(
     )
 
     # create parent job for flat bottom contribution
-    flat_bottom_contribution = split_job.addFollowOnJobFn(initilized_jobs, message="Preparing Flat bottom contribution")
+    #flat_bottom_contribution = split_job.addFollowOnJobFn(initilized_jobs, message="Preparing Flat bottom contribution")
     # generate Boresch orientational restraints
     boresh_restraints = split_job.addChild(
         BoreschRestraints(
@@ -308,30 +308,45 @@ def ddm_workflow(
                 exponent_orientational=exponent_orientational,
             )
 
-    # Flat bottom contribution
-    flat_bottom_analysis = flat_bottom_contribution.addChild(
-        IntermidateRunner(
-            flat_bottom_setup.simulations,
-            restraints,
-            post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
-            post_process_mdin=config.inputs["post_mdin"],
-            post_process_distruct="post_process_halo",
-            post_only=workflow.post_analysis_only,
-            config=config,
-        )
-    )
-    # perform exponntial averaging -> flat bottom restraint contribution
-    flat_bottom_exp = flat_bottom_analysis.addFollowOnJobFn(
-        run_exponential_averaging,
-        system_runner=flat_bottom_analysis.rv(),
-        temperature=config.intermediate_args.temperature,
-    )
 
     # place the binding models within the config.inputs dictionary
     updated_config = runner_jobs.addChildJobFn(
         update_config, config, endstate_job.rv(0), split_job.rv(0), split_job.rv(1)
     ).rv()
     md_jobs = runner_jobs.addFollowOnJobFn(initilized_jobs, message="Running MD simulations")
+
+    # Flat bottom contribution
+    flat_bottom_analysis = md_jobs.addChild(
+        IntermidateRunner(
+            flat_bottom_setup.simulations,
+            restraints,
+            post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
+            post_process_mdin=config.inputs["post_mdin"],
+            post_process_distruct="post_process_halo",
+            post_only=False,
+            config=config,
+        )
+    )
+    # Perform post-analysis for flat bottom 
+    post_analysis_flat_bottom = flat_bottom_analysis.addFollowOn(
+        IntermidateRunner(
+            flat_bottom_setup.simulations,
+            restraints,
+            post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
+            post_process_mdin=config.inputs["post_mdin"],
+            post_process_distruct="post_process_halo",
+            config=config,
+            post_only=True,
+        )
+    )
+    
+    # perform exponntial averaging -> flat bottom restraint contribution
+    flat_bottom_exp = post_analysis_flat_bottom.addFollowOnJobFn(
+        run_exponential_averaging,
+        system_runner=post_analysis_flat_bottom.rv(),
+        temperature=config.intermediate_args.temperature,
+    )
+
     # Run all initial left and right side MD cycle steps.
     intermediate_complex = md_jobs.addChild(
         IntermidateRunner(
@@ -404,64 +419,36 @@ def ddm_workflow(
             config=updated_config,
         )
     )
-    # Improve any poor space phase overlap between adjacent windows
-    # adaptive process for restraints and ligand charge scaling.
-    if workflow.run_adaptive_windows:
+    # Get all the completed post-analysis jobs
+    completed_post_analysis_jobs = MD_jobs_completed.addFollowOnJobFn(initilized_jobs, message="Completed post-analysis")
 
-        # first scale gb external dielectric
-        complex_adaptive_gb_extdiel_job = post_analyses_intermediate_complex.addFollowOnJobFn(
-            adaptive_lambda_windows,
+    if workflow.run_post_analysis:
+        complex_mbar_job = completed_post_analysis_jobs.addFollowOnJobFn(
+            run_compute_mbar,
             post_analyses_intermediate_complex.rv(),
             updated_config,
             "complex",
-            gb_scaling=True,
         )
-        # then scale restraints
-        complex_adaptive_charge_job = complex_adaptive_gb_extdiel_job.addFollowOnJobFn(
-            adaptive_lambda_windows,
-            complex_adaptive_gb_extdiel_job.rv(2),
-            complex_adaptive_gb_extdiel_job.rv(1),
-            "complex",
-            charge_scaling=True,
-        )
-        # finally scale restraints
-        complex_adaptive_restraints_job = complex_adaptive_charge_job.addFollowOnJobFn(
-            adaptive_lambda_windows,
-            complex_adaptive_charge_job.rv(2),
-            complex_adaptive_charge_job.rv(1),
-            "complex",
-            restraints_scaling=True,
-        )
-        # adaptive process for restraints and ligand charge scaling for ligand system steps.
-        ligand_adaptive_restraints_job = post_analyses_intermediate_ligand.addFollowOnJobFn(
-            adaptive_lambda_windows,
+        ligand_mbar_job = complex_mbar_job.addFollowOnJobFn(
+            run_compute_mbar,
             post_analyses_intermediate_ligand.rv(),
             updated_config,
             "ligand",
-            restraints_scaling=True,
         )
-        ligand_adaptive_charges_job = ligand_adaptive_restraints_job.addFollowOnJobFn(
-            adaptive_lambda_windows,
-            ligand_adaptive_restraints_job.rv(2),
-            ligand_adaptive_restraints_job.rv(1),
-            "ligand",
-            charge_scaling=True,
-        )
-        # adaptive process for restraints only.
-        receptor_adaptive_job = post_analyses_intermediate_receptor.addFollowOnJobFn(
-            adaptive_lambda_windows,
+        receptor_mbar_job = ligand_mbar_job.addFollowOnJobFn(
+            run_compute_mbar,
             post_analyses_intermediate_receptor.rv(),
             updated_config,
             "receptor",
-            restraints_scaling=True,
         )
+        
         # Once reached, we are done just export results :)
         if workflow.consolidate_output:
             job.addFollowOn(
                 ConsolidateData(
-                    complex_adative_run=complex_adaptive_restraints_job.rv(0),
-                    ligand_adaptive_run=ligand_adaptive_charges_job.rv(0),
-                    receptor_adaptive_run=receptor_adaptive_job.rv(0),
+                    complex_adative_run=complex_mbar_job.rv(),
+                    ligand_adaptive_run=ligand_mbar_job.rv(),
+                    receptor_adaptive_run=receptor_mbar_job.rv(),
                     flat_botton_run=flat_bottom_exp.rv(),
                     temperature=config.intermediate_args.temperature,
                     max_conformation_force=max_con_exponent,
@@ -475,10 +462,11 @@ def ddm_workflow(
                 )
             )
         return (
-            complex_adaptive_gb_extdiel_job.rv(1),
-            ligand_adaptive_charges_job.rv(1),
-            receptor_adaptive_job.rv(1),
-        )
+            complex_mbar_job.rv(),
+            ligand_mbar_job.rv(),
+            receptor_mbar_job.rv()
+        ),
+        
 
     return config
 
