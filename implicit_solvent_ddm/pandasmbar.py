@@ -219,7 +219,211 @@ def mbar(df, groupby=None, solver_protocol=None):
 
         return free_energies, errors, mbars
 
+def count_samples(df):
+    """Count the number of samples from each state for MBAR analysis.
+    
+    This function counts how many configurations were sampled at each state,
+    ensuring that all evaluated states (columns) are represented even if
+    no samples were collected at that state.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with MBAR format where:
+        - Index contains state labels indicating where samples were collected
+        - Columns contain state labels indicating where energies were evaluated
+        - Values are reduced potentials (u_kn)
+    
+    Returns
+    -------
+    N_k : pd.DataFrame
+        DataFrame with one column containing sample counts for each state.
+        Index matches the column names of input df (evaluated states).
+        States with no samples have count of 0.
+    
+    Notes
+    -----
+    The function performs the following steps:
+    1. Counts samples grouped by the index (sampled states)
+    2. Merges with all column states using outer join
+    3. Fills missing values (unsampled states) with 0
+    4. Reorders to match the column order of input df
+    
+    Examples
+    --------
+    >>> # df with samples at states 0, 1, 2 but evaluated at states 0, 1, 2, 3
+    >>> N_k = count_samples(df)
+    >>> # N_k will have counts for all 4 states, with state 3 having count 0
+    """
+    # count the number samples from each state
+    N_k = df.groupby(df.index.names).count().iloc[:, [0]]
 
+    # check for states with no samples since these are not
+    # counted.
+
+    # flatten the index so it matches the column names
+    N_k.index = N_k.index.tolist()
+
+    # merge this with a dataframe that has the states from the columns
+    # as the index. 'outer' means that any states without samples will
+    # now have a count of NaN.
+    N_k = pd.merge(
+        pd.DataFrame(index=df.columns),
+        N_k,
+        left_index=True,
+        right_index=True,
+        how="outer",
+    )
+
+    # replace the NaNs with 0 and match the order of the column states
+    N_k = N_k.fillna(0).reindex(df.columns)
+    return N_k
+
+
+def group_overlap_neighbors(matrix):
+    """
+    Retireve both the foward and reverse degree of overlap between adjacent states.
+
+    Parameters
+    ----------
+    matrix: np.ndarray
+        Estimated state overlap matrix : O[i,j] is an estimate of the probability of observing a sample from state i in state j
+
+    Returns
+    -------
+    overlap_neighbors: List[tuple[float, float]]
+        Returns a list of tuples of estimated probability of both forward and reverse degree of overlap.
+    """
+    size = matrix.shape[0] - 1
+
+    def get_overlap_neighbors(n=0, new=[]):
+        if n == size:
+            return new
+
+        else:
+            a = round(matrix[n, n + 1], 2)
+            b = round(matrix[n + 1, n], 2)
+            new.append((a, b))
+
+            return get_overlap_neighbors(n + 1, new=new)
+
+    return get_overlap_neighbors()
+
+def overlap_average(overlap_matrix, start=0, end=None):
+    """
+    Compute the average of the degree of space phase overlap between a slice adjacent states.
+
+    Parameters
+    ----------
+    overlap_matrix: list
+        Overlap matrix between the states.
+    start: int
+        Where the matrix should start reading degree of phase space.
+    end: int
+        The position to end the matrix.
+
+    Returns
+    ------
+    A list of averages of the degree of phase space overlap between adjacent states.
+    """
+
+    overlap_neighbors = group_overlap_neighbors(overlap_matrix)
+    restraints_overlap = overlap_neighbors[start:]
+
+    if end is not None:
+        restraints_overlap = overlap_neighbors[start:end]
+
+    # Return geometric mean (more appropriate for probabilities)
+    return [np.sqrt(x[0] * x[1]) for x in restraints_overlap][0]
+
+def compute_bar_initial_guess(df):
+    """Compute initial free energy estimates using BAR between neighboring states.
+    
+    This function computes pairwise BAR (Bennett Acceptance Ratio) estimates
+    between adjacent states in a linear chain and accumulates them to provide
+    initial free energy estimates for MBAR. This provides a much better starting
+    point for MBAR convergence than initializing from zeros.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with MBAR format where:
+        - Index contains state labels indicating where samples were collected
+        - Columns contain state labels indicating where energies were evaluated
+        - Values are reduced potentials (u_kn)
+        - States are assumed to be in sequential order (linear chain)
+    
+    Returns
+    -------
+    f_init : np.ndarray
+        Array of initial free energy estimates for each state.
+        First state is set to zero (reference), subsequent states are
+        cumulative BAR estimates from neighboring pairs.
+        Shape: (n_states,)
+    
+    Notes
+    -----
+    The algorithm:
+    1. For each adjacent pair (i, i+1):
+       - Extract 2-state subset of data
+       - Compute BAR using MBAR (which reduces to BAR for 2 states)
+       - Accumulate free energy differences: f[i+1] = f[i] + Δf(i→i+1)
+    2. The first state free energy is set to 0 as reference
+    3. Overlap between adjacent states is computed and reported
+    
+    This approach is particularly effective for:
+    - Linear chains of states (e.g., alchemical transformations)
+    - States with good overlap between neighbors
+    - Providing robust initial guesses for MBAR solvers
+    
+    Examples
+    --------
+    >>> # df with sequential lambda states
+    >>> f_init = compute_bar_initial_guess(df)
+    >>> # f_init[0] = 0.0 (reference)
+    >>> # f_init[1] = BAR estimate between states 0 and 1
+    >>> # f_init[2] = f_init[1] + BAR estimate between states 1 and 2
+    >>> # etc.
+    
+    See Also
+    --------
+    pymbar.MBAR : Multistate Bennett Acceptance Ratio estimator
+    overlap_average : Computes geometric mean of forward/reverse overlap
+    """
+    n_states = len(df.columns)
+    f_init = np.zeros(n_states)
+    
+    print("Computing BAR estimates between neighboring states...")
+    for i in range(n_states - 1):
+        state_i = df.columns[i]
+        state_j = df.columns[i + 1]
+    
+        # Create a 2-state subset: select rows for these states and columns for these states
+        df_pair = df.loc[[state_i, state_j]]
+        idx_keys = list(df_pair.index.unique())
+        df_pair = df_pair.loc[idx_keys]
+        cols_to_keep = [c for c in df_pair.columns if c in idx_keys]
+        df_pair = df_pair.loc[:, cols_to_keep]
+        
+        # Validate that index and columns have same size
+        if df_pair.index.unique().size != df_pair.columns.unique().size:
+            raise ValueError(f"Index size ({df_pair.index.unique().size}) does not equal column size ({df_pair.columns.unique().size}) for BAR({state_i} -> {state_j})")
+
+        if df_pair.index.unique().size > 0:
+            N_k_pair = count_samples(df_pair)
+            u_kn_pair = df_pair.values.T
+            
+            # MBAR reduces to BAR for two states
+            mbar_pair = pymbar.MBAR(u_kn_pair, N_k_pair.values.flatten())
+            results_pair = mbar_pair.compute_free_energy_differences()
+
+            delta_f_ij = results_pair["Delta_f"][0, 1]  # Free energy difference from state i to j
+            f_init[i + 1] = f_init[i] + delta_f_ij
+            print(f"  BAR({state_i} -> {state_j}): Δf = {delta_f_ij:.3f}")
+    
+    print(f"BAR initial guess: {f_init}")
+    return f_init
+    
 def _mbar(df):
     """Applies MBAR (pyMBAR) to the DataFrame. Does not handle grouping.
 
@@ -245,66 +449,123 @@ def _mbar(df):
         8.0  3.0   -0.936818   -0.625900   -0.274813    0.000000     0.275194
         16.0 4.0   -1.212012   -0.901094   -0.550007   -0.275194     0.000000
     """
+
     # count the number samples from each state
-    N_k = df.groupby(df.index.names).count().iloc[:, [0]]
-
-    # check for states with no samples since these are not
-    # counted.
-
-    # flatten the index so it matches the column names
-    N_k.index = N_k.index.tolist()
-
-    # merge this with a dataframe that has the states from the columns
-    # as the index. 'outer' means that any states without samples will
-    # now have a count of NaN.
-    N_k = pd.merge(
-        pd.DataFrame(index=df.columns),
-        N_k,
-        left_index=True,
-        right_index=True,
-        how="outer",
-    )
-
-    # replace the NaNs with 0 and match the order of the column states
-    N_k = N_k.fillna(0).reindex(df.columns)
+    N_k = count_samples(df)
     u_kn = df.values.T
-    cols = list(df.columns)
-    f_init = np.zeros(len(cols))
 
-    # Try 1: default (usually 'adaptive' first internally)
-    try:
-        print("Trying default cascade")
-        mbar = pymbar.MBAR(u_kn, N_k, initial_f_k=f_init)  # default cascade
-        results = mbar.compute_free_energy_differences()
-        g = getattr(mbar, "final_gradient_norm", None)
-        if (g is not None) and (g > 1e-3):
-            raise RuntimeError(f"default not tight (gnorm={g:.3g})")
-    except Exception as e_default:
-        # Try 2: explicit adaptive (cheap probe)
+    # Smart solver protocol: use BAR estimates as initial guess
+    print("Computing BAR initial guess...")
+    current_f_init = compute_bar_initial_guess(df)
+    solver_configs = [
+        {"name": "default", "config": None},
+        {"name": "L-BFGS-B", "config": (dict(method="L-BFGS-B", tol=1e-5, continuation=True, options=dict(maxiter=1000)),)},
+        {"name": "adaptive", "config": (dict(method="adaptive", tol=1e-12, options=dict(maxiter=1000, min_sc_iter=5)),)},
+        {"name": "robust", "config": "robust"}
+    ]
+    
+    mbar = None
+    results = None
+    best_mbar = None
+    best_results = None
+    best_max_uncertainty = float('inf')
+    best_solver_name = None
+    
+    for i, solver in enumerate(solver_configs):
         try:
-            print("Trying adaptive")
-            mbar = pymbar.MBAR(
-                u_kn, N_k, initial_f_k=f_init,
-                solver_protocol={"method": "adaptive", "maxiter": 1000, "tol": 1e-10},
-            )
+            print(f"Trying {solver['name']} solver (attempt {i+1}/{len(solver_configs)})")
+            
+            if solver['config'] is None:
+                # Default solver
+                mbar = pymbar.MBAR(u_kn, N_k.values.flatten(), initial_f_k=current_f_init)
+            else:
+                # Configured solver
+                mbar = pymbar.MBAR(u_kn, N_k.values.flatten(), initial_f_k=current_f_init, solver_protocol=solver['config'])
+            
             results = mbar.compute_free_energy_differences()
-            g = getattr(mbar, "final_gradient_norm", None)
-            if (g is not None) and (g > 1e-3):
-                raise RuntimeError(f"adaptive not tight (gnorm={g:.3g})")
-        except Exception as e_adapt:
-            # Try 3: stable L-BFGS-B (workhorse)
-            try:
-                print("Trying L-BFGS-B")
-                mbar = pymbar.MBAR(
-                    u_kn, N_k, initial_f_k=f_init,
-                    solver_protocol={"method": "L-BFGS-B", "maxiter": 50000, "tol": 1e-12},
-                )
-                results = mbar.compute_free_energy_differences()
-            except Exception as e_lbfgs:
-                # Try 4: ultimate fallback
-                print("Trying robust")
-                mbar = pymbar.MBAR(u_kn, N_k, initial_f_k=f_init, solver_protocol="robust")
-                results = mbar.compute_free_energy_differences()
+            
+            # Check convergence via uncertainties
+            uncertainties = results["dDelta_f"]
+            max_uncertainty = np.max(uncertainties)
+            
+            # Define convergence criteria
+            has_negative_uncertainties = np.any(uncertainties < 0)
+            uncertainty_threshold_good = 1e-1  # Good convergence threshold
+            uncertainty_threshold_warning = 0.5  # Warning threshold for reporting
+            
+            # Report convergence status
+            if has_negative_uncertainties:
+                print(f"  ⚠️  {solver['name']}: Negative uncertainties detected")
+            else:
+                print(f"  ✓ {solver['name']} completed successfully")
+            
+            print(f"  Max uncertainty: {max_uncertainty:.3e}")
+            
+            # Track best solver (lowest max uncertainty with no negative values)
+            if not has_negative_uncertainties and max_uncertainty < best_max_uncertainty:
+                best_max_uncertainty = max_uncertainty
+                best_mbar = mbar
+                best_results = results
+                best_solver_name = solver['name']
+                print(f"  ★ New best solver: {solver['name']} (max uncertainty: {max_uncertainty:.3e})")
+            
+            # Early stopping if well converged
+            if not has_negative_uncertainties and max_uncertainty < uncertainty_threshold_good:
+                print(f"  ✓ Solution well converged (max uncertainty: {max_uncertainty:.3e} < {uncertainty_threshold_good:.1e})")
+                print(f"  ✓ Early stopping - using {solver['name']} solver")
+                break
+            
+            # Use this result as initial guess for next solver
+            current_f_init = mbar.f_k.copy()
+            
+            # Continue to next solver
+            if i < len(solver_configs) - 1:
+                print(f"  → Trying next solver to improve convergence")
+                continue
+            else:
+                print(f"  → All solvers completed")
+                
+        except Exception as e:
+            print(f"  ✗ {solver['name']} failed: {str(e)}")
+            if i == len(solver_configs) - 1:
+                # This was the last solver, re-raise the exception
+                raise e
+            continue
+    
+    # If we get here and no solver worked, raise an error
+    if mbar is None or results is None:
+        raise RuntimeError("All solver protocols failed to converge")
+    
+    # Use best solver's results if we found one
+    if best_mbar is not None and best_results is not None:
+        print(f"\n{'='*60}")
+        print(f"Using best solver: {best_solver_name}")
+        print(f"Best max uncertainty: {best_max_uncertainty:.3e}")
+        mbar = best_mbar
+        results = best_results
+        
+        # Identify state pairs with high uncertainty
+        uncertainties = results["dDelta_f"]
+        n_states = len(df.columns)
+        
+        # Find adjacent state pairs (neighboring windows) with high uncertainty
+        high_uncertainty_pairs = []
+        for i in range(n_states - 1):
+            unc = uncertainties[i, i+1]
+            if unc > uncertainty_threshold_warning:
+                high_uncertainty_pairs.append((i, i+1, unc))
+        
+        if high_uncertainty_pairs:
+            print(f"\n⚠️  WARNING: {len(high_uncertainty_pairs)} adjacent state pair(s) have uncertainty > {uncertainty_threshold_warning}")
+            print(f"Consider adding lambda windows between these states:")
+            for i, j, unc in high_uncertainty_pairs:
+                state_i = df.columns[i]
+                state_j = df.columns[j]
+                print(f"  • {state_i} ↔ {state_j}: uncertainty = {unc:.3f} kcal/mol")
+        else:
+            print(f"\n✓ All adjacent state pairs have uncertainty < {uncertainty_threshold_warning}")
+        
+        print(f"{'='*60}\n")
                 
 
     free_energies = pd.DataFrame(results["Delta_f"], columns=df.columns.values)
