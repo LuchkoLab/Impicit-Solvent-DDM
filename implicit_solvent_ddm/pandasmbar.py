@@ -76,6 +76,7 @@ from sys import excepthook
 import pandas as pd
 import pymbar
 import numpy as np
+import copy
 from toil.job import Job
 
 def mbar(df, job: Job, run_bar_initial_guess:bool, groupby=None, solver_protocol=None):
@@ -203,7 +204,7 @@ def mbar(df, job: Job, run_bar_initial_guess:bool, groupby=None, solver_protocol
             name = list(name)
             # drop the groupby columns since mbar doesn't want to see them
             group = group.drop(groupby, axis="columns")
-            fe, err, mb = _mbar(group, job=job, run_bar_initial_guess=run_bar_initial_guess)
+            fe, err, mb, _ = _mbar(group, job=job, run_bar_initial_guess=run_bar_initial_guess)
             # add the groupy info back in
             for frame in [fe, err]:
                 frame[groupby] = pd.DataFrame([name], index=frame.index)
@@ -218,7 +219,7 @@ def mbar(df, job: Job, run_bar_initial_guess:bool, groupby=None, solver_protocol
         if len(groupby_in_index) != 0:
             mbars = pd.concat(mbars).set_index(list(set(df.index.names) & set(groupby)))
 
-        return free_energies, errors, mbars
+        return free_energies, errors, mbars, []
 
 def count_samples(df):
     """Count the number of samples from each state for MBAR analysis.
@@ -337,7 +338,7 @@ def overlap_average(overlap_matrix, start=0, end=None):
     # Return geometric mean (more appropriate for probabilities)
     return [np.sqrt(x[0] * x[1]) for x in restraints_overlap][0]
 
-def compute_bar_initial_guess(df, job: Job):
+def compute_bar_initial_guess(df, job: Job, overlap_threshold: float = 0.03):
     """Compute initial free energy estimates using BAR between neighboring states.
     
     This function computes pairwise BAR (Bennett Acceptance Ratio) estimates
@@ -353,14 +354,18 @@ def compute_bar_initial_guess(df, job: Job):
         - Columns contain state labels indicating where energies were evaluated
         - Values are reduced potentials (u_kn)
         - States are assumed to be in sequential order (linear chain)
+    job : Job
+        Toil job object for logging
+    overlap_threshold : float, default=0.03
+        Threshold below which overlap is considered too low and adaptive windows are needed
     
     Returns
     -------
-    f_init : np.ndarray
-        Array of initial free energy estimates for each state.
-        First state is set to zero (reference), subsequent states are
-        cumulative BAR estimates from neighboring pairs.
-        Shape: (n_states,)
+    tuple
+        (f_init, low_overlap_pairs) where:
+        - f_init : np.ndarray - Array of initial free energy estimates for each state
+        - low_overlap_pairs : list - List of tuples (state_i, state_j, overlap, window_type) 
+          for pairs that need intermediate windows
     
     Notes
     -----
@@ -371,6 +376,7 @@ def compute_bar_initial_guess(df, job: Job):
        - Accumulate free energy differences: f[i+1] = f[i] + Δf(i→i+1)
     2. The first state free energy is set to 0 as reference
     3. Overlap between adjacent states is computed and reported
+    4. Low overlap pairs are identified and returned for adaptive window insertion
     
     This approach is particularly effective for:
     - Linear chains of states (e.g., alchemical transformations)
@@ -380,11 +386,10 @@ def compute_bar_initial_guess(df, job: Job):
     Examples
     --------
     >>> # df with sequential lambda states
-    >>> f_init = compute_bar_initial_guess(df)
+    >>> f_init, low_overlap_pairs = compute_bar_initial_guess(df, job)
     >>> # f_init[0] = 0.0 (reference)
     >>> # f_init[1] = BAR estimate between states 0 and 1
-    >>> # f_init[2] = f_init[1] + BAR estimate between states 1 and 2
-    >>> # etc.
+    >>> # low_overlap_pairs = [('state1', 'state2', 0.02, 'gb_dielectric'), ...]
     
     See Also
     --------
@@ -393,6 +398,7 @@ def compute_bar_initial_guess(df, job: Job):
     """
     n_states = len(df.columns)
     f_init = np.zeros(n_states)
+    low_overlap_pairs = []
     
     job.fileStore.logToMaster("Computing BAR estimates between neighboring states...")
     for i in range(n_states - 1):
@@ -426,6 +432,18 @@ def compute_bar_initial_guess(df, job: Job):
                 f_init[i + 1] = f_init[i] + delta_f_ij
                 job.fileStore.logToMaster(f"  BAR({state_i} -> {state_j}): Δf = {delta_f_ij:.3f} ± {uncertainty:.3f}")
                 
+                # Compute overlap for all successful BAR computations
+                overlap_matrix = mbar_pair.compute_overlap()["matrix"]
+                forward_overlap = overlap_matrix[0, 1]
+                reverse_overlap = overlap_matrix[1, 0]
+                geometric_mean = np.sqrt(forward_overlap * reverse_overlap)
+                job.fileStore.logToMaster(f"   BAR({state_i} -> {state_j}): overlap forward: {forward_overlap:.3f} <-> reverse: {reverse_overlap:.3f}, geometric mean: {geometric_mean:.3f}")
+                
+                # Check for low overlap and determine window type
+                if geometric_mean < overlap_threshold:
+                    window_type = _determine_window_type(state_i, state_j)
+                    low_overlap_pairs.append((state_i, state_j, geometric_mean, window_type))
+                    job.fileStore.logToMaster(f"    ⚠️  Low overlap detected - will add intermediate window between {state_i} and {state_j}")
                 
             except Exception as e:
                 # Try to get overlap info even if BAR failed
@@ -436,25 +454,140 @@ def compute_bar_initial_guess(df, job: Job):
                     geometric_mean = np.sqrt(forward_overlap * reverse_overlap)
                     job.fileStore.logToMaster(f"❌ BAR computation failed for {state_i} -> {state_j}: {str(e)}")
                     job.fileStore.logToMaster(f"Overlap: forward={forward_overlap:.3f}, reverse={reverse_overlap:.3f}, geometric_mean={geometric_mean:.3f}")
-                    job.fileStore.logToMaster(f"💡 RECOMMENDATION: Add a lambda window between {state_i} and {state_j}")
+                    
+                    # Even if BAR failed, check if we can determine window type for low overlap
+                    if geometric_mean < overlap_threshold:
+                        window_type = _determine_window_type(state_i, state_j)
+                        low_overlap_pairs.append((state_i, state_j, geometric_mean, window_type))
+                        job.fileStore.logToMaster(f"    ⚠️  Low overlap detected - will add intermediate window between {state_i} and {state_j}")
+                    else:
+                        job.fileStore.logToMaster(f"💡 RECOMMENDATION: Add a lambda window between {state_i} and {state_j}")
+                        
                 except:
                     job.fileStore.logToMaster(f"❌ BAR computation failed for {state_i} -> {state_j}: {str(e)}")
                     job.fileStore.logToMaster(f"💡 RECOMMENDATION: Add a lambda window between {state_i} and {state_j}")
                 
                 raise  # Re-raise the original exception
             
-            # print out the overlap between the two states
-            overlap_matrix = mbar_pair.compute_overlap()["matrix"]
-            forward_overlap = round(overlap_matrix[0, 1], 3)  # i -> j
-            reverse_overlap = round(overlap_matrix[1, 0], 3)  # j -> i
-            geometric_mean = np.sqrt(forward_overlap * reverse_overlap)
-            job.fileStore.logToMaster(f"   BAR({state_i} -> {state_j}): overlap forward: {forward_overlap:.3f} <-> reverse: {reverse_overlap:.3f}, geometric mean: {geometric_mean:.3f}")
-            
-            # Warn about low overlap
-            if geometric_mean < 0.03:
-                job.fileStore.logToMaster(f"    ⚠️  Low overlap detected - consider adding intermediate states")
     job.fileStore.logToMaster(f"BAR initial guess: {f_init}")
-    return f_init
+    return f_init, low_overlap_pairs
+
+
+def _determine_window_type(state_i, state_j):
+    """Determine the type of lambda window based on state names.
+    
+    Parameters
+    ----------
+    state_i, state_j : tuple
+        State tuples in format (window_type, dielectric, charge, restraint)
+        
+    Returns
+    -------
+    str
+        Window type: 'gb_dielectric', 'electrostatics', 'lambda_window', 'no_gb', or 'unknown'
+    """
+    # Extract window types from state tuples
+    type_i = state_i[0] if isinstance(state_i, tuple) else str(state_i)
+    type_j = state_j[0] if isinstance(state_j, tuple) else str(state_j)
+    
+    # If both states have the same type, return that type
+    if type_i == type_j:
+        return type_i
+    
+    # Handle mixed types or unknown cases
+    if 'gb_dielectric' in [type_i, type_j]:
+        return 'gb_dielectric'
+    elif 'electrostatics' in [type_i, type_j]:
+        return 'electrostatics'
+    elif 'lambda_window' in [type_i, type_j]:
+        return 'lambda_window'
+    elif 'no_gb' in [type_i, type_j]:
+        return 'no_gb'
+    else:
+        return 'unknown'
+
+
+def insert_adaptive_windows(config, low_overlap_pairs, system_type: str):
+    """Insert intermediate lambda windows based on low overlap pairs.
+    
+    This function automatically adds intermediate lambda windows between states
+    that have low overlap, improving MBAR convergence.
+    
+    Parameters
+    ----------
+    config : Config
+        Configuration object to update with new lambda windows
+    low_overlap_pairs : list
+        List of tuples (state_i, state_j, overlap, window_type) for pairs needing intermediate windows
+    system_type : str
+        System type ('complex', 'ligand', 'receptor') to determine which windows to update
+        
+    Returns
+    -------
+    Config
+        Updated configuration object with new lambda windows inserted
+        
+    Notes
+    -----
+    For each low overlap pair, this function:
+    1. Extracts the parameter values from state tuples
+    2. Calculates intermediate values (e.g., average of dielectric values)
+    3. Adds the new values to the appropriate config list
+    4. Sorts the updated list to maintain proper order
+    """
+    if not low_overlap_pairs:
+        return config
+    
+    # Create a copy to avoid modifying the original
+    updated_config = copy.deepcopy(config)
+    
+    # Group pairs by window type for efficient processing
+    window_groups = {}
+    for state_i, state_j, overlap, window_type in low_overlap_pairs:
+        if window_type not in window_groups:
+            window_groups[window_type] = []
+        window_groups[window_type].append((state_i, state_j, overlap))
+    
+    # Process each window type
+    for window_type, pairs in window_groups.items():
+        new_values = []
+        
+        for state_i, state_j, overlap in pairs:
+            # Extract parameter values from state tuples
+            if isinstance(state_i, tuple) and isinstance(state_j, tuple):
+                if window_type == 'gb_dielectric':
+                    # Extract dielectric values (second element)
+                    val_i = float(state_i[1])
+                    val_j = float(state_j[1])
+                    intermediate_val = (val_i + val_j) / 2
+                    new_values.append(round(intermediate_val, 3))
+                    
+                elif window_type == 'electrostatics':
+                    # Extract charge values (third element)
+                    val_i = float(state_i[2])
+                    val_j = float(state_j[2])
+                    intermediate_val = (val_i + val_j) / 2
+                    new_values.append(round(intermediate_val, 3))
+                    
+                elif window_type == 'lambda_window':
+                    # For restraint windows, we might need to add intermediate restraint values
+                    # This is more complex and may require different handling
+                    pass
+        
+        # Add new values to the appropriate config list and sort
+        if window_type == 'gb_dielectric' and new_values:
+            updated_config.intermediate_args.gb_extdiel_windows.extend(new_values)
+            updated_config.intermediate_args.gb_extdiel_windows = sorted(
+                list(set(updated_config.intermediate_args.gb_extdiel_windows)), 
+                reverse=True
+            )
+        elif window_type == 'electrostatics' and new_values:
+            updated_config.intermediate_args.charges_lambda_window.extend(new_values)
+            updated_config.intermediate_args.charges_lambda_window = sorted(
+                list(set(updated_config.intermediate_args.charges_lambda_window))
+            )
+    
+    return updated_config
 def _mbar(df, job: Job, run_bar_initial_guess:bool):
     """Applies MBAR (pyMBAR) to the DataFrame. Does not handle grouping.
 
@@ -489,11 +622,14 @@ def _mbar(df, job: Job, run_bar_initial_guess:bool):
     
     if run_bar_initial_guess:
         job.fileStore.logToMaster("Computing BAR initial guess...")
-        current_f_init = compute_bar_initial_guess(df, job=job)
+        current_f_init, low_overlap_pairs = compute_bar_initial_guess(df, job=job)
+        # Store low overlap pairs for potential adaptive window insertion
+        job.fileStore.logToMaster(f"Found {len(low_overlap_pairs)} pairs with low overlap: {low_overlap_pairs}")
     else:
         job.fileStore.logToMaster("Using default initial guess a list of zeros...")
         # should be a list of zeros
         current_f_init = np.zeros(len(df.columns))
+        low_overlap_pairs = []
     
     job.fileStore.logToMaster("Trying solvers: default, L-BFGS-B, adaptive, robust")
     solver_configs = [
@@ -632,7 +768,7 @@ def _mbar(df, job: Job, run_bar_initial_guess:bool):
     # errors.index = df.columns
     # errors.index.names = ['states']
 
-    return free_energies, errors, mbar
+    return free_energies, errors, mbar, low_overlap_pairs
 
 
 def detect_equilibration(df, nskip=1):

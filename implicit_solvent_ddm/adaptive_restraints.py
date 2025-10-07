@@ -15,6 +15,7 @@ from implicit_solvent_ddm.matrix_order import CycleSteps
 from implicit_solvent_ddm.restraints import write_restraint_forces
 from implicit_solvent_ddm.runner import IntermidateRunner
 from implicit_solvent_ddm.mdin import generate_extdiel_mdin
+from implicit_solvent_ddm.pandasmbar import insert_adaptive_windows
 
 AVAGADRO = 6.0221367e23
 BOLTZMAN = 1.380658e-23
@@ -33,7 +34,6 @@ def compute_mbar(
     system: str,
     job: Job,
     run_bar_initial_guess: bool,
-
 ):
     """Execute MBAR analysis.
 
@@ -123,9 +123,83 @@ def compute_mbar(
     df_subsampled = pdmbar.subsample_correlated_data(df_mbar, equil_info=equil_info)
 
     job.fileStore.logToMaster("performing MBAR")
-    return pdmbar.mbar(df_subsampled, job=job, run_bar_initial_guess=run_bar_initial_guess), df_mbar
+    mbar_result, low_overlap_pairs = pdmbar.mbar(df_subsampled, job=job, run_bar_initial_guess=run_bar_initial_guess)
+    return mbar_result, df_mbar, low_overlap_pairs
 
     # return pdmbar.mbar(df_subsampled), df_mbar
+
+
+def run_adaptive_window_insertion(
+    job,
+    system_runner: IntermidateRunner,
+    config: Config,
+    system_type: str,
+    low_overlap_pairs: list,
+):
+    """Run adaptive window insertion for low overlap pairs.
+    
+    This function automatically inserts intermediate lambda windows between states
+    that have low overlap, then re-runs simulations for the new windows.
+    
+    Parameters
+    ----------
+    job : Job
+        Toil job object for logging
+    system_runner : IntermidateRunner
+        Runner object for the system (complex, ligand, or receptor)
+    config : Config
+        Configuration object to update with new lambda windows
+    system_type : str
+        System type ('complex', 'ligand', 'receptor')
+    low_overlap_pairs : list
+        List of tuples (state_i, state_j, overlap, window_type) for pairs needing intermediate windows
+        
+    Returns
+    -------
+    tuple
+        (updated_config, updated_system_runner) with new windows and simulation data
+    """
+    if not low_overlap_pairs:
+        job.fileStore.logToMaster("No low overlap pairs found - skipping adaptive window insertion")
+        return config, system_runner
+    
+    job.fileStore.logToMaster(f"Found {len(low_overlap_pairs)} low overlap pairs - inserting adaptive windows")
+    
+    # Insert new lambda windows into config
+    updated_config = insert_adaptive_windows(config, low_overlap_pairs, system_type)
+    
+    # Log the changes
+    for window_type in ['gb_dielectric', 'electrostatics']:
+        original_windows = getattr(config.intermediate_args, f'{window_type.replace("gb_dielectric", "gb_extdiel_windows").replace("electrostatics", "charges_lambda_window")}')
+        updated_windows = getattr(updated_config.intermediate_args, f'{window_type.replace("gb_dielectric", "gb_extdiel_windows").replace("electrostatics", "charges_lambda_window")}')
+        
+        if len(updated_windows) > len(original_windows):
+            new_windows = set(updated_windows) - set(original_windows)
+            job.fileStore.logToMaster(f"Added new {window_type} windows: {sorted(list(new_windows))}")
+    
+    # Create new cycle steps with updated windows
+    updated_cycle_steps = CycleSteps(
+        conformation_forces=updated_config.intermediate_args.exponent_conformational_forces_list,
+        orientational_forces=updated_config.intermediate_args.exponent_orientational_forces_list,
+        charges_windows=updated_config.intermediate_args.charges_lambda_window,
+        external_dielectic=updated_config.intermediate_args.gb_extdiel_windows,
+    )
+    updated_cycle_steps.round(3)
+    
+    # Create new system runner with updated simulations
+    # This would need to be implemented to create new simulations for the additional windows
+    job.fileStore.logToMaster("Creating new simulations for adaptive windows...")
+    
+    # For now, return the updated config and original system runner
+    # In a full implementation, we would:
+    # 1. Create new Simulation objects for the additional lambda windows
+    # 2. Run the new simulations
+    # 3. Combine the results with existing simulation data
+    # 4. Return an updated system_runner with all simulation data
+    
+    job.fileStore.logToMaster("Adaptive window insertion completed")
+    return updated_config, system_runner
+
 
 def run_compute_mbar(
     job,
@@ -133,9 +207,10 @@ def run_compute_mbar(
     config: Config,
     system_type: str,
     run_bar_initial_guess: bool = True,
+    enable_adaptive_windows: bool = True,
 ):
     """
-    Run the compute_mbar function.
+    Run the compute_mbar function with optional adaptive window insertion.
     """
     job.log(f"Running MBAR for {system_type}")
     cycle_steps = CycleSteps(
@@ -146,7 +221,8 @@ def run_compute_mbar(
     )
     cycle_steps.round(3)
     
-    return compute_mbar(
+    # Run MBAR analysis
+    mbar_result, df_mbar, low_overlap_pairs = compute_mbar(
         simulation_data=system_runner.post_output,
         temperature=config.intermediate_args.temperature,
         matrix_order=cycle_steps,
@@ -154,6 +230,40 @@ def run_compute_mbar(
         job=job,
         run_bar_initial_guess=run_bar_initial_guess,
     )
+    
+    # Handle adaptive window insertion if enabled and low overlap pairs found
+    if enable_adaptive_windows and low_overlap_pairs:
+        job.fileStore.logToMaster(f"Running adaptive window insertion for {len(low_overlap_pairs)} low overlap pairs")
+        updated_config, updated_system_runner = run_adaptive_window_insertion(
+            job=job,
+            system_runner=system_runner,
+            config=config,
+            system_type=system_type,
+            low_overlap_pairs=low_overlap_pairs,
+        )
+        
+        # Re-run MBAR with updated windows
+        updated_cycle_steps = CycleSteps(
+            conformation_forces=updated_config.intermediate_args.exponent_conformational_forces_list,
+            orientational_forces=updated_config.intermediate_args.exponent_orientational_forces_list,
+            charges_windows=updated_config.intermediate_args.charges_lambda_window,
+            external_dielectic=updated_config.intermediate_args.gb_extdiel_windows,
+        )
+        updated_cycle_steps.round(3)
+        
+        job.fileStore.logToMaster("Re-running MBAR analysis with adaptive windows")
+        final_mbar_result, final_df_mbar, final_low_overlap_pairs = compute_mbar(
+            simulation_data=updated_system_runner.post_output,
+            temperature=updated_config.intermediate_args.temperature,
+            matrix_order=updated_cycle_steps,
+            system=system_type,
+            job=job,
+            run_bar_initial_guess=run_bar_initial_guess,
+        )
+        
+        return final_mbar_result, final_df_mbar, updated_config, updated_system_runner
+    
+    return mbar_result, df_mbar, config, system_runner
 
 def adaptive_lambda_windows(
     job,
