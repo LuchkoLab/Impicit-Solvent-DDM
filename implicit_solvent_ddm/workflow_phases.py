@@ -143,7 +143,7 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
         Job containing decomposed system and restraints
     """
     # Split complex into receptor and ligand using endstate trajectory
-    split_job = job.addFollowOnJobFn(
+    split_job = endstate_jobs.addFollowOnJobFn(
         split_complex_system,
         config.endstate_files.complex_parameter_filename,
         endstate_jobs.rv(0),  # complex binding mode
@@ -153,7 +153,7 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
     
 
     # Generate Boresch orientational restraints
-    boresch_restraints = split_job.addChild(
+    boresch_restraints = endstate_jobs.addChild(
         BoreschRestraints(
             complex_prmtop=config.endstate_files.complex_parameter_filename,
             complex_coordinate=endstate_jobs.rv(0),
@@ -193,7 +193,12 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
             restraints,               # restraints
         )
     
-    decomposition_data_job = boresch_restraints.addFollowOnJobFn(aggregate_decomposition_data)
+    # Wait for both split_job and boresch_restraints to complete before aggregating
+    decomposition_data_job = job.addFollowOnJobFn(
+        aggregate_decomposition_data,
+        split_job,
+        boresch_restraints
+    )
     
     return decomposition_data_job
 
