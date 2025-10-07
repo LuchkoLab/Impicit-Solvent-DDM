@@ -186,7 +186,7 @@ class ConsolidateData(Job):
         """Get the ligand free energy contribution for DeltaG"""
         return self.ligand_fe.loc[
             ("endstate", "78.5", "1.0", "0.0"),
-            [("electrostatics", "0.0", "0.0", self.max_con_force)],
+            [("no_gb", "0.0", "0.0", self.max_con_force)],
         ].values[0]
 
     @property
@@ -194,7 +194,7 @@ class ConsolidateData(Job):
         """Get the receptor free energy contribution for DeltaG"""
         return self.receptor_fe.loc[
             ("endstate", "78.5", "1.0", "0.0"),
-            [("no_gb", "0.0", "1.0", self.max_con_force)],
+            [("no_gb", "0.0", "0.0", self.max_con_force)],
         ].values[0]
 
     @property

@@ -19,6 +19,11 @@ from implicit_solvent_ddm.mdin import generate_extdiel_mdin
 AVAGADRO = 6.0221367e23
 BOLTZMAN = 1.380658e-23
 JOULES_PER_KCAL = 4184
+import logging
+import os
+# create a logger object
+from toil.job import Job
+
 
 
 def compute_mbar(
@@ -26,9 +31,9 @@ def compute_mbar(
     temperature: float,
     matrix_order: Optional[CycleSteps],
     system: str,
-    memory="2G",
-    cores=1,
-    disk="3G",
+    job: Job,
+    run_bar_initial_guess: bool,
+
 ):
     """Execute MBAR analysis.
 
@@ -91,7 +96,7 @@ def compute_mbar(
 
         # divide by Kcal per Kt
         # kcals_per_Kt = ((BOLTZMAN * (AVAGADRO)) / JOULES_PER_KCAL) * temperature
-        print(f"Created Unique MBAR dataframe {df.index.unique()}\n")
+        #job.fileStore.logToMaster(f"Created Unique MBAR dataframe {df.index.unique()}\n")
 
         return df / kcals_per_Kt
 
@@ -99,29 +104,26 @@ def compute_mbar(
 
     df_mbar = create_mbar_format()
 
-    print(f"df.index.unique :\n {df_mbar.index.unique()}\n")
-    print(f"df.index.values :\n {df_mbar.index.values}\n")
-    print(f"df.columns.unique :\n {df_mbar.columns.unique()}\n")
-    print(f"df.columns.values :\n {df_mbar.columns.values}\n")
     # flat bottom to no flat bottom -> EXP()
     if matrix_order is None:
         pass
 
     elif system == "complex":
         df_mbar = df_mbar[matrix_order.complex_order]
-
+        job.fileStore.logToMaster(f"COMPLEX ORDER: {matrix_order.complex_order}")
     elif system == "ligand":
         df_mbar = df_mbar[matrix_order.ligand_order]
+        job.fileStore.logToMaster(f"LIGAND ORDER: {matrix_order.ligand_order}")
 
     else:
         df_mbar = df_mbar[matrix_order.receptor_order]
-
+        job.fileStore.logToMaster(f"RECEPTOR ORDER: {matrix_order.receptor_order}")
     equil_info = pdmbar.detect_equilibration(df_mbar)
 
     df_subsampled = pdmbar.subsample_correlated_data(df_mbar, equil_info=equil_info)
 
-    print("performing MBAR")
-    return pdmbar.mbar(df_subsampled), df_mbar
+    job.fileStore.logToMaster("performing MBAR")
+    return pdmbar.mbar(df_subsampled, job=job, run_bar_initial_guess=run_bar_initial_guess), df_mbar
 
     # return pdmbar.mbar(df_subsampled), df_mbar
 
@@ -130,6 +132,7 @@ def run_compute_mbar(
     system_runner: IntermidateRunner,
     config: Config,
     system_type: str,
+    run_bar_initial_guess: bool = True,
 ):
     """
     Run the compute_mbar function.
@@ -148,6 +151,8 @@ def run_compute_mbar(
         temperature=config.intermediate_args.temperature,
         matrix_order=cycle_steps,
         system=system_type,
+        job=job,
+        run_bar_initial_guess=run_bar_initial_guess,
     )
 
 def adaptive_lambda_windows(
@@ -753,6 +758,8 @@ def run_exponential_averaging(
         temperature=temperature,
         matrix_order=None,
         system="free_flat_bottom",
+        run_bar_initial_guess=False,
+        job=job,
     )
 
 

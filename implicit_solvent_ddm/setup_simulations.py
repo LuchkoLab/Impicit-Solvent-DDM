@@ -157,33 +157,32 @@ class SimulationSetup:
         Notes
         -----
         - For `system_type == "complex"`, the simulation is assumed to be in vacuum with GB solvent corrections.
-        - For ligand-only systems, GB is disabled (`extdiel = 0.0`) to model implicit vacuum.
+        - For ligand-only systems, GB is fully on (`extdiel = 78.5) to model implicit solvent.
         - Appends a `Simulation` object to `self.simulations`.
         """
         temp_args = copy(self.ligand_charge_args)
 
         temp_args["charge"] = charge
+        temp_args["extdiel"] = 78.5
+        temp_args["igb"] = f"igb_{self.config.intermediate_args.igb_solvent}"
         if self.system_type == "complex":
-            mdin_file = self.config.inputs["default_mdin"]
-            temp_args["igb"] = f"igb_{self.config.intermediate_args.igb_solvent}"
-            temp_args["extdiel"] = 78.5
             temp_args["filename"] = "state_7b_prod"
-            temp_args["igb_value"] = self.config.intermediate_args.igb_solvent
+            #temp_args["igb_value"] = self.config.intermediate_args.igb_solvent
             temp_args["orientational_restraints"] = self.max_orientational_exponent
             temp_args["runtype"] = (
-                "Running production simulation in state 7b: Turning back on ligand charges, still in vacuum"
+                "Running production simulation in state 7b: Turning back on ligand charges, with GB solvent fully on"
             )
             num_acelerators=self.config.system_settings.num_accelerators
             cpu_required=0.1
         # scale ligand charge
         else:
-            mdin_file = self.config.inputs["no_solvent_mdin"]
-            temp_args["igb"] = "igb_6"
-            temp_args["extdiel"] = 0.0
+            #mdin_file = self.config.inputs["no_solvent_mdin"]
+            #temp_args["igb"] = "igb_6"
+            #temp_args["extdiel"] = 0.0
             temp_args["filename"] = "state_4_prod"
-            temp_args["igb_value"] = 6
+            #temp_args["igb_value"] = 6
             temp_args["runtype"] = (
-                f"Running production Simulation in state 4 (No GB). Max conformational force: {self.max_conformational_exponent}"
+                f"Running production Simulation in state 4 (with GB). Max conformational force: {self.max_conformational_exponent}"
             )
             num_acelerators=None
 
@@ -196,7 +195,7 @@ class SimulationSetup:
                 CUDA=self.config.system_settings.CUDA,
                 prmtop=prmtop,
                 incrd=self.binding_mode,
-                input_file=mdin_file,
+                input_file=self.config.inputs["default_mdin"],
                 restraint_file=self.restraints,
                 directory_args=temp_args,
                 dirstruct=self.dirstruct,
@@ -212,25 +211,38 @@ class SimulationSetup:
 
     def setup_remove_gb_solvent_simulation(self, restraint_key: str, prmtop: FileID):
         """
-        Args:
-            restraint_key (str): _description_
-            prmtop (FileID): _description_
+        Set up a molecular dynamics (MD) simulation with GB solvent removed (vacuum simulation).
+
+        This function prepares a vacuum-phase MD production simulation where the GB implicit 
+        solvent model is turned off. The simulation is configured differently depending on the 
+        system type (receptor/ligand vs complex), with appropriate directory structures and 
+        simulation parameters for vacuum conditions.
+
+        Parameters
+        ----------
+        restraint_key : str
+            Identifier for the restraint configuration to be applied to this simulation.
+        prmtop : FileID
+            The AMBER parameter topology file containing the system topology.
+
+        Notes
+        -----
+        - For `system_type` of "receptor" or "ligand", uses `dirstruct_apo` directory structure.
+        - For `system_type == "complex"`, uses `dirstruct_halo` directory structure.
+        - Sets `igb = 6` (no GB model) and `extdiel = 0.0` (vacuum dielectric) via `no_gb_args`.
+        - Appends a `Simulation` object to `self.simulations`.
         """
         temp_args = copy(self.no_gb_args)
-        # Desolvation of receptor
-        if self.system_type == "receptor":
-            dirstruct_args = "dirstruct_apo"
+        
+        if self.system_type != "complex":
             temp_args["state_label"] = "no_gb"
-            temp_args["charge"] = 1.0
+            temp_args["charge"] = 0.0
             temp_args["filename"] = "state_4_prod"
-            temp_args["runtype"] = (
-                "Running production simulation in state 4: Receptor only"
-            )
-
-        else:
+            temp_args["runtype"] = f"Running production simulation in state 4: {self.system_type} only"
+            dirstruct_args = "dirstruct_apo"
+        
+        else:  # complex
             dirstruct_args = "dirstruct_halo"
-
-
 
         self.simulations.append(
             Simulation(
@@ -255,11 +267,27 @@ class SimulationSetup:
         )
 
     def setup_lj_interations_simulation(self, restraint_key: str, prmtop: FileID):
-        """_summary_
+        """
+        Set up a molecular dynamics (MD) simulation to restore Lennard-Jones interactions in vacuum.
 
-        Args:
-            restraint_key (str): _description_
-            prmtop (FileID): _description_
+        This function prepares a vacuum-phase MD production simulation where the Lennard-Jones 
+        (LJ) interactions between the receptor and guest (ligand) are turned back on. This 
+        simulation represents state 7a in the alchemical thermodynamic cycle, where non-bonded 
+        interactions are restored in the absence of solvent.
+
+        Parameters
+        ----------
+        restraint_key : str
+            Identifier for the restraint configuration to be applied to this simulation.
+        prmtop : FileID
+            The AMBER parameter topology file containing the system topology.
+
+        Notes
+        -----
+        - This simulation uses vacuum conditions (`igb = 6`, `extdiel = 0.0`) via `no_gb_args`.
+        - Always uses `dirstruct_halo` directory structure (complex system).
+        - Uses the `no_solvent_mdin` input file for vacuum simulations.
+        - Appends a `Simulation` object to `self.simulations`.
         """
         temp_args = copy(self.no_gb_args)
         temp_args["state_label"] = "interactions"
@@ -293,11 +321,33 @@ class SimulationSetup:
     def setup_gb_external_dielectric(
         self, restraint_key: str, prmtop: FileID, mdin: FileID, extdiel: float
     ):
-        """_summary_
+        """
+        Set up a molecular dynamics (MD) simulation with GB solvent at a specific external dielectric constant.
 
-        Args:
-            restraint_key (str): _description_
-            dielectric (float): _description_
+        This function prepares an MD production simulation where the external dielectric constant 
+        (extdiel) is varied while using the GB implicit solvent model. This simulation represents 
+        state 8 in the alchemical thermodynamic cycle and is used to modulate the strength of 
+        electrostatic solvation effects.
+
+        Parameters
+        ----------
+        restraint_key : str
+            Identifier for the restraint configuration to be applied to this simulation.
+        prmtop : FileID
+            The AMBER parameter topology file containing the system topology.
+        mdin : FileID
+            The AMBER MD input file containing simulation parameters.
+        extdiel : float
+            The external dielectric constant to be used in the simulation. Typical values 
+            range from 1.0 (vacuum-like) to 78.5 (water-like).
+
+        Notes
+        -----
+        - For `system_type == "complex"`, uses `dirstruct_halo` and filename `state_8_prod`.
+        - For ligand/receptor systems, uses `dirstruct_apo` and filename `state_gb_dielectric_ligand`.
+        - Sets charge to 0.0 (uncharged state) while varying dielectric response.
+        - Uses the configured GB model via `igb_solvent` setting.
+        - Appends a `Simulation` object to `self.simulations`.
         """
         temp_args = copy(self.no_gb_args)
 
@@ -310,6 +360,11 @@ class SimulationSetup:
         temp_args["runtype"] = (
             f"Running production Simulation in state 8. Changing extdiel to: {extdiel}."
         )
+        dirstruct_type = "dirstruct_halo"
+
+        if self.system_type != "complex":
+            dirstruct_type = "dirstruct_apo"
+            temp_args["filename"] = "state_gb_dielectric_ligand"   
 
         self.simulations.append(
             Simulation(
@@ -323,7 +378,7 @@ class SimulationSetup:
                 restraint_file=self.restraints,
                 directory_args=temp_args,
                 system_type=self.system_type,
-                dirstruct="dirstruct_halo",
+                dirstruct=dirstruct_type,
                 working_directory=self.config.system_settings.working_directory,
                 restraint_key=restraint_key,
                 memory=self.config.system_settings.memory,
@@ -340,10 +395,34 @@ class SimulationSetup:
         exponent_orientational: Optional[float] = None,
     ):
         """
-        Args:
-            restraint_key (str): _description_
-            exponent_conformational (float): _description_
-            exponent_orientational (Optional[float], optional): _description_. Defaults to None.
+        Set up a molecular dynamics (MD) simulation for a restraint window in thermodynamic integration.
+
+        This function prepares an MD production simulation for a specific lambda window where 
+        conformational restraints (and optionally orientational restraints) are applied at varying 
+        strengths. These simulations are used to calculate the free energy contribution of applying 
+        restraints to the system, with GB implicit solvent fully enabled.
+
+        Parameters
+        ----------
+        restraint_key : str
+            Identifier for the restraint configuration to be applied to this simulation.
+        exponent_conformational : float
+            The exponent (strength) of the conformational restraints to be applied. 
+            Higher values correspond to stronger restraints.
+        exponent_orientational : Optional[float], optional
+            The exponent (strength) of the orientational restraints to be applied.
+            If provided, indicates a complex system with both conformational and orientational 
+            restraints. Defaults to None.
+
+        Notes
+        -----
+        - Uses GB implicit solvent (`extdiel = 78.5`, full charge `charge = 1.0`).
+        - For ligand-only systems (no orientational restraints), uses `dirstruct_apo` and 
+          filename pattern `state_2_{exponent_conformational}_prod`.
+        - For complex systems (with orientational restraints), uses `dirstruct_halo` and 
+          filename pattern `state_8_{exponent_conformational}_{exponent_orientational}_prod`.
+        - GPU acceleration is enabled for non-ligand systems when CUDA is available.
+        - Appends a `Simulation` object to `self.simulations`.
         """
         if not self.system_type == "ligand" and self.config.system_settings.CUDA:
             num_accelerators = self.config.system_settings.num_accelerators
@@ -395,10 +474,14 @@ class SimulationSetup:
 
     @property
     def ligand_charge_args(self) -> dict:
-        """_summary_
+        """
+        Base arguments for scaling ligand charges in alchemical simulations.
 
-        Returns:
-            dict: _description_
+        Returns
+        -------
+        dict
+            Dictionary containing simulation parameters for ligand charge scaling,
+            including topology, state labels, restraints, and GB model settings.
         """
 
         return {
@@ -432,10 +515,15 @@ class SimulationSetup:
 
     @property
     def apo_endstate_dirstruct(self) -> dict:
-        """_summary_
+        """
+        Arguments for post-processing endstate simulations with no restraints.
 
-        Returns:
-            _type_: _description_
+        Returns
+        -------
+        dict
+            Dictionary containing simulation parameters for the unrestrained endstate,
+            including full charges (1.0), GB solvent (extdiel = 78.5), zero restraints,
+            and trajectory analysis settings for REMD post-processing.
         """
         return {
             "topology": self.topology,

@@ -30,7 +30,7 @@ class CycleSteps:
 
         self.endstate = [("endstate", "78.5", "1.0", "0.0")]
 
-        self.no_gb = [("no_gb", "0.0", "1.0", f"{max(self.conformation_forces)}")]
+        self.no_gb = [("no_gb", "0.0", "0.0", f"{max(self.conformation_forces)}")]
 
         self.interations = [
             (
@@ -68,6 +68,28 @@ class CycleSteps:
                 f"{max(self.conformation_forces)}_{max(self.orientational_forces)}",
             )
             for dielectric in self.external_dielectic
+        ]
+    @property
+    def ligand_GB_exl_windows(self):
+        return [
+            (
+                "gb_dielectric",
+                f"{dielectric}",
+                "0.0",
+                f"{max(self.conformation_forces)}",
+            )
+            for dielectric in reversed(self.external_dielectic) 
+        ]
+    @property
+    def receptor_GB_exl_windows(self):
+        return [
+            (
+                "gb_dielectric",
+                f"{dielectric}",
+                "0.0",
+                f"{max(self.conformation_forces)}",
+            )
+            for dielectric in reversed(self.external_dielectic) 
         ]
 
     @property
@@ -110,17 +132,17 @@ class CycleSteps:
         temp_charges = self.charges_windows.copy()
         temp_charges.sort(reverse=True)
         return [
-            ("electrostatics", "0.0", f"{charge}", f"{max(self.conformation_forces)}")
-            for charge in temp_charges
+            ("electrostatics", "78.5", f"{charge}", f"{max(self.conformation_forces)}")
+            for charge in temp_charges if charge != 1.0
         ]
 
     @property
     def ligand_order(self) -> list:
-        return self.endstate + self.apply_restraints + self.ligand_charges
+        return self.endstate + self.apply_restraints +  self.ligand_charges + self.ligand_GB_exl_windows + self.no_gb
 
     @property
     def receptor_order(self) -> list:
-        return self.endstate + self.apply_restraints + self.no_gb
+        return self.endstate + self.apply_restraints + self.receptor_GB_exl_windows + self.no_gb
 
     @property
     def complex_order(self) -> list:

@@ -185,18 +185,19 @@ def ddm_workflow(
     for index, charge in enumerate(config.intermediate_args.charges_lambda_window):  # type: ignore
         # IGB=6
         # scale ligand charges
-        ligand_simulations.setup_ligand_charge_simulation(
-            prmtop=runner_jobs.addChildJobFn(
-                alter_topology,
-                solute_amber_parm=config.endstate_files.ligand_parameter_filename,
-                solute_amber_coordinate=config.endstate_files.ligand_coordinate_filename,
-                ligand_mask=config.amber_masks.ligand_mask,
-                receptor_mask=config.amber_masks.receptor_mask,
-                set_charge=charge,
-            ).rv(),
-            charge=charge,
-            restraint_key=f"ligand_{max_con_force}_rst",
-        )
+        if charge != 1.0:
+            ligand_simulations.setup_ligand_charge_simulation(
+                prmtop=runner_jobs.addChildJobFn(
+                    alter_topology,
+                    solute_amber_parm=config.endstate_files.ligand_parameter_filename,
+                    solute_amber_coordinate=config.endstate_files.ligand_coordinate_filename,
+                    ligand_mask=config.amber_masks.ligand_mask,
+                    receptor_mask=config.amber_masks.receptor_mask,
+                    set_charge=charge,
+                ).rv(),
+                charge=charge,
+                restraint_key=f"ligand_{max_con_force}_rst",
+            )
         # scale ligand charges within the complex
         complex_simulations.setup_ligand_charge_simulation(
             prmtop=runner_jobs.addChildJobFn(
@@ -217,6 +218,20 @@ def ddm_workflow(
             restraint_key=f"receptor_{max_con_force}_rst",
             prmtop=config.endstate_files.receptor_parameter_filename,
         )
+    
+    if workflow.ligand_turn_off_GB_enviroment:
+        ligand_simulations.setup_remove_gb_solvent_simulation(
+            restraint_key=f"ligand_{max_con_force}_rst",
+            prmtop=runner_jobs.addChildJobFn(
+                alter_topology,
+                solute_amber_parm=config.endstate_files.ligand_parameter_filename,
+                solute_amber_coordinate=config.endstate_files.ligand_coordinate_filename,
+                ligand_mask=config.amber_masks.ligand_mask,
+                receptor_mask=config.amber_masks.receptor_mask,
+                set_charge=0.0,
+            ).rv(),
+        )
+
 
     # exclusions turned on, no electrostatics and in gas phase
     if workflow.complex_ligand_exclusions:
@@ -262,6 +277,26 @@ def ddm_workflow(
             complex_simulations.setup_gb_external_dielectric(
                 restraint_key=f"complex_{max_con_force}_{max_orien_force}_rst",
                 prmtop=complex_ligand_no_charge,
+                extdiel=dielectric,
+                mdin=runner_jobs.addChildJobFn(
+                    generate_extdiel_mdin,
+                    user_mdin_ID=config.intermediate_args.mdin_intermediate_file,
+                    gb_extdiel=dielectric,
+                ).rv(),
+            )
+            receptor_simulations.setup_gb_external_dielectric(
+                restraint_key=f"receptor_{max_con_force}_rst",
+                prmtop=config.endstate_files.receptor_parameter_filename,
+                extdiel=dielectric,
+                mdin=runner_jobs.addChildJobFn(
+                    generate_extdiel_mdin,
+                    user_mdin_ID=config.intermediate_args.mdin_intermediate_file,
+                    gb_extdiel=dielectric,
+                ).rv(),
+            )
+            ligand_simulations.setup_gb_external_dielectric(
+                restraint_key=f"ligand_{max_con_force}_rst",
+                prmtop=config.endstate_files.ligand_parameter_filename,
                 extdiel=dielectric,
                 mdin=runner_jobs.addChildJobFn(
                     generate_extdiel_mdin,
@@ -428,18 +463,21 @@ def ddm_workflow(
             post_analyses_intermediate_complex.rv(),
             updated_config,
             "complex",
+            run_bar_initial_guess=True,
         )
         ligand_mbar_job = complex_mbar_job.addFollowOnJobFn(
             run_compute_mbar,
             post_analyses_intermediate_ligand.rv(),
             updated_config,
             "ligand",
+            run_bar_initial_guess=True,
         )
         receptor_mbar_job = ligand_mbar_job.addFollowOnJobFn(
             run_compute_mbar,
             post_analyses_intermediate_receptor.rv(),
             updated_config,
             "receptor",
+            run_bar_initial_guess=True,
         )
         
         # Once reached, we are done just export results :)

@@ -46,6 +46,7 @@ class Workflow:
     complex_turn_off_exclusions: bool = True
     complex_turn_on_ligand_charges: bool = True
     complex_turn_on_GB_enviroment: bool = True
+    ligand_turn_off_GB_enviroment: bool = True
     complex_remove_restraint: bool = True
     run_post_analysis: bool = True
     plot_overlap_matrix: bool = False 
@@ -689,7 +690,7 @@ class IntermediateStateArgs:
         # Convert GB external dielectric scaling to dielectric values (if present)
         if self.gb_extdiel_windows:
             self.gb_extdiel_windows = [
-                float(78.5 * val) for val in self.gb_extdiel_windows if val not in {0, 1}
+                round(float(78.5 * val), 3) for val in self.gb_extdiel_windows if val not in {0, 1}
             ]   
 
         # Apply 2^x to get force magnitudes

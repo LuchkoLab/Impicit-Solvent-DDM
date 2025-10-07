@@ -76,8 +76,9 @@ from sys import excepthook
 import pandas as pd
 import pymbar
 import numpy as np
+from toil.job import Job
 
-def mbar(df, groupby=None, solver_protocol=None):
+def mbar(df, job: Job, run_bar_initial_guess:bool, groupby=None, solver_protocol=None):
     """Applies mbar() to grouped or ungrouped data.
 
     *Ungrouped data*
@@ -183,7 +184,7 @@ def mbar(df, groupby=None, solver_protocol=None):
     """
 
     if groupby is None:
-        return _mbar(df)
+        return _mbar(df, job=job, run_bar_initial_guess=run_bar_initial_guess)
     else:
         # Remove any groupby columns from the index.  This makes it
         # easier to remove them later.
@@ -202,7 +203,7 @@ def mbar(df, groupby=None, solver_protocol=None):
             name = list(name)
             # drop the groupby columns since mbar doesn't want to see them
             group = group.drop(groupby, axis="columns")
-            fe, err, mb = _mbar(group)
+            fe, err, mb = _mbar(group, job=job, run_bar_initial_guess=run_bar_initial_guess)
             # add the groupy info back in
             for frame in [fe, err]:
                 frame[groupby] = pd.DataFrame([name], index=frame.index)
@@ -336,7 +337,7 @@ def overlap_average(overlap_matrix, start=0, end=None):
     # Return geometric mean (more appropriate for probabilities)
     return [np.sqrt(x[0] * x[1]) for x in restraints_overlap][0]
 
-def compute_bar_initial_guess(df):
+def compute_bar_initial_guess(df, job: Job):
     """Compute initial free energy estimates using BAR between neighboring states.
     
     This function computes pairwise BAR (Bennett Acceptance Ratio) estimates
@@ -393,7 +394,7 @@ def compute_bar_initial_guess(df):
     n_states = len(df.columns)
     f_init = np.zeros(n_states)
     
-    print("Computing BAR estimates between neighboring states...")
+    job.fileStore.logToMaster("Computing BAR estimates between neighboring states...")
     for i in range(n_states - 1):
         state_i = df.columns[i]
         state_j = df.columns[i + 1]
@@ -415,16 +416,46 @@ def compute_bar_initial_guess(df):
             
             # MBAR reduces to BAR for two states
             mbar_pair = pymbar.MBAR(u_kn_pair, N_k_pair.values.flatten())
-            results_pair = mbar_pair.compute_free_energy_differences()
-
-            delta_f_ij = results_pair["Delta_f"][0, 1]  # Free energy difference from state i to j
-            f_init[i + 1] = f_init[i] + delta_f_ij
-            print(f"  BAR({state_i} -> {state_j}): Δf = {delta_f_ij:.3f}")
-    
-    print(f"BAR initial guess: {f_init}")
+            
+            # Check convergence before computing free energies
+            try:
+                results_pair = mbar_pair.compute_free_energy_differences()
+                delta_f_ij = results_pair["Delta_f"][0, 1]  # Free energy difference from state i to j
+                uncertainty = results_pair["dDelta_f"][0, 1]
+                
+                f_init[i + 1] = f_init[i] + delta_f_ij
+                job.fileStore.logToMaster(f"  BAR({state_i} -> {state_j}): Δf = {delta_f_ij:.3f} ± {uncertainty:.3f}")
+                
+                
+            except Exception as e:
+                # Try to get overlap info even if BAR failed
+                try:
+                    overlap_matrix = mbar_pair.compute_overlap()["matrix"]
+                    forward_overlap = overlap_matrix[0, 1]
+                    reverse_overlap = overlap_matrix[1, 0]
+                    geometric_mean = np.sqrt(forward_overlap * reverse_overlap)
+                    job.fileStore.logToMaster(f"❌ BAR computation failed for {state_i} -> {state_j}: {str(e)}")
+                    job.fileStore.logToMaster(f"Overlap: forward={forward_overlap:.3f}, reverse={reverse_overlap:.3f}, geometric_mean={geometric_mean:.3f}")
+                    job.fileStore.logToMaster(f"💡 RECOMMENDATION: Add a lambda window between {state_i} and {state_j}")
+                except:
+                    job.fileStore.logToMaster(f"❌ BAR computation failed for {state_i} -> {state_j}: {str(e)}")
+                    job.fileStore.logToMaster(f"💡 RECOMMENDATION: Add a lambda window between {state_i} and {state_j}")
+                
+                raise  # Re-raise the original exception
+            
+            # print out the overlap between the two states
+            overlap_matrix = mbar_pair.compute_overlap()["matrix"]
+            forward_overlap = round(overlap_matrix[0, 1], 3)  # i -> j
+            reverse_overlap = round(overlap_matrix[1, 0], 3)  # j -> i
+            geometric_mean = np.sqrt(forward_overlap * reverse_overlap)
+            job.fileStore.logToMaster(f"   BAR({state_i} -> {state_j}): overlap forward: {forward_overlap:.3f} <-> reverse: {reverse_overlap:.3f}, geometric mean: {geometric_mean:.3f}")
+            
+            # Warn about low overlap
+            if geometric_mean < 0.03:
+                job.fileStore.logToMaster(f"    ⚠️  Low overlap detected - consider adding intermediate states")
+    job.fileStore.logToMaster(f"BAR initial guess: {f_init}")
     return f_init
-    
-def _mbar(df):
+def _mbar(df, job: Job, run_bar_initial_guess:bool):
     """Applies MBAR (pyMBAR) to the DataFrame. Does not handle grouping.
 
     See `mbar()`.
@@ -455,8 +486,16 @@ def _mbar(df):
     u_kn = df.values.T
 
     # Smart solver protocol: use BAR estimates as initial guess
-    print("Computing BAR initial guess...")
-    current_f_init = compute_bar_initial_guess(df)
+    
+    if run_bar_initial_guess:
+        job.fileStore.logToMaster("Computing BAR initial guess...")
+        current_f_init = compute_bar_initial_guess(df, job=job)
+    else:
+        job.fileStore.logToMaster("Using default initial guess a list of zeros...")
+        # should be a list of zeros
+        current_f_init = np.zeros(len(df.columns))
+    
+    job.fileStore.logToMaster("Trying solvers: default, L-BFGS-B, adaptive, robust")
     solver_configs = [
         {"name": "default", "config": None},
         {"name": "L-BFGS-B", "config": (dict(method="L-BFGS-B", tol=1e-5, continuation=True, options=dict(maxiter=1000)),)},
@@ -473,7 +512,7 @@ def _mbar(df):
     
     for i, solver in enumerate(solver_configs):
         try:
-            print(f"Trying {solver['name']} solver (attempt {i+1}/{len(solver_configs)})")
+            job.fileStore.logToMaster(f"Trying {solver['name']} solver (attempt {i+1}/{len(solver_configs)})")
             
             if solver['config'] is None:
                 # Default solver
@@ -495,11 +534,11 @@ def _mbar(df):
             
             # Report convergence status
             if has_negative_uncertainties:
-                print(f"  ⚠️  {solver['name']}: Negative uncertainties detected")
+                job.fileStore.logToMaster(f"  ⚠️  {solver['name']}: Negative uncertainties detected")
             else:
-                print(f"  ✓ {solver['name']} completed successfully")
+                job.fileStore.logToMaster(f"  ✓ {solver['name']} completed successfully")
             
-            print(f"  Max uncertainty: {max_uncertainty:.3e}")
+            job.fileStore.logToMaster(f"  Max uncertainty: {max_uncertainty:.3e}")
             
             # Track best solver (lowest max uncertainty with no negative values)
             if not has_negative_uncertainties and max_uncertainty < best_max_uncertainty:
@@ -507,12 +546,11 @@ def _mbar(df):
                 best_mbar = mbar
                 best_results = results
                 best_solver_name = solver['name']
-                print(f"  ★ New best solver: {solver['name']} (max uncertainty: {max_uncertainty:.3e})")
-            
+                job.fileStore.logToMaster(f"  ★ New best solver: {solver['name']} (max uncertainty: {max_uncertainty:.3e})")
             # Early stopping if well converged
             if not has_negative_uncertainties and max_uncertainty < uncertainty_threshold_good:
-                print(f"  ✓ Solution well converged (max uncertainty: {max_uncertainty:.3e} < {uncertainty_threshold_good:.1e})")
-                print(f"  ✓ Early stopping - using {solver['name']} solver")
+                job.fileStore.logToMaster(f"  ✓ Solution well converged (max uncertainty: {max_uncertainty:.3e} < {uncertainty_threshold_good:.1e})")
+                job.fileStore.logToMaster(f"  ✓ Early stopping - using {solver['name']} solver")
                 break
             
             # Use this result as initial guess for next solver
@@ -520,13 +558,13 @@ def _mbar(df):
             
             # Continue to next solver
             if i < len(solver_configs) - 1:
-                print(f"  → Trying next solver to improve convergence")
+                job.fileStore.logToMaster(f"  → Trying next solver to improve convergence")
                 continue
             else:
-                print(f"  → All solvers completed")
+                job.fileStore.logToMaster(f"  → All solvers completed")
                 
         except Exception as e:
-            print(f"  ✗ {solver['name']} failed: {str(e)}")
+            job.fileStore.logToMaster(f"  ✗ {solver['name']} failed: {str(e)}")
             if i == len(solver_configs) - 1:
                 # This was the last solver, re-raise the exception
                 raise e
@@ -538,9 +576,9 @@ def _mbar(df):
     
     # Use best solver's results if we found one
     if best_mbar is not None and best_results is not None:
-        print(f"\n{'='*60}")
-        print(f"Using best solver: {best_solver_name}")
-        print(f"Best max uncertainty: {best_max_uncertainty:.3e}")
+        job.fileStore.logToMaster(f"\n{'='*60}")
+        job.fileStore.logToMaster(f"Using best solver: {best_solver_name}")
+        job.fileStore.logToMaster(f"Best max uncertainty: {best_max_uncertainty:.3e}")
         mbar = best_mbar
         results = best_results
         
@@ -556,16 +594,24 @@ def _mbar(df):
                 high_uncertainty_pairs.append((i, i+1, unc))
         
         if high_uncertainty_pairs:
-            print(f"\n⚠️  WARNING: {len(high_uncertainty_pairs)} adjacent state pair(s) have uncertainty > {uncertainty_threshold_warning}")
-            print(f"Consider adding lambda windows between these states:")
+            job.fileStore.logToMaster(f"\n⚠️  WARNING: {len(high_uncertainty_pairs)} adjacent state pair(s) have uncertainty > {uncertainty_threshold_warning}")
+            job.fileStore.logToMaster(f"Consider adding lambda windows between these states:")
+            
             for i, j, unc in high_uncertainty_pairs:
                 state_i = df.columns[i]
                 state_j = df.columns[j]
-                print(f"  • {state_i} ↔ {state_j}: uncertainty = {unc:.3f} kcal/mol")
+                
+                # Get overlap between these states
+                overlap_matrix = mbar.compute_overlap()["matrix"]
+                forward_overlap = overlap_matrix[i, j]
+                reverse_overlap = overlap_matrix[j, i]
+                geometric_mean = np.sqrt(forward_overlap * reverse_overlap)
+                
+                job.fileStore.logToMaster(f"  • {state_i} ↔ {state_j}: uncertainty = {unc:.3f} kcal/mol, overlap = {geometric_mean:.3f} (forward: {forward_overlap:.3f}, reverse: {reverse_overlap:.3f})")
         else:
-            print(f"\n✓ All adjacent state pairs have uncertainty < {uncertainty_threshold_warning}")
+            job.fileStore.logToMaster(f"\n✓ All adjacent state pairs have uncertainty < {uncertainty_threshold_warning}")
         
-        print(f"{'='*60}\n")
+        job.fileStore.logToMaster(f"{'='*60}\n")
                 
 
     free_energies = pd.DataFrame(results["Delta_f"], columns=df.columns.values)

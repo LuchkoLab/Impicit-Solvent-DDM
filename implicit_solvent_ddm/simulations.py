@@ -263,7 +263,14 @@ class Calculation(Job):
         if self.post_analysis:
             # for not don't export any data
             # return fileStore.writeGlobalFile("mdout", cleanup=True),
-
+            # export mdin 
+            fileStore.export_file(
+                fileStore.writeGlobalFile(self.read_files["mdin"], cleanup=True),
+                "file://"
+                + os.path.abspath(
+                    os.path.join(self.output_dir, os.path.basename(self.read_files["mdin"]))
+                ),
+            )
             fileStore.export_file(
                 fileStore.writeGlobalFile("mdout", cleanup=True),
                 "file://"
