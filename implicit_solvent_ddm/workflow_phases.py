@@ -143,7 +143,7 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
         Job containing decomposed system and restraints
     """
     # Split complex into receptor and ligand using endstate trajectory
-    split_job = endstate_jobs.addFollowOnJobFn(
+    split_job = job.addChild(
         split_complex_system,
         config.endstate_files.complex_parameter_filename,
         endstate_jobs.rv(0),  # complex binding mode
@@ -153,7 +153,7 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
     
 
     # Generate Boresch orientational restraints
-    boresch_restraints = endstate_jobs.addChild(
+    boresch_restraints = job.addChild(
         BoreschRestraints(
             complex_prmtop=config.endstate_files.complex_parameter_filename,
             complex_coordinate=endstate_jobs.rv(0),
@@ -178,26 +178,26 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
             flat_bottom=config.inputs["flat_bottom_restraint"],
         )
     ).rv()
-    
-    # Create a data aggregation job that returns all necessary promises for intermediate simulations
+    # Create a data aggregation job that waits for both split_job and restraints to complete
     # This job will return: [complex_binding_mode, complex_traj, receptor_binding_mode, ligand_binding_mode, receptor_traj, ligand_traj, restraints]
-    def aggregate_decomposition_data(job):
+    def aggregate_decomposition_data(job, split_results, restraints_results):
         """Aggregate all decomposition data into a single return structure."""
         return (
             endstate_jobs.rv(0),      # complex_binding_mode
             endstate_jobs.rv(1),      # complex_traj  
-            split_job.rv(0),          # receptor_binding_mode
-            split_job.rv(1),          # ligand_binding_mode
+            split_results[0],         # receptor_binding_mode
+            split_results[1],         # ligand_binding_mode
             endstate_jobs.rv(2),      # receptor_traj
             endstate_jobs.rv(3),      # ligand_traj
-            restraints,               # restraints
+            restraints_results,       # restraints from RestraintMaker
         )
     
-    # Wait for both split_job and boresch_restraints to complete before aggregating
+    # Create a synchronization job that waits for BOTH independent jobs to complete
+    # Use addChild to create a job that depends on both split_job and restraints
     decomposition_data_job = job.addFollowOnJobFn(
         aggregate_decomposition_data,
-        split_job,
-        boresch_restraints
+        split_job.rv(),      # This ensures split_job completes first
+        restraints           # This ensures restraints completes first
     )
     
     return decomposition_data_job
