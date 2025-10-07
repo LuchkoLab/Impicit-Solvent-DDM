@@ -151,12 +151,7 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
         config.amber_masks.receptor_mask,
     )
     
-    # Setup flat bottom contribution calculations
-    flat_bottom_contribution = split_job.addFollowOnJobFn(
-        initilized_jobs, 
-        message="Preparing flat bottom contribution"
-    )
-    
+
     # Generate Boresch orientational restraints
     boresch_restraints = split_job.addChild(
         BoreschRestraints(
@@ -276,12 +271,7 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
     # Calculate maximum restraint forces
     max_conformational_force = max(config.intermediate_args.conformational_restraints_forces)
     max_orientational_force = max(config.intermediate_args.orientational_restraint_forces)
-    max_conformational_exponent = float(
-        round(max(config.intermediate_args.exponent_conformational_forces), 3)
-    )
-    max_orientational_exponent = float(
-        round(max(config.intermediate_args.exponent_orientational_forces), 3)
-    )
+
     
     # Setup runner jobs for MD simulations
     runner_jobs = decomposition_jobs.addFollowOnJobFn(
