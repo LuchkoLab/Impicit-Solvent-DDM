@@ -6,6 +6,7 @@ providing a clean separation of concerns and improved maintainability.
 """
 
 import logging
+import numpy as np
 from toil.job import JobFunctionWrappingJob
 
 from implicit_solvent_ddm.config import Config
@@ -19,10 +20,7 @@ from implicit_solvent_ddm.restraints import (
 from implicit_solvent_ddm.alchemical import alter_topology, split_complex_system
 from implicit_solvent_ddm.setup_simulations import SimulationSetup
 from implicit_solvent_ddm.runner import IntermidateRunner
-from implicit_solvent_ddm.adaptive_restraints import (
-    adaptive_lambda_windows,
-    run_exponential_averaging,
-)
+from implicit_solvent_ddm.adaptive_restraints import run_exponential_averaging
 from implicit_solvent_ddm.run_endstate import (
     run_remd,
     run_basic_md,
@@ -186,7 +184,23 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
         )
     ).rv()
     
-    return split_job
+    # Create a data aggregation job that returns all necessary promises for intermediate simulations
+    # This job will return: [complex_binding_mode, complex_traj, receptor_binding_mode, ligand_binding_mode, receptor_traj, ligand_traj, restraints]
+    def aggregate_decomposition_data(job):
+        """Aggregate all decomposition data into a single return structure."""
+        return (
+            endstate_jobs.rv(0),      # complex_binding_mode
+            endstate_jobs.rv(1),      # complex_traj  
+            split_job.rv(0),          # receptor_binding_mode
+            split_job.rv(1),          # ligand_binding_mode
+            endstate_jobs.rv(2),      # receptor_traj
+            endstate_jobs.rv(3),      # ligand_traj
+            restraints,               # restraints
+        )
+    
+    decomposition_data_job = boresch_restraints.addFollowOnJobFn(aggregate_decomposition_data)
+    
+    return decomposition_data_job
 
 
 def run_intermediate_simulations(job, decomposition_jobs, config: Config):
@@ -214,28 +228,29 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
         Job containing intermediate simulation results
     """
     # Setup simulation systems for each component
+    # decomposition_jobs returns: [complex_binding_mode, complex_traj, receptor_binding_mode, ligand_binding_mode, receptor_traj, ligand_traj, restraints]
     complex_simulations = SimulationSetup(
         config=config,
         system_type="complex",
         endstate_traj=decomposition_jobs.rv(1),  # complex trajectory
         binding_mode=decomposition_jobs.rv(0),   # complex binding mode
-        restraints=decomposition_jobs.rv(2),     # restraints
+        restraints=decomposition_jobs.rv(6),     # restraints
     )
 
     receptor_simulations = SimulationSetup(
         config=config,
         system_type="receptor",
-        restraints=decomposition_jobs.rv(2),     # restraints
-        binding_mode=decomposition_jobs.rv(0),    # receptor binding mode
-        endstate_traj=decomposition_jobs.rv(3),  # receptor trajectory
+        restraints=decomposition_jobs.rv(6),     # restraints
+        binding_mode=decomposition_jobs.rv(2),   # receptor binding mode
+        endstate_traj=decomposition_jobs.rv(4),  # receptor trajectory
     )
     
     ligand_simulations = SimulationSetup(
         config=config,
         system_type="ligand",
-        restraints=decomposition_jobs.rv(2),      # restraints
-        binding_mode=decomposition_jobs.rv(1),    # ligand binding mode
-        endstate_traj=decomposition_jobs.rv(4),  # ligand trajectory
+        restraints=decomposition_jobs.rv(6),     # restraints
+        binding_mode=decomposition_jobs.rv(3),   # ligand binding mode
+        endstate_traj=decomposition_jobs.rv(5),  # ligand trajectory
     )
     
     # Setup flat bottom contribution calculations
@@ -243,8 +258,8 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
         config=config,
         system_type="complex",
         endstate_traj=decomposition_jobs.rv(1),   # complex trajectory
-        binding_mode=decomposition_jobs.rv(0),    # complex binding mode
-        restraints=decomposition_jobs.rv(2),     # restraints
+        binding_mode=decomposition_jobs.rv(0),     # complex binding mode
+        restraints=decomposition_jobs.rv(6),       # restraints
     )
     
     # Setup post-endstate analysis if enabled
@@ -518,22 +533,30 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
         )
     )
     
-    # Final synchronization point for intermediate simulations
-    intermediate_final = md_jobs_completed.addFollowOnJobFn(
-        initilized_jobs,
-        message="✓ Intermediate simulations phase fully completed - all MD and post-analysis finished"
-    )
+    # Create a data aggregation job that returns all necessary promises for post-processing
+    # This job will return: [complex_post_analysis, receptor_post_analysis, ligand_post_analysis, flat_bottom_exp, restraints]
+    def aggregate_intermediate_data(job):
+        """Aggregate all intermediate simulation data into a single return structure."""
+        return (
+            post_analyses_intermediate_complex.rv(),  # complex post-analysis results
+            post_analyses_intermediate_receptor.rv(), # receptor post-analysis results  
+            post_analyses_intermediate_ligand.rv(),   # ligand post-analysis results
+            flat_bottom_exp.rv(),                     # flat bottom exponential averaging results
+            decomposition_jobs.rv(6),                # restraints
+        )
     
-    return intermediate_final
+    intermediate_data_job = md_jobs_completed.addFollowOnJobFn(aggregate_intermediate_data)
+    
+    return intermediate_data_job
 
 
 def run_post_processing_and_analysis(job, intermediate_jobs, config: Config):
     """
-    Phase 5: Post-processing and analysis with adaptive windows.
+    Phase 5: Post-processing and analysis with MBAR computation.
     
     This phase:
-    1. Performs adaptive window optimization if enabled
-    2. Consolidates output data
+    1. Runs MBAR analysis for complex, ligand, and receptor systems
+    2. Consolidates output data if enabled
     3. Generates final results and plots
     
     Parameters
@@ -547,75 +570,40 @@ def run_post_processing_and_analysis(job, intermediate_jobs, config: Config):
         
     Returns
     -------
-    tuple[Config, Config, Config]
-        Updated configuration objects for complex, ligand, and receptor systems
+    tuple[JobFunctionWrappingJob, JobFunctionWrappingJob, JobFunctionWrappingJob]
+        MBAR analysis jobs for complex, ligand, and receptor systems
     """
-    # Perform adaptive window optimization if enabled
-    if config.workflow.run_adaptive_windows:
-        # Start adaptive optimization
-        adaptive_start = intermediate_jobs.addFollowOnJobFn(
-            initilized_jobs,
-            message="🔄 Starting adaptive window optimization"
-        )
-        
-        # Complex system adaptive optimization
-        complex_adaptive_gb_extdiel_job = adaptive_start.addFollowOnJobFn(
-            adaptive_lambda_windows,
-            intermediate_jobs.rv(0),  # complex results
+    from implicit_solvent_ddm.adaptive_restraints import run_compute_mbar
+    
+    # Run MBAR analysis for each system
+    # intermediate_jobs returns: [complex_post_analysis, receptor_post_analysis, ligand_post_analysis, flat_bottom_exp, restraints]
+    if config.workflow.run_post_analysis:
+        complex_mbar_job = intermediate_jobs.addFollowOnJobFn(
+            run_compute_mbar,
+            intermediate_jobs.rv(0),  # complex post-analysis results
             config,
             "complex",
-            gb_scaling=True,
         )
-        
-        complex_adaptive_charge_job = complex_adaptive_gb_extdiel_job.addFollowOnJobFn(
-            adaptive_lambda_windows,
-            complex_adaptive_gb_extdiel_job.rv(2),
-            complex_adaptive_gb_extdiel_job.rv(1),
-            "complex",
-            charge_scaling=True,
-        )
-        
-        complex_adaptive_restraints_job = complex_adaptive_charge_job.addFollowOnJobFn(
-            adaptive_lambda_windows,
-            complex_adaptive_charge_job.rv(2),
-            complex_adaptive_charge_job.rv(1),
-            "complex",
-            restraints_scaling=True,
-        )
-        
-        # Ligand system adaptive optimization
-        ligand_adaptive_restraints_job = intermediate_jobs.addFollowOnJobFn(
-            adaptive_lambda_windows,
-            intermediate_jobs.rv(2),  # ligand results
+        ligand_mbar_job = complex_mbar_job.addFollowOnJobFn(
+            run_compute_mbar,
+            intermediate_jobs.rv(2),  # ligand post-analysis results
             config,
             "ligand",
-            restraints_scaling=True,
         )
-        
-        ligand_adaptive_charges_job = ligand_adaptive_restraints_job.addFollowOnJobFn(
-            adaptive_lambda_windows,
-            ligand_adaptive_restraints_job.rv(2),
-            ligand_adaptive_restraints_job.rv(1),
-            "ligand",
-            charge_scaling=True,
-        )
-        
-        # Receptor system adaptive optimization
-        receptor_adaptive_job = intermediate_jobs.addFollowOnJobFn(
-            adaptive_lambda_windows,
-            intermediate_jobs.rv(1),  # receptor results
+        receptor_mbar_job = ligand_mbar_job.addFollowOnJobFn(
+            run_compute_mbar,
+            intermediate_jobs.rv(1),  # receptor post-analysis results
             config,
             "receptor",
-            restraints_scaling=True,
         )
         
-        # Consolidate output data
+        # Consolidate output data if enabled
         if config.workflow.consolidate_output:
-            consolidation_job = intermediate_jobs.addFollowOn(
+            consolidation_job = receptor_mbar_job.addFollowOn(
                 ConsolidateData(
-                    complex_adative_run=complex_adaptive_restraints_job.rv(0),
-                    ligand_adaptive_run=ligand_adaptive_charges_job.rv(0),
-                    receptor_adaptive_run=receptor_adaptive_job.rv(0),
+                    complex_adative_run=complex_mbar_job.rv(),
+                    ligand_adaptive_run=ligand_mbar_job.rv(),
+                    receptor_adaptive_run=receptor_mbar_job.rv(),
                     flat_botton_run=intermediate_jobs.rv(3),  # flat bottom results
                     temperature=config.intermediate_args.temperature,
                     max_conformation_force=max(config.intermediate_args.exponent_conformational_forces),
@@ -629,16 +617,16 @@ def run_post_processing_and_analysis(job, intermediate_jobs, config: Config):
                 )
             )
             
-            # Final completion message for adaptive optimization
-            adaptive_complete = consolidation_job.addFollowOnJobFn(
+            # Final completion message
+            analysis_complete = consolidation_job.addFollowOnJobFn(
                 initilized_jobs,
-                message="✓ Adaptive window optimization and data consolidation completed"
+                message="✓ Post-processing and analysis completed"
             )
         
         return (
-            complex_adaptive_gb_extdiel_job.rv(1),
-            ligand_adaptive_charges_job.rv(1),
-            receptor_adaptive_job.rv(1),
+            complex_mbar_job.rv(),
+            ligand_mbar_job.rv(),
+            receptor_mbar_job.rv(),
         )
     
     return config
