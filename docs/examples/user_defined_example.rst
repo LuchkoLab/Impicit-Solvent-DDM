@@ -10,10 +10,13 @@ All the example inputs scripts can be found in ``script_examples`` directrory. L
 
 .. code-block:: yaml
 
-    system_parameters:
+    hardware_parameters:
+        working_directory: working_directory
         executable: "pmemd.MPI" # executable machine for MD choice : [sander, sander.MPI, pmemd, pmemd.MPI, pmeded.CUDA]
         mpi_command: srun # system dependent /
-        CUDA:  # run on GPU
+        CUDA: False # run on GPU
+        output_directory_name: basic_md_dir
+        cache_directory_output: path/to/cache_directory
         top_directory_name: basic_md_dir
 
     endstate_parameter_files:
@@ -35,7 +38,7 @@ All the example inputs scripts can be found in ``script_examples`` directrory. L
 
     workflow:
         endstate_method: 0 #options REMD or 0 (meaning no endstate simulation will be performed just intermidates)endstate_method: REMD #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates) 
-        intermidate_states_arguments:
+        intermediate_states_arguments:
             mdin_intermidate_config: script_examples/user_intermidate_mdin_args.yaml #intermidate mdins required states 3-8
             igb_solvent: 2 #igb [1,2,3,7,8]
             temperature: 300

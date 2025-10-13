@@ -23,7 +23,8 @@ Following our modified DDM cycle from unbound to bound end-states:
 
 - State 6-7 ligand charges are restored, solvent is reintroduced and LJ interactions are turned on between ligand and receptor; and
 
-- State 7-8 orientational and conformational restraints are turned off in a series of windows.
+- State 7-8 orientational and conformational restraints are turned off in a series of windows.
+
 The binding free energy is then:
 
 
@@ -32,7 +33,7 @@ The binding free energy is then:
    :label: eq:bind
 
 
-.. image :: _static/images/thermo_cycle.pdf
+.. image:: _static/images/thermo_cycle_labeled.png
    :width: 600px
    :align: center
 
@@ -49,6 +50,6 @@ Once the bound end-state simulation is completed, the last frame of the bound en
 These restraints are gradually applied and released to ensure favorable space phase overlap.
 
 
-.. image :: _static/images/Workflow-2.pdf
+.. image:: _static/images/NN_FLOWCHART.jpg
    :width: 600px
    :align: center

@@ -1,3 +1,7 @@
+"""
+Double Decoupling Method (DDM) workflow for free energy calculations.
+"""
+
 # from implicit_solvent_ddm.remd import run_remd
 import logging
 import os
