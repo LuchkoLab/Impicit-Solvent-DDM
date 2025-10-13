@@ -99,8 +99,8 @@ def run_endstate_simulations(job, config: Config):
         
     Returns
     -------
-    JobFunctionWrappingJob
-        Job containing endstate simulation results
+    endstate_job: JobFunctionWrappingJob
+        Returns complex, receptor, and ligand endstate simulation results
     """
     job.fileStore.logToMaster(f"type config: {type(config)}")
     # Determine endstate simulation method
@@ -187,41 +187,16 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
     )
 
     return split_job.rv(0), split_job.rv(1), restraints
-    # # Create a data aggregation job that waits for both split_job and restraints to complete
-    # # This job will return: [complex_binding_mode, complex_traj, receptor_binding_mode, ligand_binding_mode, receptor_traj, ligand_traj, restraints]
-    # def aggregate_decomposition_data(job, split_results, restraints_results):
-    #     """Aggregate all decomposition data into a single return structure."""
-    #     return (
-    #         endstate_jobs[0],      # complex_binding_mode
-    #         endstate_jobs[1],      # complex_traj  
-    #         split_results[0],         # receptor_binding_mode
-    #         split_results[1],         # ligand_binding_mode
-    #         endstate_jobs[2],      # receptor_traj
-    #         endstate_jobs[3],      # ligand_traj
-    #         restraints_results,       # restraints from RestraintMaker
-    #     )
-    
-    # # Create a synchronization job that waits for BOTH independent jobs to complete
-    # # Use addChild to create a job that depends on both split_job and restraints
-    # decomposition_data_job = restraints.addFollowOnJobFn(
-    #     aggregate_decomposition_data,
-    #     split_job.rv(),      # This ensures split_job completes first
-    #     restraints           # This ensures restraints completes first
-    # )
-    
-    # return decomposition_data_job
 
 
 def setup_intermediate_simulations(job, decomposition_jobs, endstate_jobs, config: Config):
     """
-    Phase 4: Run intermediate state simulations with alchemical transformations.
-    
+    Phase 4: Setups the intermediate state simulations with alchemical transformations.
+
     This phase:
     1. Sets up simulation systems for complex, receptor, and ligand
     2. Performs alchemical transformations (charge scaling, GB scaling, etc.)
-    3. Runs intermediate MD simulations with restraints
-    4. Handles flat bottom contribution calculations
-    
+
     Parameters
     ----------
     job : JobFunctionWrappingJob
@@ -239,13 +214,6 @@ def setup_intermediate_simulations(job, decomposition_jobs, endstate_jobs, confi
         Job containing intermediate simulation results
     """
     job.fileStore.logToMaster(f"Calling setup_intermediate_simulations")
-    job.fileStore.logToMaster(f"type for endstate_jobs: {type(endstate_jobs)}")
-    job.fileStore.logToMaster(f"endstate_jobs: {endstate_jobs}")  
-    job.fileStore.logToMaster(f"decomposition_jobs: {decomposition_jobs}")
-    job.fileStore.logToMaster(f"config: {config}")
-    # Setup simulation systems for each component
-    # decomposition_jobs returns: [receptor_binding_mode, ligand_binding_mode, restraints]
-    # endstate_jobs returns: [complex_binding_mode, complex_traj, receptor_traj, ligand_traj]
 
     # Update config with binding modes
     updated_config = job.addChildJobFn(
@@ -447,11 +415,11 @@ def setup_intermediate_simulations(job, decomposition_jobs, endstate_jobs, confi
 def run_intermediate_simulations(job, config: Config, complex_simulations, receptor_simulations, ligand_simulations, flat_bottom_setup):
 
     """
-    Phase 5: Run intermediate state simulations with alchemical transformations.
+    Phase 5: Run intermediate state simulations.
     
     This phase:
     1. Runs intermediate MD simulations with restraints
-    2. Handles flat bottom contribution calculations
+    2. Runs flat bottom simulation
     Parameters
     ----------
     job : JobFunctionWrappingJob
@@ -526,11 +494,36 @@ def run_intermediate_simulations(job, config: Config, complex_simulations, recep
 
 def run_post_analysis_intermediate_simulations(job, config: Config, complex_simulations, receptor_simulations, ligand_simulations, flat_bottom_simulations):
     """
-    Phase 6: Post-analysis of intermediate simulations.
-    Energy post-processing with sander imin=5
+    Phase 6: Run Energy post-processing with sander imin=5
     This phase:
     1. Runs post-analysis for complex, ligand, and receptor systems
-    2. Runs post-analysis for flat bottom contribution
+    2. Runs post-analysis for flat bottom simulation
+
+    Parameters
+    ----------
+    job : JobFunctionWrappingJob
+        Current Toil job
+    config : Config
+        Configuration object
+    complex_simulations : SimulationSetup
+        Complex simulation setup
+    receptor_simulations : SimulationSetup
+        Receptor simulation setup
+    ligand_simulations : SimulationSetup
+        Ligand simulation setup
+    flat_bottom_simulations : SimulationSetup
+        Flat bottom simulation setup
+    
+    Returns
+    -------
+    post_analyses_intermediate_complex : JobFunctionWrappingJob
+        Complex energy post-analysis results
+    post_analyses_intermediate_receptor : JobFunctionWrappingJob
+        Receptor energy post-analysis results
+    post_analyses_intermediate_ligand : JobFunctionWrappingJob
+        Ligand energy post-analysis results
+    flat_bottom_analysis : JobFunctionWrappingJob
+        Flat bottom energy post-analysis results
     """
     # Mark MD jobs as completed - this ensures all MD simulations finish before post-analysis
     job.addChildJobFn(
@@ -590,14 +583,15 @@ def run_post_analysis_intermediate_simulations(job, config: Config, complex_simu
 
 
 
-def run_post_processing_and_analysis(job, post_complex_analysis, post_receptor_analysis, post_ligand_analysis, flat_bottom_analysis, config: Config):
+def compute_free_energy_and_consolidate(job, post_complex_analysis, post_receptor_analysis, post_ligand_analysis, flat_bottom_analysis, config: Config):
     """
-    Phase 5: Post-processing and analysis with MBAR computation.
+    Phase 7: Compute free energy with MBAR and consolidate results.
     
     This phase:
-    1. Runs MBAR analysis for complex, ligand, and receptor systems
-    2. Consolidates output data if enabled
-    3. Generates final results and plots
+    1. Performs adaptive window optimization if enabled
+    2. Computes free energy differences using MBAR for all systems
+    3. Consolidates output data from complex, ligand, and receptor
+    4. Generates final results and plots
     
     Parameters
     ----------

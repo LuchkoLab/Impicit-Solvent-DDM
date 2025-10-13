@@ -19,7 +19,7 @@ from implicit_solvent_ddm.workflow_phases import (
     decompose_system_and_generate_restraints,
     setup_intermediate_simulations,
     run_post_analysis_intermediate_simulations,
-    run_post_processing_and_analysis,
+    compute_free_energy_and_consolidate,
     run_intermediate_simulations,       
     update_config,
     initilized_jobs,
@@ -125,9 +125,9 @@ def ddm_workflow(
         message="✓ Phase 6 Complete: Finder energy post-processing with sander imin=5 finished"
     )
 
-    # Phase 7: Exponential Averaging and MBAR Analysis
+    # Phase 7: Compute Free Energy and Consolidate Results
     free_energy_difference_jobs = analysis_jobs.addFollowOnJobFn(
-        run_post_processing_and_analysis,
+        compute_free_energy_and_consolidate,
         analysis_jobs.rv(0), # complex post-analysis results
         analysis_jobs.rv(1), # receptor post-analysis results
         analysis_jobs.rv(2), # receptor post-analysis results
