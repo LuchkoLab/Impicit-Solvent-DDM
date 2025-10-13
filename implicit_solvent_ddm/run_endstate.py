@@ -526,6 +526,7 @@ def user_defined_endstate(job, user_config: Config):
         job (_type_): _description_
         user_config (Config): _description_
     """
+    job.fileStore.logToMaster("Extracting Complex Trajectory")
     extract_complex = job.addChild(
         ExtractTrajectories(
             user_config.endstate_files.complex_parameter_filename,

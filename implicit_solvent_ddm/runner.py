@@ -182,6 +182,7 @@ class IntermidateRunner(Job):
         - This function should be run twice in a complete workflow: first to schedule MD, then
         again with `post_only=True` to schedule analysis jobs after MD has completed.
         """
+        fileStore.logToMaster(f"IntermidateRunner: Running a total of {len(self.simulations)} simulations")
         fileStore.logToMaster(f"post only is {self.post_only}")
 
         gpu_jobs = []

@@ -20,7 +20,7 @@ from implicit_solvent_ddm.restraints import (
 from implicit_solvent_ddm.alchemical import alter_topology, split_complex_system
 from implicit_solvent_ddm.setup_simulations import SimulationSetup
 from implicit_solvent_ddm.runner import IntermidateRunner
-from implicit_solvent_ddm.adaptive_restraints import run_exponential_averaging
+from implicit_solvent_ddm.adaptive_restraints import run_exponential_averaging, run_compute_mbar
 from implicit_solvent_ddm.run_endstate import (
     run_remd,
     run_basic_md,
@@ -80,10 +80,10 @@ def setup_workflow_components(job: JobFunctionWrappingJob, config: Config):
     flat_bottom_template = mdins.addChild(FlatBottom(config=config))
     config.inputs["flat_bottom_restraint"] = flat_bottom_template.rv(0)
     
-    return mdins
+    return job.addFollowOnJobFn(update_config_endstate, config, message="✓ Phase 1 Complete: Updated config with endstate results").rv()
 
 
-def run_endstate_simulations(job, setup_jobs, config: Config):
+def run_endstate_simulations(job, config: Config):
     """
     Phase 2: Run endstate simulations for complex, receptor, and ligand systems.
     
@@ -94,8 +94,6 @@ def run_endstate_simulations(job, setup_jobs, config: Config):
     ----------
     job : JobFunctionWrappingJob
         Current Toil job
-    setup_jobs : JobFunctionWrappingJob
-        Job containing setup components
     config : Config
         Configuration object
         
@@ -104,18 +102,19 @@ def run_endstate_simulations(job, setup_jobs, config: Config):
     JobFunctionWrappingJob
         Job containing endstate simulation results
     """
+    job.fileStore.logToMaster(f"type config: {type(config)}")
     # Determine endstate simulation method
     if config.workflow.run_endstate_method:
         if config.endstate_method.endstate_method_type == "remd":
-            endstate_job = job.addFollowOnJobFn(run_remd, config)
+            endstate_job = job.addChildJobFn(run_remd, config)
         elif config.endstate_method.endstate_method_type == "basic_md":
-            endstate_job = job.addFollowOnJobFn(run_basic_md, config)
+            endstate_job = job.addChildJobFn(run_basic_md, config)
         else:
-            endstate_job = job.addFollowOnJobFn(user_defined_endstate, config)
+            endstate_job = job.addChildJobFn(user_defined_endstate, config)
     else:
-        endstate_job = job.addFollowOnJobFn(user_defined_endstate, config)
+        endstate_job = job.addChildJobFn(user_defined_endstate, config)
     
-    return endstate_job
+    return endstate_job.rv()
 
 
 def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config):
@@ -142,21 +141,24 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
     JobFunctionWrappingJob
         Job containing decomposed system and restraints
     """
+    job.fileStore.logToMaster(f"type for endstate_jobs: {type(endstate_jobs)}")
+    job.fileStore.logToMaster(f"endstate_jobs: {endstate_jobs}")
+
     # Split complex into receptor and ligand using endstate trajectory
-    split_job = job.addChild(
+    split_job = job.addChildJobFn(
         split_complex_system,
         config.endstate_files.complex_parameter_filename,
-        endstate_jobs.rv(0),  # complex binding mode
+        endstate_jobs[0],  # complex binding mode
         config.amber_masks.ligand_mask,
         config.amber_masks.receptor_mask,
     )
     
 
     # Generate Boresch orientational restraints
-    boresch_restraints = job.addChild(
+    boresch_restraints = split_job.addChild(
         BoreschRestraints(
             complex_prmtop=config.endstate_files.complex_parameter_filename,
-            complex_coordinate=endstate_jobs.rv(0),
+            complex_coordinate=endstate_jobs[0],
             restraint_type=config.intermediate_args.restraint_type,
             ligand_mask=config.amber_masks.ligand_mask,
             receptor_mask=config.amber_masks.receptor_mask,
@@ -173,37 +175,44 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
     restraints = boresch_restraints.addChild(
         RestraintMaker(
             config=config,
-            complex_binding_mode=endstate_jobs.rv(0),
+            complex_binding_mode=endstate_jobs[0],
             boresch_restraints=boresch_restraints.rv(),
             flat_bottom=config.inputs["flat_bottom_restraint"],
         )
     ).rv()
-    # Create a data aggregation job that waits for both split_job and restraints to complete
-    # This job will return: [complex_binding_mode, complex_traj, receptor_binding_mode, ligand_binding_mode, receptor_traj, ligand_traj, restraints]
-    def aggregate_decomposition_data(job, split_results, restraints_results):
-        """Aggregate all decomposition data into a single return structure."""
-        return (
-            endstate_jobs.rv(0),      # complex_binding_mode
-            endstate_jobs.rv(1),      # complex_traj  
-            split_results[0],         # receptor_binding_mode
-            split_results[1],         # ligand_binding_mode
-            endstate_jobs.rv(2),      # receptor_traj
-            endstate_jobs.rv(3),      # ligand_traj
-            restraints_results,       # restraints from RestraintMaker
-        )
-    
-    # Create a synchronization job that waits for BOTH independent jobs to complete
-    # Use addChild to create a job that depends on both split_job and restraints
-    decomposition_data_job = job.addFollowOnJobFn(
-        aggregate_decomposition_data,
-        split_job.rv(),      # This ensures split_job completes first
-        restraints           # This ensures restraints completes first
+
+    boresch_restraints_completed = boresch_restraints.addFollowOnJobFn(
+        initilized_jobs,
+        message="✓ Phase 3 Complete: Boresch restraints generated"
     )
+
+    return split_job.rv(0), split_job.rv(1), restraints
+    # # Create a data aggregation job that waits for both split_job and restraints to complete
+    # # This job will return: [complex_binding_mode, complex_traj, receptor_binding_mode, ligand_binding_mode, receptor_traj, ligand_traj, restraints]
+    # def aggregate_decomposition_data(job, split_results, restraints_results):
+    #     """Aggregate all decomposition data into a single return structure."""
+    #     return (
+    #         endstate_jobs[0],      # complex_binding_mode
+    #         endstate_jobs[1],      # complex_traj  
+    #         split_results[0],         # receptor_binding_mode
+    #         split_results[1],         # ligand_binding_mode
+    #         endstate_jobs[2],      # receptor_traj
+    #         endstate_jobs[3],      # ligand_traj
+    #         restraints_results,       # restraints from RestraintMaker
+    #     )
     
-    return decomposition_data_job
+    # # Create a synchronization job that waits for BOTH independent jobs to complete
+    # # Use addChild to create a job that depends on both split_job and restraints
+    # decomposition_data_job = restraints.addFollowOnJobFn(
+    #     aggregate_decomposition_data,
+    #     split_job.rv(),      # This ensures split_job completes first
+    #     restraints           # This ensures restraints completes first
+    # )
+    
+    # return decomposition_data_job
 
 
-def run_intermediate_simulations(job, decomposition_jobs, config: Config):
+def setup_intermediate_simulations(job, decomposition_jobs, endstate_jobs, config: Config):
     """
     Phase 4: Run intermediate state simulations with alchemical transformations.
     
@@ -218,7 +227,9 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
     job : JobFunctionWrappingJob
         Current Toil job
     decomposition_jobs : JobFunctionWrappingJob
-        Job containing decomposed system and restraints
+        Job containing split receptor and ligand systems with generated restraints
+    endstate_jobs : JobFunctionWrappingJob
+        Job containing endstate simulation results
     config : Config
         Configuration object
         
@@ -227,39 +238,56 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
     JobFunctionWrappingJob
         Job containing intermediate simulation results
     """
+    job.fileStore.logToMaster(f"Calling setup_intermediate_simulations")
+    job.fileStore.logToMaster(f"type for endstate_jobs: {type(endstate_jobs)}")
+    job.fileStore.logToMaster(f"endstate_jobs: {endstate_jobs}")  
+    job.fileStore.logToMaster(f"decomposition_jobs: {decomposition_jobs}")
+    job.fileStore.logToMaster(f"config: {config}")
     # Setup simulation systems for each component
-    # decomposition_jobs returns: [complex_binding_mode, complex_traj, receptor_binding_mode, ligand_binding_mode, receptor_traj, ligand_traj, restraints]
+    # decomposition_jobs returns: [receptor_binding_mode, ligand_binding_mode, restraints]
+    # endstate_jobs returns: [complex_binding_mode, complex_traj, receptor_traj, ligand_traj]
+
+    # Update config with binding modes
+    updated_config = job.addChildJobFn(
+        update_config, 
+        config, 
+        endstate_jobs[0],  # complex binding mode
+        decomposition_jobs[0],    # receptor binding mode  
+        decomposition_jobs[1],    # ligand binding mode
+        decomposition_jobs[2],   # restraints
+    ).rv()
+
     complex_simulations = SimulationSetup(
         config=config,
         system_type="complex",
-        endstate_traj=decomposition_jobs.rv(1),  # complex trajectory
-        binding_mode=decomposition_jobs.rv(0),   # complex binding mode
-        restraints=decomposition_jobs.rv(6),     # restraints
+        endstate_traj=endstate_jobs[1],  # complex trajectory
+        binding_mode=endstate_jobs[0],   # complex binding mode
+        restraints=decomposition_jobs[2],     # restraints
     )
 
     receptor_simulations = SimulationSetup(
         config=config,
         system_type="receptor",
-        restraints=decomposition_jobs.rv(6),     # restraints
-        binding_mode=decomposition_jobs.rv(2),   # receptor binding mode
-        endstate_traj=decomposition_jobs.rv(4),  # receptor trajectory
+        restraints=decomposition_jobs[2],     # restraints
+        binding_mode=decomposition_jobs[0],   # receptor binding mode
+        endstate_traj=endstate_jobs[3],  # receptor trajectory
     )
     
     ligand_simulations = SimulationSetup(
         config=config,
         system_type="ligand",
-        restraints=decomposition_jobs.rv(6),     # restraints
-        binding_mode=decomposition_jobs.rv(3),   # ligand binding mode
-        endstate_traj=decomposition_jobs.rv(5),  # ligand trajectory
+        restraints=decomposition_jobs[2],     # restraints
+        binding_mode=decomposition_jobs[1],   # ligand binding mode
+        endstate_traj=endstate_jobs[3],  # ligand trajectory
     )
     
     # Setup flat bottom contribution calculations
     flat_bottom_setup = SimulationSetup(
         config=config,
         system_type="complex",
-        endstate_traj=decomposition_jobs.rv(1),   # complex trajectory
-        binding_mode=decomposition_jobs.rv(0),     # complex binding mode
-        restraints=decomposition_jobs.rv(6),       # restraints
+        endstate_traj=endstate_jobs[1],   # complex trajectory
+        binding_mode=endstate_jobs[0],     # complex binding mode
+        restraints=decomposition_jobs[2],       # restraints
     )
     
     # Setup post-endstate analysis if enabled
@@ -279,7 +307,7 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
 
     
     # Setup runner jobs for MD simulations
-    runner_jobs = decomposition_jobs.addFollowOnJobFn(
+    runner_jobs = job.addChildJobFn(
         initilized_jobs, 
         message="Setting up MD simulations"
     )
@@ -288,7 +316,7 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
     for charge in config.intermediate_args.charges_lambda_window:
         # Scale ligand charges in isolated ligand system
         ligand_simulations.setup_ligand_charge_simulation(
-            prmtop=runner_jobs.addChildJobFn(
+            prmtop=job.addChildJobFn(
                 alter_topology,
                 solute_amber_parm=config.endstate_files.ligand_parameter_filename,
                 solute_amber_coordinate=config.endstate_files.ligand_coordinate_filename,
@@ -302,7 +330,7 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
         
         # Scale ligand charges within the complex
         complex_simulations.setup_ligand_charge_simulation(
-            prmtop=runner_jobs.addChildJobFn(
+            prmtop=job.addChildJobFn(
                 alter_topology,
                 solute_amber_parm=config.endstate_files.complex_parameter_filename,
                 solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
@@ -325,7 +353,7 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
     if config.workflow.complex_ligand_exclusions:
         complex_simulations.setup_remove_gb_solvent_simulation(
             restraint_key=f"complex_{max_conformational_force}_{max_orientational_force}_rst",
-            prmtop=runner_jobs.addChildJobFn(
+            prmtop=job.addChildJobFn(
                 alter_topology,
                 solute_amber_parm=config.endstate_files.complex_parameter_filename,
                 solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
@@ -340,7 +368,7 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
     if config.workflow.complex_turn_off_exclusions:
         complex_simulations.setup_lj_interations_simulation(
             restraint_key=f"complex_{max_conformational_force}_{max_orientational_force}_rst",
-            prmtop=runner_jobs.addChildJobFn(
+            prmtop=job.addChildJobFn(
                 alter_topology,
                 solute_amber_parm=config.endstate_files.complex_parameter_filename,
                 solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
@@ -353,7 +381,7 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
     # Setup GB external dielectric scaling simulations
     if config.workflow.gb_extdiel_windows:
         # Create complex with ligand electrostatics = 0
-        complex_ligand_no_charge = runner_jobs.addChildJobFn(
+        complex_ligand_no_charge = job.addChildJobFn(
             alter_topology,
             solute_amber_parm=config.endstate_files.complex_parameter_filename,
             solute_amber_coordinate=config.endstate_files.complex_coordinate_filename,
@@ -368,7 +396,7 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
                 restraint_key=f"complex_{max_conformational_force}_{max_orientational_force}_rst",
                 prmtop=complex_ligand_no_charge,
                 extdiel=dielectric,
-                mdin=runner_jobs.addChildJobFn(
+                mdin=job.addChildJobFn(
                     generate_extdiel_mdin,
                     user_mdin_ID=config.intermediate_args.mdin_intermediate_file,
                     gb_extdiel=dielectric,
@@ -411,11 +439,42 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
                 exponent_orientational=exponent_orientational,
             )
 
+
+    return updated_config, complex_simulations, receptor_simulations, ligand_simulations, flat_bottom_setup
+
+
+
+def run_intermediate_simulations(job, config: Config, complex_simulations, receptor_simulations, ligand_simulations, flat_bottom_setup):
+
+    """
+    Phase 5: Run intermediate state simulations with alchemical transformations.
+    
+    This phase:
+    1. Runs intermediate MD simulations with restraints
+    2. Handles flat bottom contribution calculations
+    Parameters
+    ----------
+    job : JobFunctionWrappingJob
+        Current Toil job
+    config : Config
+        Configuration object
+    complex_simulations : SimulationSetup
+        Complex simulation setup
+    receptor_simulations : SimulationSetup
+        Receptor simulation setup
+    ligand_simulations : SimulationSetup
+        Ligand simulation setup
+    flat_bottom_simulations : SimulationSetup
+        Flat bottom simulation setup
+    """
+    job.fileStore.logToMaster(f"Calling run_intermediate_simulations")
+
+
     # Setup flat bottom contribution analysis
-    flat_bottom_analysis = decomposition_jobs.addChild(
+    flat_bottom_analysis = job.addChild(
         IntermidateRunner(
             flat_bottom_setup.simulations,
-            decomposition_jobs.rv(2),  # restraints
+            config.inputs["restraints"],  # restraints
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_halo",
@@ -423,129 +482,115 @@ def run_intermediate_simulations(job, decomposition_jobs, config: Config):
             config=config,
         )
     )
-    
-    # Perform exponential averaging for flat bottom restraint contribution
-    flat_bottom_exp = flat_bottom_analysis.addFollowOnJobFn(
-        run_exponential_averaging,
-        system_runner=flat_bottom_analysis.rv(),
-        temperature=config.intermediate_args.temperature,
-    )
 
-    # Update config with binding modes
-    updated_config = runner_jobs.addChildJobFn(
-        update_config, 
-        config, 
-        decomposition_jobs.rv(0),  # complex binding mode
-        decomposition_jobs.rv(0),    # receptor binding mode  
-        decomposition_jobs.rv(1)    # ligand binding mode
-    ).rv()
-    
-    # Run intermediate MD simulations
-    md_jobs = runner_jobs.addFollowOnJobFn(
-        initilized_jobs, 
-        message="Running MD simulations"
-    )
     
     # Run complex intermediate simulations
-    intermediate_complex = md_jobs.addChild(
+    intermediate_complex = job.addChild(
         IntermidateRunner(
             complex_simulations.simulations,
-            decomposition_jobs.rv(2),  # restraints
+            config.inputs["restraints"],  # restraints
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_halo",
             post_only=False,
-            config=updated_config,
+            config=config,
         )
     )
     
     # Run receptor intermediate simulations
-    intermediate_receptor = md_jobs.addChild(
+    intermediate_receptor = job.addChild(
         IntermidateRunner(
             receptor_simulations.simulations,
-            decomposition_jobs.rv(2),  # restraints
+            config.inputs["restraints"],  # restraints
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_apo",
             post_only=False,
-            config=updated_config,
+            config=config,
         )
     )
 
     # Run ligand intermediate simulations
-    intermediate_ligand = md_jobs.addChild(
+    intermediate_ligand = job.addChild(
         IntermidateRunner(
             ligand_simulations.simulations,
-            decomposition_jobs.rv(2),  # restraints
+            config.inputs["restraints"],  # restraints
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_apo",
             post_only=False,
-            config=updated_config,
+            config=config,
         )
     )
     
-    # Mark MD jobs as completed - this ensures all MD simulations finish before post-analysis
-    md_jobs_completed = md_jobs.addFollowOnJobFn(
-        initilized_jobs, 
-        message="✓ All MD simulations completed - starting post-analysis"
-    )
 
-    # Perform post-analysis on intermediate simulations (only after all MD jobs complete)
-    post_analyses_intermediate_complex = md_jobs_completed.addChild(
+def run_post_analysis_intermediate_simulations(job, config: Config, complex_simulations, receptor_simulations, ligand_simulations, flat_bottom_simulations):
+    """
+    Phase 6: Post-analysis of intermediate simulations.
+    Energy post-processing with sander imin=5
+    This phase:
+    1. Runs post-analysis for complex, ligand, and receptor systems
+    2. Runs post-analysis for flat bottom contribution
+    """
+    # Mark MD jobs as completed - this ensures all MD simulations finish before post-analysis
+    job.addChildJobFn(
+        initilized_jobs, 
+        message="✓ All MD simulations completed - starting post-analysis (energy post-processing with sander imin=5)"
+    )
+    flat_bottom_analysis = job.addChild(
         IntermidateRunner(
-            complex_simulations.simulations,
-            decomposition_jobs.rv(2),  # restraints
+            flat_bottom_simulations.simulations,
+            config.inputs["restraints"],  # restraints
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_halo",
             post_only=True,
-            config=updated_config,
+            config=config,
         )
-    )
+    ).rv()
+
+    # Perform post-analysis on intermediate simulations (only after all MD jobs complete)
+    post_analyses_intermediate_complex = job.addChild(
+        IntermidateRunner(
+            complex_simulations.simulations,
+            config.inputs["restraints"],  # restraints
+            post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
+            post_process_mdin=config.inputs["post_mdin"],
+            post_process_distruct="post_process_halo",
+            post_only=True,
+            config=config,
+        )
+    ).rv()
     
-    post_analyses_intermediate_receptor = md_jobs_completed.addChild(
+    post_analyses_intermediate_receptor = job.addChild(
         IntermidateRunner(
             receptor_simulations.simulations,
-            decomposition_jobs.rv(2),  # restraints
+            config.inputs["restraints"],  # restraints
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_apo",
             post_only=True,
-            config=updated_config,
+            config=config,
         )
-    )
+    ).rv()
     
-    post_analyses_intermediate_ligand = md_jobs_completed.addChild(
+    post_analyses_intermediate_ligand = job.addChild(
         IntermidateRunner(
             ligand_simulations.simulations,
-            decomposition_jobs.rv(2),  # restraints
+            config.inputs["restraints"],  # restraints
             post_process_no_solv_mdin=config.inputs["post_nosolv_mdin"],
             post_process_mdin=config.inputs["post_mdin"],
             post_process_distruct="post_process_apo",
             post_only=True,
-            config=updated_config,
+            config=config,
         )
-    )
+    ).rv()
     
-    # Create a data aggregation job that returns all necessary promises for post-processing
-    # This job will return: [complex_post_analysis, receptor_post_analysis, ligand_post_analysis, flat_bottom_exp, restraints]
-    def aggregate_intermediate_data(job):
-        """Aggregate all intermediate simulation data into a single return structure."""
-        return (
-            post_analyses_intermediate_complex.rv(),  # complex post-analysis results
-            post_analyses_intermediate_receptor.rv(), # receptor post-analysis results  
-            post_analyses_intermediate_ligand.rv(),   # ligand post-analysis results
-            flat_bottom_exp.rv(),                     # flat bottom exponential averaging results
-            decomposition_jobs.rv(6),                # restraints
-        )
-    
-    intermediate_data_job = md_jobs_completed.addFollowOnJobFn(aggregate_intermediate_data)
-    
-    return intermediate_data_job
+    return post_analyses_intermediate_complex, post_analyses_intermediate_receptor, post_analyses_intermediate_ligand, flat_bottom_analysis
 
 
-def run_post_processing_and_analysis(job, intermediate_jobs, config: Config):
+
+def run_post_processing_and_analysis(job, post_complex_analysis, post_receptor_analysis, post_ligand_analysis, flat_bottom_analysis, config: Config):
     """
     Phase 5: Post-processing and analysis with MBAR computation.
     
@@ -558,38 +603,56 @@ def run_post_processing_and_analysis(job, intermediate_jobs, config: Config):
     ----------
     job : JobFunctionWrappingJob
         Current Toil job
-    intermediate_jobs : JobFunctionWrappingJob
-        Job containing intermediate simulation results
+    post_complex_analysis : JobFunctionWrappingJob
+        Job containing complex energy post-analysis results
+    post_receptor_analysis : JobFunctionWrappingJob
+        Job containing receptor energy post-analysis results
+    post_ligand_analysis : JobFunctionWrappingJob
+        Job containing ligand energy post-analysis results
+    flat_bottom_analysis : JobFunctionWrappingJob
+        Job containing flat bottom energy post-analysis results
     config : Config
         Configuration object
         
     Returns
     -------
     tuple[JobFunctionWrappingJob, JobFunctionWrappingJob, JobFunctionWrappingJob]
-        MBAR analysis jobs for complex, ligand, and receptor systems
+        MBAR analysis jobs for complex, ligand, and receptor systems and flat bottom energy post-analysis results
     """
-    from implicit_solvent_ddm.adaptive_restraints import run_compute_mbar
-    
     # Run MBAR analysis for each system
     # intermediate_jobs returns: [complex_post_analysis, receptor_post_analysis, ligand_post_analysis, flat_bottom_exp, restraints]
+    
+    
+    job.fileStore.logToMaster("RUNNING POST PROCESSING AND ANALYSIS")
+    num_accelerators = config.system_settings.num_accelerators
     if config.workflow.run_post_analysis:
-        complex_mbar_job = intermediate_jobs.addFollowOnJobFn(
+        # perform exponntial averaging -> flat bottom restraint contribution
+        flat_bottom_exp = job.addChildJobFn(
+            run_exponential_averaging,
+            flat_bottom_analysis,  # flat bottom post-analysis results
+            config.intermediate_args.temperature,
+            num_accelerators=num_accelerators,
+        )
+        complex_mbar_job = job.addChildJobFn(
             run_compute_mbar,
-            intermediate_jobs.rv(0),  # complex post-analysis results
+            post_complex_analysis,  # complex post-analysis results
             config,
             "complex",
+            num_accelerators=num_accelerators,
         )
-        ligand_mbar_job = complex_mbar_job.addFollowOnJobFn(
+        ligand_mbar_job = complex_mbar_job.addChildJobFn(
             run_compute_mbar,
-            intermediate_jobs.rv(2),  # ligand post-analysis results
+            post_ligand_analysis,  # ligand post-analysis results
             config,
             "ligand",
+            num_accelerators=num_accelerators,
         )
-        receptor_mbar_job = ligand_mbar_job.addFollowOnJobFn(
+        receptor_mbar_job = ligand_mbar_job.addChildJobFn(
             run_compute_mbar,
-            intermediate_jobs.rv(1),  # receptor post-analysis results
+            post_receptor_analysis,  # receptor post-analysis results
             config,
             "receptor",
+            num_accelerators=num_accelerators,
         )
         
         # Consolidate output data if enabled
@@ -599,11 +662,11 @@ def run_post_processing_and_analysis(job, intermediate_jobs, config: Config):
                     complex_adative_run=complex_mbar_job.rv(),
                     ligand_adaptive_run=ligand_mbar_job.rv(),
                     receptor_adaptive_run=receptor_mbar_job.rv(),
-                    flat_botton_run=intermediate_jobs.rv(3),  # flat bottom results
+                    flat_botton_run=flat_bottom_exp.rv(),  # flat bottom results
                     temperature=config.intermediate_args.temperature,
                     max_conformation_force=max(config.intermediate_args.exponent_conformational_forces),
                     max_orientational_force=max(config.intermediate_args.exponent_orientational_forces),
-                    boresch_df=intermediate_jobs.rv(4),  # restraints
+                    boresch_df=config.inputs["restraints"],  # restraints
                     complex_filename=config.endstate_files.complex_parameter_filename,
                     ligand_filename=config.endstate_files.ligand_parameter_filename,
                     receptor_filename=config.endstate_files.receptor_parameter_filename,
@@ -622,12 +685,13 @@ def run_post_processing_and_analysis(job, intermediate_jobs, config: Config):
             complex_mbar_job.rv(),
             ligand_mbar_job.rv(),
             receptor_mbar_job.rv(),
+            flat_bottom_exp.rv(),
         )
     
     return config
 
 
-def update_config(job, config: Config, complex_binding_mode, receptor_binding_mode, ligand_binding_mode):
+def update_config(job, config: Config, complex_binding_mode, receptor_binding_mode, ligand_binding_mode, restraints):
     """
     Update configuration with binding modes from endstate simulations.
     
@@ -643,7 +707,8 @@ def update_config(job, config: Config, complex_binding_mode, receptor_binding_mo
         Receptor binding mode from endstate simulation
     ligand_binding_mode : Any
         Ligand binding mode from endstate simulation
-        
+    restraints : Any
+        Restraints from system decomposition
     Returns
     -------
     Config
@@ -652,9 +717,17 @@ def update_config(job, config: Config, complex_binding_mode, receptor_binding_mo
     config.inputs["endstate_complex_lastframe"] = complex_binding_mode
     config.inputs["receptor_endstate_frame"] = receptor_binding_mode
     config.inputs["ligand_endstate_frame"] = ligand_binding_mode
-
+    config.inputs["restraints"] = restraints
+    job.fileStore.logToMaster(f"returning updated config: {config}")
     return config
 
+
+def update_config_endstate(job, config: Config, message: str):
+    """
+    Update configuration with binding modes from endstate simulations.
+    """
+    job.fileStore.logToMaster(message)
+    return config
 
 def initilized_jobs(job, message: str):
     """

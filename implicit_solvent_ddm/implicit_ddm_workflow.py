@@ -17,8 +17,10 @@ from implicit_solvent_ddm.workflow_phases import (
     setup_workflow_components,
     run_endstate_simulations,
     decompose_system_and_generate_restraints,
-    run_intermediate_simulations,
+    setup_intermediate_simulations,
+    run_post_analysis_intermediate_simulations,
     run_post_processing_and_analysis,
+    run_intermediate_simulations,       
     update_config,
     initilized_jobs,
 )
@@ -54,58 +56,88 @@ def ddm_workflow(
     """
     
     # Phase 1: Setup and Preparation
-    setup_jobs = setup_workflow_components(job, config)
-    setup_complete = setup_jobs.addFollowOnJobFn(
+    setup_jobs = job.addChildJobFn(setup_workflow_components, config)
+    
+    setup_jobs.addChildJobFn(
         initilized_jobs, 
         message="✓ Phase 1 Complete: Workflow components setup finished"
     )
     
     # Phase 2: Endstate Simulations (depends on setup)
-    endstate_jobs = setup_complete.addFollowOnJobFn(
+    endstate_jobs = setup_jobs.addFollowOnJobFn(
         run_endstate_simulations, 
-        setup_jobs, 
-        config
+        setup_jobs.rv()
     )
-    endstate_complete = endstate_jobs.addFollowOnJobFn(
+    endstate_jobs.addChildJobFn(
         initilized_jobs,
         message="✓ Phase 2 Complete: Endstate simulations finished"
     )
     
     # Phase 3: System Decomposition and Restraint Generation (depends on endstate)
-    decomposition_jobs = endstate_complete.addFollowOnJobFn(
+    decomposition_jobs = endstate_jobs.addFollowOnJobFn(
         decompose_system_and_generate_restraints,
-        endstate_jobs,
-        config
+        endstate_jobs.rv(),
+        setup_jobs.rv()
     )
-    decomposition_complete = decomposition_jobs.addFollowOnJobFn(
+    decomposition_jobs.addChildJobFn(
         initilized_jobs,
         message="✓ Phase 3 Complete: System decomposition and restraint generation finished"
     )
     
     # Phase 4: Intermediate State Simulations (depends on decomposition)
-    intermediate_jobs = decomposition_complete.addFollowOnJobFn(
-        run_intermediate_simulations,
-        decomposition_jobs,
-        config
+    setup_intermediate_jobs = decomposition_jobs.addFollowOnJobFn(
+        setup_intermediate_simulations,
+        decomposition_jobs.rv(), 
+        endstate_jobs.rv(),
+        setup_jobs.rv()
     )
-    intermediate_complete = intermediate_jobs.addFollowOnJobFn(
+
+    setup_intermediate_jobs.addChildJobFn(
         initilized_jobs,
-        message="✓ Phase 4 Complete: Intermediate state simulations finished"
+        message="✓ Phase 4 Complete: Intermidate simulations setup finished"
     )
     
-    # Phase 5: Post-processing and Analysis (depends on intermediate)
-    analysis_jobs = intermediate_complete.addFollowOnJobFn(
-        run_post_processing_and_analysis,
-        intermediate_jobs,
-        config
+    # Phase 5: Run intermediate state simulations
+    run_intermediate_jobs = setup_intermediate_jobs.addFollowOnJobFn(
+        run_intermediate_simulations,
+        setup_intermediate_jobs.rv(0), # config 
+        setup_intermediate_jobs.rv(1), # complex simulations
+        setup_intermediate_jobs.rv(2), # receptor simulations   
+        setup_intermediate_jobs.rv(3), # ligand simulations
+        setup_intermediate_jobs.rv(4), # flat bottom simulations
     )
-    analysis_complete = analysis_jobs.addFollowOnJobFn(
+    run_intermediate_jobs.addChildJobFn(
         initilized_jobs,
-        message="✓ Phase 5 Complete: Post-processing and analysis finished"
+        message="✓ Phase 5 Complete: Intermediate state simulations finished"
     )
+    
+    # Phase 6: Post-processing and Analysis (depends on intermediate)
+    analysis_jobs = run_intermediate_jobs.addChildJobFn(
+        run_post_analysis_intermediate_simulations,
+        setup_intermediate_jobs.rv(0), # config 
+        setup_intermediate_jobs.rv(1), # complex simulations
+        setup_intermediate_jobs.rv(2), # receptor simulations
+        setup_intermediate_jobs.rv(3), # ligand simulations
+        setup_intermediate_jobs.rv(4), # flat bottom simulations
+    )
+    post_analysis_complete = analysis_jobs.addChildJobFn(
+        initilized_jobs,
+        message="✓ Phase 6 Complete: Finder energy post-processing with sander imin=5 finished"
+    )
+
+    # Phase 7: Exponential Averaging and MBAR Analysis
+    free_energy_difference_jobs = analysis_jobs.addFollowOnJobFn(
+        run_post_processing_and_analysis,
+        analysis_jobs.rv(0), # complex post-analysis results
+        analysis_jobs.rv(1), # receptor post-analysis results
+        analysis_jobs.rv(2), # receptor post-analysis results
+        analysis_jobs.rv(3), # ligand post-analysis results
+        setup_intermediate_jobs.rv(0), # config 
+    )
+
     
     # Final workflow completion message
-    workflow_complete = analysis_complete.addFollowOnJobFn(
+    workflow_complete = free_energy_difference_jobs.addFollowOnJobFn(
         initilized_jobs,
         message="🎉 DDM Workflow Complete: All phases finished successfully!"
     )

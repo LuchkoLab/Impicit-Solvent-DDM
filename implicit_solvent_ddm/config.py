@@ -47,7 +47,7 @@ class Workflow:
     complex_turn_on_ligand_charges: bool = True
     complex_turn_on_GB_enviroment: bool = True
     complex_remove_restraint: bool = True
-    run_adaptive_windows: bool = True
+    run_post_analysis: bool = True
     plot_overlap_matrix: bool = False 
     post_analysis_only: bool = False
     vina_dock: bool = False

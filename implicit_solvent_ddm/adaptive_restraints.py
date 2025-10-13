@@ -130,6 +130,10 @@ def run_compute_mbar(
     system_runner: IntermidateRunner,
     config: Config,
     system_type: str,
+    memory="2G",
+    cores=1,
+    disk="3G",
+    accelerators=None,
 ):
     """
     Run the compute_mbar function.
@@ -748,6 +752,9 @@ def run_exponential_averaging(
     df_mbar: pd.DataFrame
         An formated and chronological arrange DataFrame before any MBAR analysis was performed. (Which can be used to create pdfs of MBAR matrix).
     """
+    job.fileStore.logToMaster(f"Running exponential averaging")
+    job.fileStore.logToMaster(f"Running a total of {len(system_runner.post_output)} simulations")
+    job.fileStore.logToMaster(f"Post output: {system_runner.post_output}")
     return compute_mbar(
         simulation_data=system_runner.post_output,
         temperature=temperature,

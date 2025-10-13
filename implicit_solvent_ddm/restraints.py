@@ -837,6 +837,7 @@ class BoreschRestraints(Job):
         )
 
     def run(self, fileStore):
+        fileStore.logToMaster("Creating Boresch Restraints")
         temp_dir = fileStore.getLocalTempDir()
         complex_prmtop_ID = fileStore.readGlobalFile(
             self.complex_prmtop,
@@ -989,6 +990,7 @@ class RestraintMaker(Job):
         ]
 
     def run(self, fileStore):
+        fileStore.logToMaster("Creating Restraints")
         conformational_restraints = self.addChildJobFn(
             get_conformational_restraints,
             self.config.endstate_files.complex_parameter_filename,
