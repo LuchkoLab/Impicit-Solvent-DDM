@@ -150,12 +150,14 @@ The next major release (v1.1.0) will include:
 - Additional analysis methods
 - Improved user interface
 - Extended documentation and tutorials
-
-The major refactored version (v2.0.0) will include:
 - Complete refactoring from gpu_enable_merge branch
-- Significant performance improvements
 - Enhanced workflow management
 - Advanced GPU support
+
+The major refactored version (v2.0.0) will include:
+- Adaptive lambda scheduler
+- BAR initial guess estimates
+- More robust protocol
 
 ## Acknowledgments
 
