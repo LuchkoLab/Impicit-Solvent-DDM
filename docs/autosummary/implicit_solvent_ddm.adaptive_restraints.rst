@@ -18,5 +18,6 @@
       improve_restraints_overlap
       initilized_jobs
       overlap_average
+      run_compute_mbar
       run_exponential_averaging
    

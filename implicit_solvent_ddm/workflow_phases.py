@@ -97,8 +97,8 @@ def run_endstate_simulations(job, config: Config):
         
     Returns
     -------
-    JobFunctionWrappingJob
-        Job containing endstate simulation results
+    endstate_job: JobFunctionWrappingJob
+        Returns complex, receptor, and ligand endstate simulation results
     """
     job.fileStore.logToMaster(f"type config: {type(config)}")
     # Determine endstate simulation method
@@ -187,17 +187,14 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
     return split_job.rv(0), split_job.rv(1), restraints
 
 
-
 def setup_intermediate_simulations(job, decomposition_jobs, endstate_jobs, config: Config):
     """
-    Phase 4: Run intermediate state simulations with alchemical transformations.
-    
+    Phase 4: Setups the intermediate state simulations with alchemical transformations.
+
     This phase:
     1. Sets up simulation systems for complex, receptor, and ligand
     2. Performs alchemical transformations (charge scaling, GB scaling, etc.)
-    3. Runs intermediate MD simulations with restraints
-    4. Handles flat bottom contribution calculations
-    
+
     Parameters
     ----------
     job : JobFunctionWrappingJob
@@ -215,9 +212,6 @@ def setup_intermediate_simulations(job, decomposition_jobs, endstate_jobs, confi
         Job containing intermediate simulation results
     """
     job.fileStore.logToMaster(f"Calling setup_intermediate_simulations")
-    # Setup simulation systems for each component
-    # decomposition_jobs returns: [receptor_binding_mode, ligand_binding_mode, restraints]
-    # endstate_jobs returns: [complex_binding_mode, complex_traj, receptor_traj, ligand_traj]
 
     # Update config with binding modes
     updated_config = job.addChildJobFn(
@@ -419,11 +413,11 @@ def setup_intermediate_simulations(job, decomposition_jobs, endstate_jobs, confi
 def run_intermediate_simulations(job, config: Config, complex_simulations, receptor_simulations, ligand_simulations, flat_bottom_setup):
 
     """
-    Phase 5: Run intermediate state simulations with alchemical transformations.
+    Phase 5: Run intermediate state simulations.
     
     This phase:
     1. Runs intermediate MD simulations with restraints
-    2. Handles flat bottom contribution calculations
+    2. Runs flat bottom simulation
     Parameters
     ----------
     job : JobFunctionWrappingJob
@@ -498,11 +492,36 @@ def run_intermediate_simulations(job, config: Config, complex_simulations, recep
 
 def run_post_analysis_intermediate_simulations(job, config: Config, complex_simulations, receptor_simulations, ligand_simulations, flat_bottom_simulations):
     """
-    Phase 6: Post-analysis of intermediate simulations.
-    Energy post-processing with sander imin=5
+    Phase 6: Run Energy post-processing with sander imin=5
     This phase:
     1. Runs post-analysis for complex, ligand, and receptor systems
-    2. Runs post-analysis for flat bottom contribution
+    2. Runs post-analysis for flat bottom simulation
+
+    Parameters
+    ----------
+    job : JobFunctionWrappingJob
+        Current Toil job
+    config : Config
+        Configuration object
+    complex_simulations : SimulationSetup
+        Complex simulation setup
+    receptor_simulations : SimulationSetup
+        Receptor simulation setup
+    ligand_simulations : SimulationSetup
+        Ligand simulation setup
+    flat_bottom_simulations : SimulationSetup
+        Flat bottom simulation setup
+    
+    Returns
+    -------
+    post_analyses_intermediate_complex : JobFunctionWrappingJob
+        Complex energy post-analysis results
+    post_analyses_intermediate_receptor : JobFunctionWrappingJob
+        Receptor energy post-analysis results
+    post_analyses_intermediate_ligand : JobFunctionWrappingJob
+        Ligand energy post-analysis results
+    flat_bottom_analysis : JobFunctionWrappingJob
+        Flat bottom energy post-analysis results
     """
     # Mark MD jobs as completed - this ensures all MD simulations finish before post-analysis
 

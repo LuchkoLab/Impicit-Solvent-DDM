@@ -1,3 +1,7 @@
+"""
+Double Decoupling Method (DDM) workflow for free energy calculations.
+"""
+
 # from implicit_solvent_ddm.remd import run_remd
 import logging
 import os
@@ -145,7 +149,7 @@ def ddm_workflow(
         message="--> Moving to phase 7: Free energy computation and consolidation"
     )
 
-    # Phase 7: Exponential Averaging and MBAR Analysis
+    # Phase 7: Compute Free Energy and Consolidate Results
     free_energy_difference_jobs = analysis_jobs.addFollowOnJobFn(
         compute_free_energy_and_consolidate,
         analysis_jobs.rv(0), # complex post-analysis results

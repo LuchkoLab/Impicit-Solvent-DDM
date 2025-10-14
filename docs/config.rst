@@ -1,4 +1,5 @@
 .. _my-reference-label:
+
 YAML Config Syntax 
 ******************
 This assumes you have install ISDDM.py successfully. 
@@ -17,7 +18,9 @@ We will go line-by-line through the sections of the following YAML config file t
         executable: pmemd.MPI  #executable machine for MD choice : [sander, sander.MPI, pmemd, pmemd.MPI, pmeded.CUDA]
         mpi_command: srun # system dependent /
         output_directory_name: isddm_outputdir
-    
+        CUDA: False # run on CPUs
+        cache_directory_output: path/to/cache_directory
+
     number_of_cores_per_system:
         complex_ncores: 2 #total number of cores per job
         ligand_ncores: 1 #total number of cores per ligand simulation
@@ -43,7 +46,7 @@ We will go line-by-line through the sections of the following YAML config file t
             equilibrate_mdin_template: script_examples/endstate_templates_required/equil.template
             temperatures: [300.00, 327.32, 356.62, 388.05, 421.77, 457.91, 496.70, 500.00]
 
-        intermidate_states_arguments:
+        intermediate_states_arguments:
             mdin_intermidate_config: script_examples/user_intermidate_mdin_args.yaml #intermidate mdins required states 3-8
             igb_solvent: 2 #igb [1,2,3,7,8]
             temperature: 300
@@ -65,10 +68,12 @@ The hardware parameters denote the software and hardware resources there user wi
         executable: pmemd.MPI  #executable machine for MD choice : [sander, sander.MPI, pmemd, pmemd.MPI, pmeded.CUDA]
         mpi_command: srun # system dependent /
         output_directory_name: isddm_outputdir
+        CUDA: False # run on CPUs
+        
 
 The ``working_directory`` keyword is the working directory for exporting output data. Following ``executable`` TheAmber MD engine the user wishes to execute(``sander``, ``sander.MPI``, ``pmemd``,
 ``pmemd.MPI``, ``pmemd.cuda`` or ``pmemd.cuda.MPI``) for the the end-state and intermediate MD simulations. The ``mpi_command`` used to run MPI programs on the computer system;
-e.g., ``mpirun``, ``mpiexec``, or ``srun``. Lastly the ``output_directory_name`` keyword is the name of output directory. 
+e.g., ``mpirun``, ``mpiexec``, or ``srun``. The ``output_directory_name`` keyword is the name of output directory. The ``CUDA`` keyword specifies whether to use GPU acceleration: ``False`` means it will run on CPUs, while ``True`` runs on GPUs. 
 
 Specify number of performance cores  
 """""""""""""""""""""""""""""""""""
@@ -125,7 +130,7 @@ The general workflow to perform implicit solvent ABFE calculations.
             equilibrate_mdin_template: script_examples/endstate_templates_required/equil.template
             temperatures: [300.00, 327.32, 356.62, 388.05, 421.77, 457.91, 496.70, 500.00]
 
-        intermidate_states_arguments:
+        intermediate_states_arguments:
             mdin_intermidate_config: script_examples/user_intermidate_mdin_args.yaml #intermidate mdins required states 3-8
             igb_solvent: 2 #igb [1,2,3,7,8]
             temperature: 300
@@ -202,7 +207,7 @@ Intermidate arugments
     
     workflow:
 
-        intermidate_states_arguments:
+        intermediate_states_arguments:
             mdin_intermidate_config: script_examples/user_intermidate_mdin_args.yaml #intermidate mdins required states 3-8
             igb_solvent: 2 #igb [1,2,3,7,8]
             temperature: 300

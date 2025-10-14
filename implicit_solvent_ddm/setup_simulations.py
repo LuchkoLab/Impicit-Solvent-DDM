@@ -1,3 +1,7 @@
+"""
+Setup simulations for the Double Decoupling Method (DDM) workflow.
+"""
+
 from dataclasses import dataclass, field
 from typing import Optional, Union
 from copy import copy

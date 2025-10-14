@@ -19,7 +19,7 @@
       Config
       EndStateMethod
       FlatBottomRestraints
-      IntermidateStatesArgs
+      IntermediateStateArgs
       NumberOfCoresPerSystem
       ParameterFiles
       REMD
