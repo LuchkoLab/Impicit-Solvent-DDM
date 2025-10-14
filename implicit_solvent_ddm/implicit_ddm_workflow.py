@@ -19,9 +19,8 @@ from implicit_solvent_ddm.workflow_phases import (
     decompose_system_and_generate_restraints,
     setup_intermediate_simulations,
     run_post_analysis_intermediate_simulations,
-    run_post_processing_and_analysis,
+    compute_free_energy_and_consolidate,
     run_intermediate_simulations,       
-    update_config,
     initilized_jobs,
 )
 
@@ -54,49 +53,63 @@ def ddm_workflow(
     tuple[Config, Config, Config]
         Updated configuration objects for complex, ligand, and receptor systems
     """
-    
+
     # Phase 1: Setup and Preparation
     setup_jobs = job.addChildJobFn(setup_workflow_components, config)
-    
-    setup_jobs.addChildJobFn(
+    updated_config = setup_jobs.rv()
+
+    setup_jobs.addFollowOnJobFn(
         initilized_jobs, 
         message="✓ Phase 1 Complete: Workflow components setup finished"
+    )
+    setup_jobs.addFollowOnJobFn(
+        initilized_jobs,
+        message="--> Moving to phase 2: Endstate Simulations"
     )
     
     # Phase 2: Endstate Simulations (depends on setup)
     endstate_jobs = setup_jobs.addFollowOnJobFn(
         run_endstate_simulations, 
-        setup_jobs.rv()
+        updated_config
     )
-    endstate_jobs.addChildJobFn(
+    endstate_jobs.addFollowOnJobFn(
         initilized_jobs,
         message="✓ Phase 2 Complete: Endstate simulations finished"
     )
-    
+    endstate_jobs.addFollowOnJobFn(
+        initilized_jobs,
+        message="--> Moving to phase 3: System Decomposition and Restraint Generation"
+    )
     # Phase 3: System Decomposition and Restraint Generation (depends on endstate)
     decomposition_jobs = endstate_jobs.addFollowOnJobFn(
         decompose_system_and_generate_restraints,
         endstate_jobs.rv(),
-        setup_jobs.rv()
+        updated_config
     )
-    decomposition_jobs.addChildJobFn(
+    decomposition_jobs.addFollowOnJobFn(
         initilized_jobs,
         message="✓ Phase 3 Complete: System decomposition and restraint generation finished"
     )
-    
+    decomposition_jobs.addFollowOnJobFn(
+        initilized_jobs,
+        message="--> Moving to phase 4: Intermediate State Simulations"
+    )
     # Phase 4: Intermediate State Simulations (depends on decomposition)
     setup_intermediate_jobs = decomposition_jobs.addFollowOnJobFn(
         setup_intermediate_simulations,
         decomposition_jobs.rv(), 
         endstate_jobs.rv(),
-        setup_jobs.rv()
+        updated_config
     )
 
-    setup_intermediate_jobs.addChildJobFn(
+    setup_intermediate_jobs.addFollowOnJobFn(
         initilized_jobs,
         message="✓ Phase 4 Complete: Intermidate simulations setup finished"
     )
-    
+    setup_intermediate_jobs.addFollowOnJobFn(
+        initilized_jobs,
+        message="--> Moving to phase 5: Intermediate State Simulations"
+    )
     # Phase 5: Run intermediate state simulations
     run_intermediate_jobs = setup_intermediate_jobs.addFollowOnJobFn(
         run_intermediate_simulations,
@@ -106,13 +119,16 @@ def ddm_workflow(
         setup_intermediate_jobs.rv(3), # ligand simulations
         setup_intermediate_jobs.rv(4), # flat bottom simulations
     )
-    run_intermediate_jobs.addChildJobFn(
+    run_intermediate_jobs.addFollowOnJobFn(
         initilized_jobs,
         message="✓ Phase 5 Complete: Intermediate state simulations finished"
     )
-    
+    run_intermediate_jobs.addFollowOnJobFn(
+        initilized_jobs,
+        message="--> Moving to phase 6: Energy post-processing and analysis"
+    )
     # Phase 6: Post-processing and Analysis (depends on intermediate)
-    analysis_jobs = run_intermediate_jobs.addChildJobFn(
+    analysis_jobs = run_intermediate_jobs.addFollowOnJobFn(
         run_post_analysis_intermediate_simulations,
         setup_intermediate_jobs.rv(0), # config 
         setup_intermediate_jobs.rv(1), # complex simulations
@@ -120,14 +136,18 @@ def ddm_workflow(
         setup_intermediate_jobs.rv(3), # ligand simulations
         setup_intermediate_jobs.rv(4), # flat bottom simulations
     )
-    post_analysis_complete = analysis_jobs.addChildJobFn(
+    analysis_jobs.addFollowOnJobFn(
         initilized_jobs,
-        message="✓ Phase 6 Complete: Finder energy post-processing with sander imin=5 finished"
+        message="✓ Phase 6 Complete: Energy post-processing and analysis finished"
+    )
+    post_analysis_complete = analysis_jobs.addFollowOnJobFn(
+        initilized_jobs,
+        message="--> Moving to phase 7: Free energy computation and consolidation"
     )
 
     # Phase 7: Exponential Averaging and MBAR Analysis
     free_energy_difference_jobs = analysis_jobs.addFollowOnJobFn(
-        run_post_processing_and_analysis,
+        compute_free_energy_and_consolidate,
         analysis_jobs.rv(0), # complex post-analysis results
         analysis_jobs.rv(1), # receptor post-analysis results
         analysis_jobs.rv(2), # receptor post-analysis results
@@ -135,14 +155,19 @@ def ddm_workflow(
         setup_intermediate_jobs.rv(0), # config 
     )
 
-    
+    free_energy_difference_jobs.addFollowOnJobFn(
+        initilized_jobs,
+        message="✓ Phase 7 Complete: Free energy computation and consolidation finished"
+    )
+
     # Final workflow completion message
-    workflow_complete = free_energy_difference_jobs.addFollowOnJobFn(
+    
+    free_energy_difference_jobs.addFollowOnJobFn(
         initilized_jobs,
         message="🎉 DDM Workflow Complete: All phases finished successfully!"
     )
     
-    return workflow_complete
+    return free_energy_difference_jobs
 
 
 def main():
@@ -160,8 +185,8 @@ def main():
         help=" Receptor MD caluculations with not be performed.",
     )
     options = parser.parse_args()
-    options.logLevel = options.clean
     options.clean = "onSuccess"
+    options.logLevel = "INFO"
     config_file = options.config_file[0]
     ignore_receptor = options.ignore_receptor
 

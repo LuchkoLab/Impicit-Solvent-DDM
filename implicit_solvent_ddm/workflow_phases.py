@@ -79,9 +79,7 @@ def setup_workflow_components(job: JobFunctionWrappingJob, config: Config):
     # Setup flat bottom restraint potentials
     flat_bottom_template = mdins.addChild(FlatBottom(config=config))
     config.inputs["flat_bottom_restraint"] = flat_bottom_template.rv(0)
-    
-    return job.addFollowOnJobFn(update_config_endstate, config, message="✓ Phase 1 Complete: Updated config with endstate results").rv()
-
+    return config
 
 def run_endstate_simulations(job, config: Config):
     """
@@ -187,29 +185,7 @@ def decompose_system_and_generate_restraints(job, endstate_jobs, config: Config)
     )
 
     return split_job.rv(0), split_job.rv(1), restraints
-    # # Create a data aggregation job that waits for both split_job and restraints to complete
-    # # This job will return: [complex_binding_mode, complex_traj, receptor_binding_mode, ligand_binding_mode, receptor_traj, ligand_traj, restraints]
-    # def aggregate_decomposition_data(job, split_results, restraints_results):
-    #     """Aggregate all decomposition data into a single return structure."""
-    #     return (
-    #         endstate_jobs[0],      # complex_binding_mode
-    #         endstate_jobs[1],      # complex_traj  
-    #         split_results[0],         # receptor_binding_mode
-    #         split_results[1],         # ligand_binding_mode
-    #         endstate_jobs[2],      # receptor_traj
-    #         endstate_jobs[3],      # ligand_traj
-    #         restraints_results,       # restraints from RestraintMaker
-    #     )
-    
-    # # Create a synchronization job that waits for BOTH independent jobs to complete
-    # # Use addChild to create a job that depends on both split_job and restraints
-    # decomposition_data_job = restraints.addFollowOnJobFn(
-    #     aggregate_decomposition_data,
-    #     split_job.rv(),      # This ensures split_job completes first
-    #     restraints           # This ensures restraints completes first
-    # )
-    
-    # return decomposition_data_job
+
 
 
 def setup_intermediate_simulations(job, decomposition_jobs, endstate_jobs, config: Config):
@@ -239,10 +215,6 @@ def setup_intermediate_simulations(job, decomposition_jobs, endstate_jobs, confi
         Job containing intermediate simulation results
     """
     job.fileStore.logToMaster(f"Calling setup_intermediate_simulations")
-    job.fileStore.logToMaster(f"type for endstate_jobs: {type(endstate_jobs)}")
-    job.fileStore.logToMaster(f"endstate_jobs: {endstate_jobs}")  
-    job.fileStore.logToMaster(f"decomposition_jobs: {decomposition_jobs}")
-    job.fileStore.logToMaster(f"config: {config}")
     # Setup simulation systems for each component
     # decomposition_jobs returns: [receptor_binding_mode, ligand_binding_mode, restraints]
     # endstate_jobs returns: [complex_binding_mode, complex_traj, receptor_traj, ligand_traj]
@@ -533,10 +505,7 @@ def run_post_analysis_intermediate_simulations(job, config: Config, complex_simu
     2. Runs post-analysis for flat bottom contribution
     """
     # Mark MD jobs as completed - this ensures all MD simulations finish before post-analysis
-    job.addChildJobFn(
-        initilized_jobs, 
-        message="✓ All MD simulations completed - starting post-analysis (energy post-processing with sander imin=5)"
-    )
+
     flat_bottom_analysis = job.addChild(
         IntermidateRunner(
             flat_bottom_simulations.simulations,
@@ -590,14 +559,15 @@ def run_post_analysis_intermediate_simulations(job, config: Config, complex_simu
 
 
 
-def run_post_processing_and_analysis(job, post_complex_analysis, post_receptor_analysis, post_ligand_analysis, flat_bottom_analysis, config: Config):
+def compute_free_energy_and_consolidate(job, post_complex_analysis, post_receptor_analysis, post_ligand_analysis, flat_bottom_analysis, config: Config):
     """
-    Phase 5: Post-processing and analysis with MBAR computation.
+    Phase 7: Compute free energy and consolidate results.
     
     This phase:
     1. Runs MBAR analysis for complex, ligand, and receptor systems
-    2. Consolidates output data if enabled
-    3. Generates final results and plots
+    2. Runs MBAR analysis for flat bottom contribution
+    3. Consolidates output data if enabled
+    4. Generates final results and plots
     
     Parameters
     ----------
@@ -623,7 +593,6 @@ def run_post_processing_and_analysis(job, post_complex_analysis, post_receptor_a
     # intermediate_jobs returns: [complex_post_analysis, receptor_post_analysis, ligand_post_analysis, flat_bottom_exp, restraints]
     
     
-    job.fileStore.logToMaster("RUNNING POST PROCESSING AND ANALYSIS")
     num_accelerators = config.system_settings.num_accelerators
     if config.workflow.run_post_analysis:
         # perform exponntial averaging -> flat bottom restraint contribution
@@ -631,33 +600,33 @@ def run_post_processing_and_analysis(job, post_complex_analysis, post_receptor_a
             run_exponential_averaging,
             flat_bottom_analysis,  # flat bottom post-analysis results
             config.intermediate_args.temperature,
-            num_accelerators=num_accelerators,
+            accelerators=num_accelerators,
         )
         complex_mbar_job = job.addChildJobFn(
             run_compute_mbar,
             post_complex_analysis,  # complex post-analysis results
             config,
             "complex",
-            num_accelerators=num_accelerators,
+            accelerators=num_accelerators,
         )
-        ligand_mbar_job = complex_mbar_job.addChildJobFn(
+        ligand_mbar_job = job.addChildJobFn(
             run_compute_mbar,
             post_ligand_analysis,  # ligand post-analysis results
             config,
             "ligand",
-            num_accelerators=num_accelerators,
+            accelerators=num_accelerators,
         )
-        receptor_mbar_job = ligand_mbar_job.addChildJobFn(
+        receptor_mbar_job = job.addChildJobFn(
             run_compute_mbar,
             post_receptor_analysis,  # receptor post-analysis results
             config,
             "receptor",
-            num_accelerators=num_accelerators,
+            accelerators=num_accelerators,
         )
         
         # Consolidate output data if enabled
         if config.workflow.consolidate_output:
-            consolidation_job = receptor_mbar_job.addFollowOn(
+            consolidation_job = job.addFollowOn(
                 ConsolidateData(
                     complex_adative_run=complex_mbar_job.rv(),
                     ligand_adaptive_run=ligand_mbar_job.rv(),
@@ -678,15 +647,10 @@ def run_post_processing_and_analysis(job, post_complex_analysis, post_receptor_a
             # Final completion message
             analysis_complete = consolidation_job.addFollowOnJobFn(
                 initilized_jobs,
-                message="✓ Post-processing and analysis completed"
+                message="✓ Phase 7 Complete: Free energy computation and consolidation completed"
             )
         
-        return (
-            complex_mbar_job.rv(),
-            ligand_mbar_job.rv(),
-            receptor_mbar_job.rv(),
-            flat_bottom_exp.rv(),
-        )
+        return consolidation_job.rv()
     
     return config
 

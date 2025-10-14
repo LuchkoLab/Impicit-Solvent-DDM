@@ -287,10 +287,10 @@ class IntermidateRunner(Job):
 
         for post_simulation in self.simulations:
             directory_args = post_simulation.directory_args.copy()
-            fileStore.logToMaster(f"directory args before update: {directory_args}\n")
+            #fileStore.logToMaster(f"directory args before update: {directory_args}\n")
             # fileStore.logToMaster(f"args {completed_sim.directory_args} & {md_traj}")
             directory_args.update(self.update_postprocess_dirstruct(completed_sim.directory_args))  # type: ignore
-            fileStore.logToMaster(f"directory args after update: {directory_args}\n")
+            #fileStore.logToMaster(f"directory args after update: {directory_args}\n")
             mdin = self.mdin
             if post_simulation.directory_args["igb_value"] == 6:
                 mdin = self.no_solvent_mdin
@@ -323,11 +323,6 @@ class IntermidateRunner(Job):
                     f"Using trajectory from {completed_sim.output_dir}\n"
                 )
 
-            mdout_parse = not "simulation_mdout.parquet.gzip" in os.listdir(
-                post_process_job.output_dir
-            )
-            fileStore.logToMaster(f"mdout_parse: {mdout_parse}\n")
-            fileStore.logToMaster(f"ADAPTIVE {self.adaptive}")
 
             if not "simulation_mdout.parquet.gzip" in os.listdir(
                 post_process_job.output_dir
@@ -359,22 +354,18 @@ class IntermidateRunner(Job):
                 self.post_output.append(data_frame.rv())
 
             elif post_process_job.output_dir in self._loaded_dataframe:
-                fileStore.logToMaster(f"ADAPTIVE lambda window set")
+                fileStore.logToMaster(f"Energy post-analysis already completed and already loaded the results")
                 fileStore.logToMaster(
-                    f"Adapative restraints Is TRUE therefore {post_process_job.output_dir} is already loaded\n"
-                )
-                fileStore.logToMaster(
-                    f"simulations output that were loaded \n {post_process_job.output_dir}"
+                    f"Already loaded the Energy post-analysis results in the directory {post_process_job.output_dir}\n"
                 )
                 continue
 
             else:
                 if post_simulation.directory_args["state_label"] == "lambda_window":
-                    fileStore.logToMaster(f"Retrieving ADAPTIVE lambda window set")
+                    fileStore.logToMaster(f"Energy post-analysis already completed and loading the results") 
                     fileStore.logToMaster(
-                        f"Adapative restraints Is TRUE therefore {post_process_job.output_dir} is being loaded\n"
+                        f"Loading the Energy post-analysis results in the directory {post_process_job.output_dir}\n"
                     )
-                fileStore.logToMaster("Retrieving completed post-analysis data")
                 self.post_output.append(
                     pd.read_parquet(
                         os.path.join(
