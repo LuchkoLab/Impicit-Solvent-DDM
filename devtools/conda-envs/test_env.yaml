@@ -1,17 +1,17 @@
 name: isddm_env
 channels:
   - conda-forge
-  - omnia
   - defaults
 dependencies:
-  - python=3.10
-  - pandas[performance] 
-  - pip
-  - fastparquet
-  - pyarrow
+  - setuptools<70
+  - alchemlyb
   - ambertools
-  - ipython
+  - fastparquet
   - more-itertools
+  - numba
+  - pandas
+  - pip
+  - pyarrow
   - pylint
   - pymbar
   - pyopenssl
@@ -19,6 +19,7 @@ dependencies:
   - pytables
   - pytest
   - pytest-cov
-  - alchemlyb
-  - numba
+  - python=3.10
+  - ipython
+  - pyyaml 
 # prefix: /home/ayoub/.conda/envs/isddm_depen_env
