@@ -7,12 +7,26 @@ on:
       - 'docs/**'
       - '.github/workflows/docs.yml'
       - 'README.md'
+    paths-ignore:
+      - 'implicit_solvent_ddm/**'
+      - 'script_examples/**'
+      - 'devtools/**'
+      - 'setup.py'
+      - 'setup.cfg'
+      - 'MANIFEST.in'
   pull_request:
     branches: [ main ]
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
       - 'README.md'
+    paths-ignore:
+      - 'implicit_solvent_ddm/**'
+      - 'script_examples/**'
+      - 'devtools/**'
+      - 'setup.py'
+      - 'setup.cfg'
+      - 'MANIFEST.in'
 
 jobs:
   build-docs:

@@ -8,10 +8,18 @@ on:
     branches:
       - "master"
       - "main"
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - '.github/workflows/docs.yml'
   pull_request:
     branches:
       - "master"
       - "main"
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - '.github/workflows/docs.yml'
 jobs:
   test:
     name: Test on ${{ matrix.os }}, Python ${{ matrix.python-version }}
