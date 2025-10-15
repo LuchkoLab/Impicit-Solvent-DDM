@@ -1,5 +1,5 @@
 
-Running REMD at the endstate simulation
+Running REMD at the endstate simulation
 #####################################################
 
 
