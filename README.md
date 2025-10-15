@@ -1,230 +1,75 @@
-Implicit_Solvent_DDM
-==============================
-Automated, efficient absolute binding free energy workflow. 
-Implicit solvent ddm project is a python tool for performing fully automated binding free energy calculations (ABFEs) using Molecular Dynamics. Here, we implemented an approach that utilizes faster methods, such as generalize Born surface area, which reduces computational costs with the use of implicit solvent models.  We adapted double decoupling method (DDM) that uses Boresch restraints[1] and GB solvent to enhance convergence. Due to the complexity of performing ABFEs, this python workflow package  performs all calculations of the thermodynamic cycle, post-processing, and data analysis.  
+# Implicit Solvent DDM
+
+**Automated, efficient absolute binding free energy calculations using implicit solvent models.**
+
+Implicit Solvent DDM is a Python package for performing fully automated binding free energy calculations (ABFEs) using Molecular Dynamics. The package implements the double decoupling method (DDM) with Boresch restraints and generalized Born surface area (GBSA) models to reduce computational costs while maintaining accuracy.
+
+**📄 Paper**: [Automated Workflow for Absolute Binding Free Energy Calculations with Implicit Solvent and Double Decoupling](https://arxiv.org/abs/2509.21808) - *arXiv:2509.21808*
 
 
-![Thermocycle_3_16_2021](https://user-images.githubusercontent.com/75343244/183561767-35dc6bb4-b329-418a-a86b-b9f4717eff1d.jpg)
+##  Documentation
 
+** [View Complete Documentation](https://luchkolab.github.io/Impicit-Solvent-DDM/)**
 
-[//]: # (Badges)
-[![GitHub Actions Build Status](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/implicit_solvent_ddm/workflows/CI/badge.svg)](https://github.com/REPLACE_WITH_OWNER_ACCOUNT/implicit_solvent_ddm/actions?query=workflow%3ACI)
-[![codecov](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/Implicit_Solvent_DDM/branch/master/graph/badge.svg)](https://codecov.io/gh/REPLACE_WITH_OWNER_ACCOUNT/Implicit_Solvent_DDM/branch/master)
+The documentation includes:
+- **Installation Guide** - Setup instructions and requirements
+- **Configuration Examples** - YAML configuration with GPU support
+- **Workflow Structure** - Detailed DDM workflow phases
+- **API Reference** - Complete module documentation
+- **Updates & Changelog** - Latest features including GPU acceleration
 
-## Setup/Install
-  1. `git pull git@github.com:LuchkoLab/Impicit-Solvent-DDM.git`
-  2.  `conda env create -f devtools/conda-envs/test_env.yaml`
-  3.  `conda activate mol_ddm_env`
-  4.  `python setup.py sdist`
-  5.  `pip install dist/*`
- 
-## YAML config file format
-   The yaml config file is required to be able to run the program. The YAML config file specifies input parameters needed from the user, such as endstate `.parm7, .ncsrst` files of the complex system. As well system parameters, which program supports AMBER engines such as Sander, PMEMD & .MPI
-```yaml
+##  Quick Start
 
-system_parameters:
-  working_directory: '/nas0/ayoub/Impicit-Solvent-DDM/'
-  executable: "sander.MPI" # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
-  mpi_command: "srun" # system dependent /
-
-
-endstate_parameter_files:
-  complex_parameter_filename: structs/complex/cb7-mol01.parm7 # list of topology file of a complex
-  complex_coordinate_filename: structs/complex/cb7-mol01.rst7 # list of coordinate file of a complex  
-
-number_of_cores_per_system:
-    complex_ncores: 2 #total number of cores per job
-    ligand_ncores: 1 #total number of cores per ligand simulation
-    receptor_ncores: 1 #total number of cores per ligand simulation
-
-AMBER_masks:
-    receptor_mask: ':CB7' # list of Amber masks denoting receptor atoms in respected complex file
-    ligand_mask: ':M01' # list of Amber masks denoting ligand atoms in respected complex file
-
-workflow:
-  endstate_method: remd #options REMD or 0 (meaning no endstate simulation will be performed just intermidates)endstate_method: REMD #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates) 
-  endstate_arguments:
-    nthreads_complex: 16
-    nthreads_receptor: 8
-    nthreads_ligand: 8
-    ngroups: 8 
-    target_temperature: 300 # list of temperatures or temp.dat file
-    remd_template_mdin: remd.mdin
-    equilibrate_mdin_template: equil.mdin
-    temperatures: [300.00, 327.32, 356.62, 388.05, 421.77, 457.91, 496.70, 500.00]
-
-  intermidate_states_arguments:
-    mdin_intermidate_file: intermidate_args.mdin #intermidate mdins required states 3-8
-    igb_solvent: 2 #igb [1,2,3,7,8]
-    temperature: 300
-    exponent_conformational_forces: [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 2.584963, 3, 3.584963, 4] # list exponent values 2**p 
-    exponent_orientational_forces: [-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 6.584963, 7, 7.584963, 8] # list exponent values 2**p 
-    restraint_type: 2 # choices: [ 1: CoM-CoM, 2: CoM-Heavy_Atom, 3: Heavy_Atom-Heavy_Atom, must be 1, 2 or 3 ]
-    charges_lambda_window:  [0.5, 1.0]
-    gb_extdiel_windows: [0.1, 0.2, 0.5]
-
-```
-## Intermidate mdin example (mdin_intermidate_file)
-  The current version only supports AMBER mdin input. Please note that `nmropt = 1` and `$restraint` are required for every mdin input. The restraint files for both conformational and orientational restraints will be created during the workflow.
-```text
-#mdin required for intermidate states
-
-&cntrl
-  imin=0            ! MD
-  nstlim = 2500000     ! # of steps
-  nscm = 0             ! don't removed COM translations
-  nrespa = 1           ! don't use MTS
-  ntx = 1           ! read in velocities or not
-  irest = 1       ! restart
-  dt = 0.004
-  ioutfm = 1
-  ntb = 0
-  
-  igb = 2, saltcon=0.3
-  gbsa = 0
-  rgbmax= 999.0
-  cut = 999
-
-  ntt = 3
-  ig = -1
-  gamma_ln=1
-  temp0 = 298
-
-  ntc = 2              ! SHAKE all hydrogen bonds
-  ntf = 2
-
-  nmropt = 1
-  
-  ntxo=2,ioutfm=1    ! binary restart and trajectories
-  ntpr=250         ! print energies 
-  ntwx=250        ! write to trajectory
-  
-/
-
-
-&wt type='END'
-
-/
-
-DISANG = $restraint
-
-```
-  
-## Equilibration mdin example (equilibrate_mdin_template)
-All MDINs for temperature replica exchange will be generated automatically for the user. The user only needs to provide an MDIN with all necessary argument keys for running equilibration. The user must place the `$ig` and `$restraint` keys within both templates as shown below. All the temperature values specified in the configuration file will be inserted into the generated MDINs. 
-```text 
- Equilibration (example)
- &cntrl
-   irest=0, ntx=1, 
-   nstlim=25000, dt=0.004,
-   ntt=3, gamma_ln=1.0,
-   temp0=$temp, ig=$ig,
-   ntc=2, ntf=2, nscm=1000,
-   ntb=0, igb=2,
-   cut=999.0, rgbmax=999.0,
-   ntpr=1, ntwx=1,
-   nmropt=1, ioutfm=1,
-   saltcon=0.025, gbsa = 0
- /
- &wt TYPE='END'
- /
-DISANG=$restraint
-
-```
-## REMD mdin example (remd_template_mdin)
-```text 
-TREMD (example)
- &cntrl
-   irest=1, ntx=5, 
-   nstlim = 1, dt=0.004, 
-   numexchg = 2500000,
-   ntt=3, gamma_ln=1.0,
-   temp0=$temp, ig=$ig,
-   ntc=2, ntf=2, nscm=0,
-   ntb=0, igb=2,
-   cut=999.0, rgbmax=999.0,
-   ntpr=250, ntwx=250,
-   ioutfm=1, nmropt=1,
-   saltcon=0.15, gbsa = 0
- /
- &wt TYPE='END'
- /
-DISANG=$restraint
-
-```
-## Quick Start (running locally) 
-   `run_implicit_ddm.py file:/scratch/my-job-store --config_file script_examples/config_script1.yaml --workDir /localhome/working_directory`
-
-## SLURM batch file (preferred) submission 
 ```bash
-#!/bin/bash
-#SBATCH --partition=main
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=18
-#SBATCH --time=09:30:00
-#SBATCH --job-name=implicit_ddm
-#SBATCH --export=all
+# 1. Clone the repository
+git clone https://github.com/LuchkoLab/Impicit-Solvent-DDM.git
+cd Impicit-Solvent-DDM
 
-pwd
+# 2. Create conda environment
+conda env create -f devtools/conda-envs/test_env.yaml
+conda activate isddm_env
 
+# 3. Install package
+python setup.py sdist
+pip install dist/*
 
-#if you’re on a node that has a large /scratch volume
-run_implicit_ddm.py file:/scratch/my-job-store --config_file script_examples/config_script1.yaml --workDir /localhome/working_directory
+# 4. Run simulation
+run_implicit_ddm.py file:/path/to/job-store \
+    --config_file config.yaml \
+    --workDir /path/to/working/directory
 ```
-## Ignore receptor flag
- If running mutiple HOST/Guests system with the same Host system use the `--ignore_receptor` flag to prevent any repeated receptor only simulations 
 
+##  Key Features
 
-## Design Objectives
+- **GPU Acceleration** - CUDA support for faster simulations
+- **Automated Workflow** - Complete DDM cycle automation
+- **Implicit Solvent** - GBSA models for efficient calculations
+- **AMBER Support** - Sander, PMEMD, and GPU-enabled AMBER executables
+- **HPC Ready** - SLURM/PBS job scheduling support
+- **MBAR Analysis** - Integrated free energy calculations
 
-- [x] run MD all of the states for our restrained DDM cycle
-- [x] should submit to slurm/PBS queue or run on local resources
-- [x] run one state or multiple states with a single call
-- [ ] run with one molecule or multiple molecules with a single call
-    - [x] config file to define 
-        * the cycle,
-        * all states,
-        * MD parameters for each state
-    - [ ] can use template files for inputs
-- [x] evaluate each trajectory in all other states
-    * should submit to slurm/PBS queue or run on local resources
-    * run one state or multiple states with a single call
-    * run with one molecule or multiple molecules with a single call
-    * automatically uses the correct combination of trajector, parameter and MD settings
-    * uses the same config file(s) as MD
-- [ ] Run MBAR on final evaluated trajectories.
-    * can just run locally
-    * run one state or multiple states with a single call
-    * run with one molecule or multiple molecules with a single call
-    * won't fail on the whole calculation if one part fails
-    * uses the same config file(s) as MD
+## 📖 What's New in v1.1.1
 
-## Exectuables
+- **GPU Support** - CUDA acceleration for MD simulations
+- **Enhanced Documentation** - Comprehensive guides and examples
+- **Improved Workflow** - Better error handling and recovery
 
-1. Runs MD
-2. Re-evaluate trajectories
-3. Parse data into dataframes
-4. Run MBAR
-5. create restraints
+---
 
-## Config file
+**For detailed information, examples, and API reference, visit our [complete documentation](https://luchkolab.github.io/Impicit-Solvent-DDM/).**
 
-* one of JSON, YAML or config.ini
+## 📋Citation
 
-### Elements
+If you use this software in your research, please cite:
 
-* top level should define states in thermodynamic cycle as an ordered list of names
-* each name then gets a section which includes
-    * templates to be used
-    * values for template variables
-    * any other settings 
-
-### Copyright
-
-Copyright (c) 2024, Steven Ayoub, Tyler Luchko, Michael Barton 
-
-
-#### Acknowledgements
- 
-Project based on the 
-[Computational Molecular Science Python Cookiecutter](https://github.com/molssi/cookiecutter-cms) version 1.5.
+```bibtex
+@misc{ayoub2025automated,
+  title={Automated Workflow for Absolute Binding Free Energy Calculations with Implicit Solvent and Double Decoupling},
+  author={Steven Ayoub and Michael Barton and David A. Case and Tyler Luchko},
+  year={2025},
+  eprint={2509.21808},
+  archivePrefix={arXiv},
+  primaryClass={physics.chem-ph},
+  url={https://arxiv.org/abs/2509.21808}
+}
+```
