@@ -685,7 +685,8 @@ class IntermediateStateArgs:
         # Ensure lambda windows include 0 and 1
         self.charges_lambda_window = list({0.0, 1.0, *self.charges_lambda_window})
         self.charges_lambda_window = [float(charge) for charge in self.charges_lambda_window]
-
+        self.exponent_conformational_forces = [float(force) for force in self.exponent_conformational_forces]
+        self.exponent_orientational_forces = [float(force) for force in self.exponent_orientational_forces]
         # Convert GB external dielectric scaling to dielectric values (if present)
         if self.gb_extdiel_windows:
             self.gb_extdiel_windows = [
