@@ -1,5 +1,7 @@
 """Functions to make applying pyMBAR to Pandas DataFrames easier.
+"""
 
+"""
 The simplest way to use this is 
 
     import pandasmbar as pdmbar

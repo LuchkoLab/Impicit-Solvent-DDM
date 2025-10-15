@@ -125,6 +125,34 @@ def compute_mbar(
 
     # return pdmbar.mbar(df_subsampled), df_mbar
 
+def run_compute_mbar(
+    job,
+    system_runner: IntermidateRunner,
+    config: Config,
+    system_type: str,
+    memory="2G",
+    cores=1,
+    disk="3G",
+    accelerators=None,
+):
+    """
+    Run the compute_mbar function.
+    """
+    job.log(f"Running MBAR for {system_type}")
+    cycle_steps = CycleSteps(
+        conformation_forces=config.intermediate_args.exponent_conformational_forces_list,
+        orientational_forces=config.intermediate_args.exponent_orientational_forces_list,
+        charges_windows=config.intermediate_args.charges_lambda_window,
+        external_dielectic=config.intermediate_args.gb_extdiel_windows,
+    )
+    cycle_steps.round(3)
+    
+    return compute_mbar(
+        simulation_data=system_runner.post_output,
+        temperature=config.intermediate_args.temperature,
+        matrix_order=cycle_steps,
+        system=system_type,
+    )
 
 def adaptive_lambda_windows(
     job,
@@ -167,16 +195,16 @@ def adaptive_lambda_windows(
     # Sort all thermodynamic cycle steps in chronological order
     job.log(f"THE SYSTEM PASSED {system_type}")
     job.log(
-        f"conformational exponets: {updated_config.intermidate_args.exponent_conformational_forces}"
+        f"conformational exponets: {updated_config.intermediate_args.exponent_conformational_forces_list}"
     )
     job.log(
-        f"orientational exponets: {updated_config.intermidate_args.exponent_orientational_forces}"
+        f"orientational exponets: {updated_config.intermediate_args.exponent_orientational_forces_list}"
     )
     cycle_steps = CycleSteps(
-        conformation_forces=updated_config.intermidate_args.exponent_conformational_forces,
-        orientational_forces=updated_config.intermidate_args.exponent_orientational_forces,
-        charges_windows=updated_config.intermidate_args.charges_lambda_window,
-        external_dielectic=updated_config.intermidate_args.gb_extdiel_windows,
+        conformation_forces=updated_config.intermediate_args.exponent_conformational_forces_list,
+        orientational_forces=updated_config.intermediate_args.exponent_orientational_forces_list,
+        charges_windows=updated_config.intermediate_args.charges_lambda_window,
+        external_dielectic=updated_config.intermediate_args.gb_extdiel_windows,
     )
     # round all restraint forces values to 3 sig. figs for readable dataframes.
     cycle_steps.round(3)
@@ -185,7 +213,7 @@ def adaptive_lambda_windows(
     # Compute MBAR
     results = compute_mbar(
         simulation_data=system_runner.post_output,
-        temperature=updated_config.intermidate_args.temperature,
+        temperature=updated_config.intermediate_args.temperature,
         matrix_order=cycle_steps,
         system=system_type,
     )
@@ -197,15 +225,15 @@ def adaptive_lambda_windows(
         matrix_start = cycle_steps.halo_restraint_matrix
         job.log(f"Matrix start: {matrix_start}")
         matrix_end = None
-        updated_config.intermidate_args.exponent_conformational_forces.sort(
+        updated_config.intermediate_args.exponent_conformational_forces.sort(
             reverse=True
         )
-        updated_config.intermidate_args.exponent_orientational_forces.sort(reverse=True)
+        updated_config.intermediate_args.exponent_orientational_forces.sort(reverse=True)
         job.log(
-            f"conformational sorted in reverse: {updated_config.intermidate_args.exponent_conformational_forces}"
+            f"conformational sorted in reverse: {updated_config.intermediate_args.exponent_conformational_forces}"
         )
         job.log(
-            f"orientaitonal sorted in reverse: {updated_config.intermidate_args.exponent_orientational_forces}"
+            f"orientaitonal sorted in reverse: {updated_config.intermediate_args.exponent_orientational_forces}"
         )
 
         if system_type != "complex":
@@ -213,7 +241,7 @@ def adaptive_lambda_windows(
             matrix_start = 0
             matrix_end = cycle_steps.apo_end_restraint_matrix
             # sort in acending order
-            updated_config.intermidate_args.exponent_conformational_forces.sort()
+            updated_config.intermediate_args.exponent_conformational_forces.sort()
 
     # Check the overlap for ligand charge scaling
     if charge_scaling:
@@ -224,12 +252,12 @@ def adaptive_lambda_windows(
         matrix_start = cycle_steps.start_complex_charge_matrix
         job.log(f"Matrix start charge scaling complex: {matrix_start}")
         matrix_end = cycle_steps.halo_restraint_matrix
-        # updated_config.intermidate_args.charges_lambda_window.sort()
+        # updated_config.intermediate_args.charges_lambda_window.sort()
 
         if system_type == "ligand":
             matrix_start = cycle_steps.start_ligand_charge_matrix
             matrix_end = None
-            # updated_config.intermidate_args.charges_lambda_window.sort(reverse=True)
+            # updated_config.intermediate_args.charges_lambda_window.sort(reverse=True)
 
     # GB external dielectric scaling
     if gb_scaling:
@@ -244,7 +272,7 @@ def adaptive_lambda_windows(
         matrix_end = cycle_steps.start_complex_charge_matrix
         job.log(f"GB extdiel matrix_start: {matrix_start}")
         job.log(f"GB extdiel end_start: {matrix_end}")
-        updated_config.intermidate_args.gb_extdiel_windows.sort()
+        updated_config.intermediate_args.gb_extdiel_windows.sort()
 
     # Get the averaged space phase overlap for specified adaptive step
     # (i.e. ligand charge scaling, restraint scaling or GB scaling)
@@ -257,10 +285,10 @@ def adaptive_lambda_windows(
 
     if good_enough(
         space_phase_overlaps=averages,
-        min=updated_config.intermidate_args.min_degree_overlap,
+        min=updated_config.intermediate_args.min_degree_overlap,
     ):
         job.log(
-            f"THE OVERLAP IS ABOVE {updated_config.intermidate_args.min_degree_overlap}"
+            f"THE OVERLAP IS ABOVE {updated_config.intermediate_args.min_degree_overlap}"
         )
 
         return (
@@ -402,8 +430,8 @@ def improve_restraints_overlap(
     config: Config
         An updated configuration file with new inserted states.
     """
-    conformational = config.intermidate_args.exponent_conformational_forces.copy()
-    orient = config.intermidate_args.exponent_orientational_forces.copy()
+    conformational = config.intermediate_args.exponent_conformational_forces.copy()
+    orient = config.intermediate_args.exponent_orientational_forces.copy()
 
     restraints_job = job.addChildJobFn(initilized_jobs)
     job.log(f"Conformational windows: {conformational}\n")
@@ -412,7 +440,7 @@ def improve_restraints_overlap(
 
     for index, overlap in enumerate(avg_overlap):
         job.log(f"current window and index: {overlap} {index}")
-        if overlap < config.intermidate_args.min_degree_overlap:
+        if overlap < config.intermediate_args.min_degree_overlap:
             # try to bisect
             try:
                 # complex restraints --> releasing restraints moving forward
@@ -486,15 +514,15 @@ def improve_restraints_overlap(
                     ),
                 )
 
-            config.intermidate_args.exponent_conformational_forces.append(con_window)
-            config.intermidate_args.exponent_orientational_forces.append(orient_window)
+            config.intermediate_args.exponent_conformational_forces.append(con_window)
+            config.intermediate_args.exponent_orientational_forces.append(orient_window)
 
     if system_type != "complex":
-        config.intermidate_args.exponent_conformational_forces.sort()
-        config.intermidate_args.exponent_conformational_forces.sort()
+        config.intermediate_args.exponent_conformational_forces.sort()
+        config.intermediate_args.exponent_conformational_forces.sort()
     else:
-        config.intermidate_args.exponent_conformational_forces.sort(reverse=True)
-        config.intermidate_args.exponent_orientational_forces.sort(reverse=True)
+        config.intermediate_args.exponent_conformational_forces.sort(reverse=True)
+        config.intermediate_args.exponent_orientational_forces.sort(reverse=True)
 
     restraints_done = restraints_job.addFollowOnJobFn(initilized_jobs)
     job.log(f"RUNNER with new restraints window")
@@ -547,13 +575,13 @@ def improve_charge_scaling(
     """
     # init job scaling job
     charge_job = job.addChildJobFn(initilized_jobs)
-    charges = config.intermidate_args.charges_lambda_window.copy()
+    charges = config.intermediate_args.charges_lambda_window.copy()
 
     job.log(f"Interating over windows {avg_overlap}")
 
     for index, overlap in enumerate(avg_overlap):
         # if sufficient overlap continue iterating
-        if overlap > config.intermidate_args.min_degree_overlap:
+        if overlap > config.intermediate_args.min_degree_overlap:
             continue
         # biscet between adjacent windows with poor overlap
         new_charge = bisect_between(charges[index], charges[index + 1])
@@ -561,15 +589,15 @@ def improve_charge_scaling(
         job.log(
             f"Biscent between charges {charges[index], charges[index + 1]} = {new_charge}"
         )
-        config.intermidate_args.charges_lambda_window.append(new_charge)
+        config.intermediate_args.charges_lambda_window.append(new_charge)
         # check to see if the system passed is an complex
         if system_type == "complex":
             runner._add_complex_simulation(
                 conformational=max(
-                    config.intermidate_args.exponent_conformational_forces
+                    config.intermediate_args.exponent_conformational_forces
                 ),
                 orientational=max(
-                    config.intermidate_args.exponent_orientational_forces
+                    config.intermediate_args.exponent_orientational_forces
                 ),
                 mdin=config.inputs["default_mdin"],
                 restraint_file=runner.restraints.max_complex_restraint,
@@ -587,7 +615,7 @@ def improve_charge_scaling(
             # if not a complex then it must be a ligand only system
             runner._add_ligand_simulation(
                 conformational=max(
-                    config.intermidate_args.exponent_conformational_forces
+                    config.intermediate_args.exponent_conformational_forces
                 ),
                 mdin=config.inputs["no_solvent_mdin"],
                 restraint_file=runner.restraints.max_ligand_conformational_restraint,
@@ -630,7 +658,7 @@ def improve_gb_dielectric(
 
     lower_upper_bound = [0.0, 78.5]
 
-    gb_dielectric = config.intermidate_args.gb_extdiel_windows.copy()
+    gb_dielectric = config.intermediate_args.gb_extdiel_windows.copy()
     # add in lower & upper bounds then sort
     gb_dielectric = sorted(list(set(gb_dielectric + lower_upper_bound)))
 
@@ -638,7 +666,7 @@ def improve_gb_dielectric(
 
     for index, overlap in enumerate(avg_overlap):
         # if sufficient overlap continue iterating
-        if overlap > config.intermidate_args.min_degree_overlap:
+        if overlap > config.intermediate_args.min_degree_overlap:
             continue
 
         # poor overlap
@@ -651,15 +679,15 @@ def improve_gb_dielectric(
                 f"bisecting between {gb_dielectric[index]} & {gb_dielectric[index + 1]} = {new_gb_dielectric}"
             )
         # append new dielectric
-        config.intermidate_args.gb_extdiel_windows.append(new_gb_dielectric)
+        config.intermediate_args.gb_extdiel_windows.append(new_gb_dielectric)
 
         # create new runner simulation
         runner._add_complex_simulation(
-            conformational=max(config.intermidate_args.exponent_conformational_forces),
-            orientational=max(config.intermidate_args.exponent_orientational_forces),
+            conformational=max(config.intermediate_args.exponent_conformational_forces),
+            orientational=max(config.intermediate_args.exponent_orientational_forces),
             mdin=gb_dielectric_job.addChildJobFn(
                 generate_extdiel_mdin,
-                user_mdin_ID=config.intermidate_args.mdin_intermidate_file,
+                user_mdin_ID=config.intermediate_args.mdin_intermediate_file,
                 gb_extdiel=new_gb_dielectric,
             ).rv(),
             restraint_file=runner.restraints.max_complex_restraint,
@@ -676,7 +704,7 @@ def improve_gb_dielectric(
         )
 
     # sort the new added windows
-    config.intermidate_args.gb_extdiel_windows.sort()
+    config.intermediate_args.gb_extdiel_windows.sort()
 
     # gb scaling done
     gb_scaling_done = gb_dielectric_job.addFollowOnJobFn(initilized_jobs)
@@ -724,6 +752,9 @@ def run_exponential_averaging(
     df_mbar: pd.DataFrame
         An formated and chronological arrange DataFrame before any MBAR analysis was performed. (Which can be used to create pdfs of MBAR matrix).
     """
+    job.fileStore.logToMaster(f"Running exponential averaging")
+    job.fileStore.logToMaster(f"Running a total of {len(system_runner.post_output)} simulations")
+    job.fileStore.logToMaster(f"Post output: {system_runner.post_output}")
     return compute_mbar(
         simulation_data=system_runner.post_output,
         temperature=temperature,

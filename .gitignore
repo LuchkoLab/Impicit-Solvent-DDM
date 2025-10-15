@@ -107,3 +107,6 @@ ENV/
 
 #ignore old repo 
 old_repo/
+
+# ignore hidden files
+**/._*

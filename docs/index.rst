@@ -15,6 +15,7 @@ Getting Started
    Installation
    Usage
    Implementation
+   DDM_Workflow
    config
 
 Examples
@@ -36,6 +37,7 @@ Software Documentation
    :caption: Software Documentation
 
    api
+   Updates
    about
 
 Indices and Tables

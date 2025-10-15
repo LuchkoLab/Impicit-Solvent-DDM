@@ -9,22 +9,24 @@ All the example inputs scripts can be found in ``script_examples`` directrory. L
 
 .. code-block:: yaml
 
-    system_parameters:
+    hardware_parameters:
+        working_directory: working_directory
         executable: "pmemd.MPI" # executable machine for MD choice : [sander, sander.MPI, pmemd, pmemd.MPI, pmeded.CUDA]
         mpi_command: srun # system dependent /
-        CUDA:  # run on GPU
-        top_directory_name: cb7_examples
+        CUDA: False # run on GPU
+        output_directory_name: cb7_examples
+        cache_directory_output: path/to/cache_directory
 
     endstate_parameter_files:
         complex_parameter_filename: script_examples/structs/cb7-mol01_Hmass.parm7 # path to topology file; ["path/to/complex.parm7"]
         complex_coordinate_filename: script_examples/structs/cb7-mol01.rst7 # path to coordinate ["path/to/complex.ncrst"]list of coordinate file of a complex
 
-        number_of_cores_per_system:
+    number_of_cores_per_system:
         complex_ncores: 2 #total number of cores per job
         ligand_ncores: 1 #total number of cores per ligand simulation
         receptor_ncores: 1 #total number of cores per ligand simulation
 
-        AMBER_masks:
+    AMBER_masks:
         receptor_mask: ":CB7" # list of Amber masks denoting receptor atoms in respected complex file
         ligand_mask: ":M01" # list of Amber masks denoting ligand atoms in respected complex file
 
@@ -40,7 +42,7 @@ All the example inputs scripts can be found in ``script_examples`` directrory. L
             equilibrate_mdin_template: script_examples/endstate_templates_required/equil.template
             temperatures: [300.00, 327.32, 356.62, 388.05, 421.77, 457.91, 496.70, 500.00]
 
-        intermidate_states_arguments:
+        intermediate_states_arguments:
             mdin_intermidate_config: script_examples/user_intermidate_mdin_args.yaml #intermidate mdins required states 3-8
             igb_solvent: 2 #igb [1,2,3,7,8]
             temperature: 300

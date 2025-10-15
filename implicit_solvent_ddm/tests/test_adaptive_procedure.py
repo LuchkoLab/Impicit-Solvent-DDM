@@ -59,7 +59,7 @@ def test_ligand_adaptive_restraints(
         .index.astype(float)
     ).values
     adaptive_windows = np.array(
-        get_ligand_config.intermidate_args.exponent_conformational_forces
+        get_ligand_config.intermediate_args.exponent_conformational_forces
     )
     completed_array.sort()
     adaptive_windows.sort()
@@ -116,7 +116,7 @@ def test_receptor_adaptive_restraints(
         .index.astype(float)
     ).values
     adaptive_windows = np.array(
-        get_receptor_config.intermidate_args.exponent_conformational_forces
+        get_receptor_config.intermediate_args.exponent_conformational_forces
     )
     completed_array.sort()
     adaptive_windows.sort()

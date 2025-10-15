@@ -9,7 +9,8 @@ import shutil
 import string
 import tempfile
 from dataclasses import dataclass, field
-from typing import List, Optional, Type, Union
+from typing import List, Optional, Type, Union, Dict
+from pathlib import Path
 
 import numpy as np
 import parmed as pmd
@@ -46,7 +47,7 @@ class Workflow:
     complex_turn_on_ligand_charges: bool = True
     complex_turn_on_GB_enviroment: bool = True
     complex_remove_restraint: bool = True
-    run_adaptive_windows: bool = True
+    run_post_analysis: bool = True
     plot_overlap_matrix: bool = False 
     post_analysis_only: bool = False
     vina_dock: bool = False
@@ -105,34 +106,53 @@ class NumberOfCoresPerSystem:
 
 @dataclass
 class SystemSettings:
-    """System required parameters.
-    Paramters to denoted whether to run
-    CPU or GPU jobs. Support HPC schedular
-    SLURM.
+    """
+    SystemSettings defines system-level parameters for MD simulations.
 
-    Attributes:
+    This includes runtime settings for hardware (e.g., CPU vs GPU),
+    SLURM-based scheduling, executable selection, and resource requirements.
+
+    Attributes
     ----------
-    mpi_command: str
-        HPC schedular command [srun]
-    working_directory: str
-        User working directory.
-    executable: str
-        AMBER executable [sander, pmemd]
-    CUDA: bool
-        Run on GPU
-    memory: Optional[Union[int, str]]
-        Required memory to run individual MD simulation.
-    disk: Optional[Union[int, str]]
-        Required disk space needed for individual MD simulation input/output
+    mpi_command : str
+        MPI command for parallel execution (e.g., 'srun').
+    working_directory : str
+        Path to the main working directory.
+    cache_directory_output : str
+        Path for storing cached output files.
+    executable : str
+        AMBER executable to use (e.g., 'sander', 'pmemd').
+    output_directory_name : str
+        Directory name for MD output files.
+    CUDA : bool
+        If True, run using GPU resources.
+    num_accelerators : int
+        Number of GPUs requested. If 0 and CUDA is True, auto-detects available GPUs.
+    memory : Optional[Union[int, str]]
+        Memory required for job (e.g., '5G').
+    disk : Optional[Union[int, str]]
+        Disk space required for job (e.g., '5G').
     """
 
     mpi_command: str
     working_directory: str = WORKDIR
+    cache_directory_output: str = WORKDIR
     executable: str = "sander"
     output_directory_name: str = "mdgb"
     CUDA: bool = field(default=False)
+    num_accelerators: int = field(default=0)
     memory: Optional[Union[int, str]] = field(default="5G")
     disk: Optional[Union[int, str]] = field(default="5G")
+
+    def __post_init__(self):
+        self.working_directory = os.path.abspath(self.working_directory)
+        self.cache_directory_output = os.path.abspath(self.cache_directory_output)
+        if self.CUDA and self.num_accelerators == 0:
+            try:
+                from numba import cuda
+                self.num_accelerators = len(cuda.gpus)
+            except ImportError:
+                raise RuntimeError("CUDA requested but 'cuda' module not available.")
 
     @property
     def top_directory_path(self):
@@ -146,193 +166,146 @@ class SystemSettings:
 @dataclass
 class ParameterFiles:
     """
-    AMBER parameter and coordinate file management for molecular simulations.
+    Stores and manages AMBER parameter and coordinate file paths for MD simulations.
 
-    This class handles loading and validation of AMBER-compatible input files for
-    the complex, ligand, and receptor. It also provides functionality to extract
-    initial coordinates from trajectory files.
-
-    Attributes:
-        complex_parameter_filename: Path or ID to the complex's parameter file (.parm7).
-        complex_coordinate_filename: Path or ID to the complex's coordinate file (.nc, .ncrst, etc).
-        ligand_parameter_filename: Optional path or ID to the ligand's parameter file.
-        ligand_coordinate_filename: Optional path or ID to the ligand's coordinate file.
-        receptor_parameter_filename: Optional path or ID to the receptor's parameter file.
-        receptor_coordinate_filename: Optional path or ID to the receptor's coordinate file.
-        complex_initial_coordinate: Optional path to the generated initial coordinate file for the complex.
-        ligand_initial_coordinate: Optional path to the generated initial coordinate file for the ligand.
-        receptor_initial_coordinate: Optional path to the generated initial coordinate file for the receptor.
-        ignore_unique_naming: If True, skips unique naming enforcement for file IDs.
+    Includes support for optional ligand and receptor input files, and handles temporary
+    coordinate file generation and naming enforcement if requested.
     """
+    # Required
     complex_parameter_filename: Union[str, FileID]
     complex_coordinate_filename: Union[str, FileID]
+
+    # Optional components
     ligand_parameter_filename: Optional[Union[str, FileID]] = field(default=None)
     ligand_coordinate_filename: Optional[Union[str, FileID]] = field(default=None)
     receptor_parameter_filename: Optional[Union[str, FileID]] = field(default=None)
     receptor_coordinate_filename: Optional[Union[str, FileID]] = field(default=None)
 
+    # Internal: Generated coordinates
     complex_initial_coordinate: Optional[Union[str, FileID]] = field(default=None)
     ligand_initial_coordinate: Optional[Union[str, FileID]] = field(default=None)
     receptor_initial_coordinate: Optional[Union[str, FileID]] = field(default=None)
 
+    # Misc
     ignore_unique_naming: bool = False
 
     def __post_init__(self):
         """
-        Validates the complex structure upon initialization by loading the trajectory
-        and running a structural check. Also initializes a temporary directory for
-        generated coordinate files.
+        Initialize a temporary directory for writing coordinate files.
+        File loading and structure validation should be done separately,
+        not at initialization.
         """
         self.tempdir = tempfile.TemporaryDirectory()
         # check complex is a valid structure
-        # ASK LUCHKO HOW TO CHECK FOR VALID STRUCTURES
         complex_traj = pt.iterload(
             self.complex_coordinate_filename, self.complex_parameter_filename
         )
-        # print(self.complex_traj)
         pt.check_structure(traj=complex_traj)
 
-        # if self.ignore_unique_naming == False:
-        #     self._create_unqiue_fileID()
 
     @classmethod
-    def from_config(cls: Type["ParameterFiles"], obj: dict):
+    def from_config(cls: Type["ParameterFiles"], obj: dict)->"ParameterFiles":
         """
-        Creates a ParameterFiles instance from a configuration dictionary.
+        Instantiate a ParameterFiles object from a configuration dictionary.
 
-        Args:
-            obj (dict): Dictionary with keys matching ParameterFiles attributes.
+        Parameters
+        ----------
+        obj : dict
+            Dictionary with keys matching the attributes of ParameterFiles.
 
-        Returns:
-            ParameterFiles: An initialized instance of the class.
+        Returns
+        -------
+        ParameterFiles
+            A fully initialized instance of the class.
         """
         return cls(**obj)
 
     def get_inital_coordinate(self):
         """
-        Extracts and writes the first frame from complex, receptor, and ligand
-        trajectories to individual coordinate files in a temporary directory.
+        Extract and write the first frame from complex, receptor, and ligand trajectories
+        into coordinate files in a temporary directory.
 
-        Also sets the corresponding initial coordinate attributes.
+        Sets the corresponding *_initial_coordinate attributes to the written paths.
         """
-        solu_complex = re.sub(
-            r"\..*", "", os.path.basename(self.complex_coordinate_filename)
-        )
-        solu_receptor = re.sub(r"\..*", "", os.path.basename(self.receptor_coordinate_filename))  # type: ignore
-        solu_ligand = re.sub(r"\..*", "", os.path.basename(self.ligand_coordinate_filename))  # type: ignore
+        def _get_basename(filename):
+            return re.sub(r"\..*", "", Path(str(filename)).name)
+        
+        def _write_initial_frame(traj, basename, suffix=""):
+            output_path = Path(self.tempdir.name) / f"{basename}{suffix}.ncrst"
+            pt.write_traj(str(output_path), traj, frame_indices=[0])
+            return str(output_path.with_suffix(".ncrst.1"))
+        
+        # Complex is required
+        complex_traj = pt.iterload(str(self.complex_coordinate_filename), str(self.complex_parameter_filename))
+        base_complex = _get_basename(self.complex_coordinate_filename)
+        self.complex_initial_coordinate = _write_initial_frame(complex_traj, base_complex)
 
-        complex_traj = pt.iterload(
-            self.complex_coordinate_filename, self.complex_parameter_filename
-        )
-        print(complex_traj)
-        receptor_traj = pt.iterload(
-            self.receptor_coordinate_filename, self.receptor_parameter_filename
-        )
-        print(receptor_traj)
-        ligand_traj = pt.iterload(
-            self.ligand_coordinate_filename, self.ligand_parameter_filename
-        )
 
-        pt.write_traj(
-            f"{self.tempdir.name}/{solu_complex}.ncrst",
-            complex_traj,
-            frame_indices=[0],
-        )
-        pt.write_traj(
-            f"{self.tempdir.name}/{solu_receptor}_.ncrst",
-            receptor_traj,
-            frame_indices=[0],
-        )
-        pt.write_traj(
-            f"{self.tempdir.name}/{solu_ligand}_.ncrst", ligand_traj, frame_indices=[0]
-        )
+        # Receptor (optional)
+        if self.receptor_coordinate_filename and self.receptor_parameter_filename:
+            receptor_traj = pt.iterload(str(self.receptor_coordinate_filename), str(self.receptor_parameter_filename))
+            base_receptor = _get_basename(self.receptor_coordinate_filename)
+            self.receptor_initial_coordinate = _write_initial_frame(receptor_traj, base_receptor, "_")
+        
+        # Ligand (optional)
+        if self.ligand_coordinate_filename and self.ligand_parameter_filename:
+            ligand_traj = pt.iterload(str(self.ligand_coordinate_filename), str(self.ligand_parameter_filename))
+            base_ligand = _get_basename(self.ligand_coordinate_filename)
+            self.ligand_initial_coordinate = _write_initial_frame(ligand_traj, base_ligand, "_")
+      
 
-        self.complex_initial_coordinate = f"{self.tempdir.name}/{solu_complex}.ncrst.1"
-        self.receptor_initial_coordinate = (
-            f"{self.tempdir.name}/{solu_receptor}_.ncrst.1"
-        )
-        self.ligand_initial_coordinate = f"{self.tempdir.name}/{solu_ligand}_.ncrst.1"
 
-    def _create_unqiue_fileID(self):
+    def _create_unique_fileID(self):
         """
-        Creates unique 3-letter Ascii filename for ligand and receptor filenames.
+        Generates unique 3-letter ASCII suffixes for ligand and receptor parameter filenames.
+
+        Copies original files into the temporary directory with modified names to avoid collisions,
+        and updates the internal parameter filenames to point to the new files.
         """
-        unique_id = "".join(random.choice(string.ascii_letters) for x in range(3))
+        def get_basename(path):
+            return re.sub(r"\..*", "", Path(str(path)).name)
 
-        ligand_basename = re.sub(r"\..*", "", os.path.basename(self.ligand_parameter_filename))  # type: ignore
-        receptor_basename = re.sub(r"\..*", "", os.path.basename(self.receptor_parameter_filename))  # type: ignore
+        unique_id = ''.join(random.choices(string.ascii_letters, k=3))
 
-        if self.ligand_parameter_filename is not None:
-            unique_ligand_ID = os.path.join(
-                self.tempdir.name, f"{ligand_basename}_{unique_id}.parm7"
-            )
-            shutil.copyfile(self.ligand_parameter_filename, unique_ligand_ID)  # type: ignore
-            self.ligand_parameter_filename = unique_ligand_ID
+        if self.ligand_parameter_filename:
+            ligand_base = get_basename(self.ligand_parameter_filename)
+            ligand_path = Path(self.tempdir.name) / f"{ligand_base}_{unique_id}.parm7"
+            shutil.copyfile(str(self.ligand_parameter_filename), ligand_path)
+            self.ligand_parameter_filename = str(ligand_path)
 
-        if self.receptor_parameter_filename is not None:
-            unique_receptor_ID = os.path.join(
-                self.tempdir.name,
-                f"{receptor_basename}-{ligand_basename}_{unique_id}.parm7",
-            )
+        if self.receptor_parameter_filename:
+            receptor_base = get_basename(self.receptor_parameter_filename)
+            ligand_base = get_basename(self.ligand_parameter_filename) if self.ligand_parameter_filename else "LIG"
+            receptor_path = Path(self.tempdir.name) / f"{receptor_base}-{ligand_base}_{unique_id}.parm7"
+            shutil.copyfile(str(self.receptor_parameter_filename), receptor_path)
+            self.receptor_parameter_filename = str(receptor_path)
 
-            shutil.copyfile(self.receptor_parameter_filename, unique_receptor_ID)  # type: ignore
+    def toil_import_parameters(self, toil:Toil)->None:
+        """
+        Imports all parameter and coordinate files into the Toil job store and updates
+        internal attributes with their corresponding FileStore IDs.
+        """
+        def import_if_not_none(attr: str):
+            value = getattr(self, attr)
+            if value is not None:
+                file_path = Path(value).resolve()
+                imported = toil.import_file(f"file://{file_path}")
+                setattr(self, attr, str(imported))
 
-            self.receptor_parameter_filename = unique_receptor_ID
+        file_attributes = [
+            "complex_parameter_filename",
+            "complex_coordinate_filename",
+            "ligand_parameter_filename",
+            "ligand_coordinate_filename",
+            "receptor_parameter_filename",
+            "receptor_coordinate_filename",
+            "complex_initial_coordinate",
+            "ligand_initial_coordinate",
+            "receptor_initial_coordinate",
+        ]
 
-    def toil_import_parmeters(self, toil):
-        self.complex_parameter_filename = str(
-            toil.import_file(
-                "file://" + os.path.abspath(self.complex_parameter_filename)
-            )
-        )
-        self.complex_coordinate_filename = str(
-            toil.import_file(
-                "file://" + os.path.abspath(self.complex_coordinate_filename)
-            )
-        )
-        if self.ligand_coordinate_filename is not None:
-            self.ligand_coordinate_filename = str(
-                toil.import_file(
-                    "file://" + os.path.abspath(self.ligand_coordinate_filename)
-                )
-            )
-        if self.ligand_parameter_filename is not None:
-            self.ligand_parameter_filename = str(
-                toil.import_file(
-                    "file://" + os.path.abspath(self.ligand_parameter_filename)
-                )
-            )
-
-        if self.receptor_parameter_filename is not None:
-            self.receptor_parameter_filename = str(
-                toil.import_file(
-                    "file://" + os.path.abspath(self.receptor_parameter_filename)
-                )
-            )
-        if self.receptor_coordinate_filename is not None:
-            self.receptor_coordinate_filename = str(
-                toil.import_file(
-                    "file://" + os.path.abspath(self.receptor_coordinate_filename)
-                )
-            )
-        if self.complex_initial_coordinate is not None:
-            self.complex_initial_coordinate = str(
-                toil.import_file(
-                    "file://" + os.path.abspath(self.complex_initial_coordinate)
-                )
-            )
-        if self.ligand_initial_coordinate is not None:
-            self.ligand_initial_coordinate = str(
-                toil.import_file(
-                    "file://" + os.path.abspath(self.ligand_initial_coordinate)
-                )
-            )
-        if self.receptor_initial_coordinate is not None:
-            self.receptor_initial_coordinate = str(
-                toil.import_file(
-                    "file://" + os.path.abspath(self.receptor_initial_coordinate)
-                )
-            )
+        for attr in file_attributes:
+            import_if_not_none(attr)
 
 
 @dataclass
@@ -357,45 +330,43 @@ class AmberMasks:
 
 @dataclass
 class REMD:
-    """Parameter to run Replica Exchange Molecular Dynamics.
-
-    Attributes:
-    -----------
-    remd_template_mdin: str
-        A template to run REMD simulation.
-    equil_template_mdin: str
-        A template to run equilibration/relaxtion simulation prior to REMD run.
-    temperatures: list[int]
-        A list of replica temperatures for REMD runs.
-    ngroups: int
-        Number of individual simulations
-    nthreads_complex: int
-        Number of processors will be evenly divided among (number of groups) individual simulation
-        for the complex simulations
-    nthreads_receptor: int
-        Number of processors will be evenly divided among (number of groups) individual simulation
-        for the receptor/host simulations
-    nthreads_ligand: int
-        Number of processors will be evenly divided among (number of groups) individual simulation
-        for the ligand/guest simulations
     """
+    Parameters for running Replica Exchange Molecular Dynamics (REMD).
 
+    Attributes
+    ----------
+    remd_template_mdin : str or FileID
+        Path to the REMD input template.
+    equil_template_mdin : str or FileID
+        Path to the equilibration input template used prior to REMD.
+    temperatures : list of int
+        List of replica temperatures for REMD.
+    ngroups : int
+        Number of replica groups (set automatically from `temperatures`).
+    nthreads_complex : int
+        Threads per group for complex simulations.
+    nthreads_receptor : int
+        Threads per group for receptor/host simulations.
+    nthreads_ligand : int
+        Threads per group for ligand/guest simulations.
+    """
+    method_type: str 
     remd_template_mdin: Union[FileID, str] = "remd.template"
     equil_template_mdin: Union[FileID, str] = "equil.template"
-    temperatures: list[int] = field(default_factory=list)
+    temperatures: List[int] = field(default_factory=list)
     ngroups: int = field(init=False)
     nthreads_complex: int = 0
     nthreads_receptor: int = 0
     nthreads_ligand: int = 0
-    # nthreads: int = 0
 
     def __post_init__(self):
-        # number of copies should equal to length of temperatures
+        # Automatically determine number of groups from the temperature list
         self.ngroups = len(self.temperatures)
-        self._mdin_sanity_check()
+        if self.method_type == "remd":
+            self._mdin_sanity_check()
 
     @classmethod
-    def from_config(cls: Type["REMD"], obj: dict):
+    def from_config(cls: Type["REMD"], obj: dict, method_type: str):
         return cls(
             remd_template_mdin=obj["endstate_arguments"]["remd_template_mdin"],
             equil_template_mdin=obj["endstate_arguments"]["equilibrate_mdin_template"],
@@ -403,115 +374,151 @@ class REMD:
             nthreads_complex=obj["endstate_arguments"]["nthreads_complex"],
             nthreads_receptor=obj["endstate_arguments"]["nthreads_receptor"],
             nthreads_ligand=obj["endstate_arguments"]["nthreads_ligand"],
+            method_type=method_type
         )
+
+
 
     def _mdin_sanity_check(self):
-        for mdin in [self.equil_template_mdin, self.remd_template_mdin]:
-            if os.path.isfile(mdin):
-                with open(mdin, "r") as outfile:
-                    input_args = outfile.read()
+        """
+        Ensures REMD and equilibration MDIN templates exist
+        and contain the required placeholders: $temp and $restraint.
 
-                matches = re.findall(r"\$temp|\$restraint", input_args)
+        Raises
+        ------
+        FileNotFoundError
+            If a required MDIN template file is missing or invalid.
+        RuntimeError
+            If required placeholders are missing in the MDIN templates.
+        """
+        required_keys = ["$temp", "$restraint"]
 
-                if "$temp" not in matches:
+        mdin_paths = {
+            "REMD template": self.remd_template_mdin,
+            "Equilibration template": self.equil_template_mdin,
+        }
+
+        for label, mdin_path in mdin_paths.items():
+            if not os.path.isfile(mdin_path):
+                raise FileNotFoundError(f"{label} file does not exist or is not a valid file: {mdin_path}")
+
+            with open(mdin_path, 'r') as f:
+                contents = f.read()
+
+            for key in required_keys:
+                if key not in contents:
                     raise RuntimeError(
-                        f"""\n The '$temp' key not found in {mdin}.\n
-                        Please set  'temperature=$temp' within the mdin file. The temperature will be filled in during the REMD portion of the workflow.
-                """
+                        f"\nMissing required key `{key}` in {label}: {mdin_path}\n"
+                        f"Please include a line such as `temperature={key}` or `restraint={key}` "
+                        f"so the workflow can dynamically insert the correct values."
                     )
 
-                if "$restraint" not in matches:
-                    raise RuntimeError(
-                        f""" $restraint key not found in {mdin}.
-                        Please set 'restraint=$restraint' within the mdin file. The temperature will be filled in during the REMD portion of the workflow.
-                """
-                    )
+    def toil_import_replica_mdin(self, toil: "Toil") -> None:
+        """
+        Imports the REMD and equilibration template MDIN files into the Toil job store.
 
-    def toil_import_replica_mdin(self, toil: Toil):
-        self.remd_template_mdin = toil.import_file(
-            "file://" + os.path.abspath(self.remd_template_mdin)
-        )
-        self.equil_template_mdin = toil.import_file(
-            "file://" + os.path.abspath(self.equil_template_mdin)
-        )
+        Updates internal attributes with the corresponding FileStore IDs.
+        """
+        def import_template(path: Union[str, FileID]) -> str:
+            return str(toil.import_file(f"file://{Path(path).resolve()}"))
+
+        self.remd_template_mdin = import_template(self.remd_template_mdin)
+        self.equil_template_mdin = import_template(self.equil_template_mdin)
+
 
 
 @dataclass
 class BasicMD:
-    """Parameter to run basic Molecular Dynamics.
+    """
+    Parameters to run a basic Molecular Dynamics (MD) simulation.
 
-    Attributes:
-    -----------
-    md_template_mdin: str
-        A template to run a MD simulation.
+    Attributes
+    ----------
+    md_template_mdin : str or FileID
+        Path to the MD input template.
     """
 
+    method_type: str #
     md_template_mdin: Union[FileID, str] = "md.template"
-
+   
     def __post_init__(self):
-        self._mdin_sanity_check()
+        if self.method_type == "basic_md":
+            self._mdin_sanity_check()
 
     @classmethod
-    def from_config(cls: Type["BasicMD"], obj: dict):
+    def from_config(cls: Type["BasicMD"], obj: dict, method_type: str) -> "BasicMD":
+        """
+        Instantiate BasicMD from a configuration dictionary.
+
+        Parameters
+        ----------
+        obj : dict
+            Configuration dictionary with nested "endstate_arguments" key.
+
+        Returns
+        -------
+        BasicMD
+            A populated instance of the class.
+        """
         return cls(
             md_template_mdin=obj["endstate_arguments"]["md_template_mdin"],
+            method_type=method_type
         )
 
     def _mdin_sanity_check(self):
         """
-        Check the $restraint key is in the user .mdin input file.
+        Validates that the MDIN template contains the $restraint placeholder.
+
+        Raises
+        ------
+        RuntimeError
+            If `$restraint` is not found in the template file.
         """
-        if os.path.isfile(self.md_template_mdin):
-            print("matches")
-            with open(self.md_template_mdin, "r") as outfile:
-                input_args = outfile.read()
+        mdin_path = Path(self.md_template_mdin)
 
-            matches = re.findall(r"\$restraint", input_args)
+        if not mdin_path.is_file():
+            raise FileNotFoundError(f"MDIN template not found: {mdin_path}")
 
-            if "$restraint" not in matches:
-                raise RuntimeError(
-                    f""" $restraint key not found in {self.md_template_mdin}.
-                        Please set 'restraint=$restraint' within the mdin file. The restraint file will be filled in during the workflow.
-                """
-                )
+        contents = mdin_path.read_text()
 
-    def toil_import_basic_mdin(self, toil: Toil):
+        if "$restraint" not in contents:
+            raise RuntimeError(
+                f"\nMissing '$restraint' placeholder in MDIN template: {mdin_path}\n"
+                f"Please include a line such as 'restraint=$restraint' "
+                f"so the workflow can dynamically insert the restraint file."
+            )
+
+    def toil_import_basic_mdin(self, toil: "Toil") -> None:
+        """
+        Imports the MD template input file into the Toil job store.
+
+        Updates the internal `md_template_mdin` attribute with the FileStore ID.
+        """
         self.md_template_mdin = toil.import_file(
-            "file://" + os.path.abspath(self.md_template_mdin)
+            f"file://{Path(self.md_template_mdin).resolve()}"
         )
-
-
 @dataclass
 class FlatBottomRestraints:
-    """Paramters for flat bottom restraints
+    """
+    Parameters for flat-bottom distance restraints between receptor and ligand atoms.
 
     Attributes
     ----------
-    restrained_receptor_atoms : iterable of int, int, or str, optional
-        The indices of the receptor atoms to restrain, an
-        This can temporarily be left undefined, but ``_missing_parameters()``
-        will be called which will define receptor atoms by the provided AMBER masks.
-    restrained_ligand_atoms : iterable of int, int, or str, optional
-        The indices of the ligand atoms to restrain.
-        This can temporarily be left undefined, but ``_missing_parameters()``
-        will be called which will define ligand atoms by the provided AMBER masks.
-    flat_bottom_width: float, optional
-        The distance r0  at which the harmonic restraint is imposed.
-        The well with a square bottom between r2 and r3, with parabolic sides out
-        to a defined distance. This has an default value of 5 Å if not provided.
-    harmonic_distance: float, optional
-        The upper bound parabolic sides out to define distance
-        (r1 and r4 for lower and upper bounds, respectively),
-        and linear sides beyond that distance. This has an default
-        value of 10 Å, if not provided.
-    spring_constant: float
-        The spring constant K in units compatible
-        with kJ/mol*nm^2 f (default is 1 kJ/mol*nm^2).
-    flat_bottom_restraints: dict, optional
-        User provided {r1, r2, r3, r4, rk2, rk3} restraint
-        parameters. This can be temporily left undefined, but
-        ``_missing_parameters()`` will be called which which would
-        define all the restraint parameters. See example down below.
+    flat_bottom_width : float
+        Distance (r0) at which the harmonic restraint begins.
+        Default is 5.0 Å.
+    harmonic_distance : float
+        Upper bound (r4) for the restraint with linear forces beyond this distance.
+        Default is 10.0 Å.
+    spring_constant : float
+        Force constant K in kJ/mol·nm². Default is 1.0.
+    restrained_receptor_atoms : list of int, optional
+        Atom indices to restrain on the receptor side.
+    restrained_ligand_atoms : list of int, optional
+        Atom indices to restrain on the ligand side.
+    flat_bottom_restraints : dict, optional
+        User-defined parameters {r1, r2, r3, r4, rk2, rk3}. If not provided,
+        defaults are inferred using `_missing_parameters()`.
     """
 
     flat_bottom_width: float = 5.0
@@ -524,29 +531,44 @@ class FlatBottomRestraints:
     ] = None  # {r1: 0, r2: 0, r3: 10, r4: 20, rk2: 0.1, rk3: 0.1}
 
     @classmethod
-    def from_config(cls: Type["FlatBottomRestraints"], obj: dict):
-        if "restraints" in obj.keys():
-            return cls(**obj["restraints"])
-        else:
-            return cls()
+    def from_config(cls: Type["FlatBottomRestraints"], obj: dict) -> "FlatBottomRestraints":
+        """
+        Instantiate FlatBottomRestraints from a config dictionary.
+
+        Parameters
+        ----------
+        obj : dict
+            Dictionary containing a "restraints" section.
+
+        Returns
+        -------
+        FlatBottomRestraints
+            Initialized instance with parameters from config or defaults.
+        """
+        return cls(**obj["restraints"]) if "restraints" in obj else cls()
+
 
 
 @dataclass
 class EndStateMethod:
     """
-    Denotes the specifed endstate simulation type.
-    User can choose to run either REMD or one long MD simulation at the endstates.
+    Defines the strategy for simulating endstates: either a long MD simulation or Replica Exchange Molecular Dynamics (REMD).
+
+    Users can choose from the following endstate methods:
+    - "basic_md": A single long molecular dynamics simulation.
+    - "remd": A replica exchange molecular dynamics (REMD) protocol.
+    - 0: A user-defined or fallback mode with minimal setup.
 
     Attributes
     ----------
-    endstate_method_type: Union[str, int]
-        User specifies the type of endstate simulation. REMD, basic_md or user_defined=0
-    remd_args: REMD
-        Arguments required to run REMD at the endstate.
-    basic_md_args: BasicMD
-        Arguments required to run one lond MD simulation at the endstate.
-    flat_bottom: FlatBottomRestraints
-        Arugments for flat bottom restraints.
+    endstate_method_type : str or int
+        One of: "remd", "basic_md", or 0 (user-defined).
+    remd_args : REMD
+        Configuration options specific to REMD (only used if method is "remd").
+    basic_md_args : BasicMD
+        Configuration options specific to long MD (only used if method is "basic_md").
+    flat_bottom : FlatBottomRestraints
+        Flat-bottom restraint parameters applied in either method, if used.
     """
 
     endstate_method_type: Union[str, int]
@@ -555,52 +577,96 @@ class EndStateMethod:
     flat_bottom: FlatBottomRestraints
 
     def __post_init__(self):
-        endstate_method_options = ["remd", "basic_md", 0]
-        if self.endstate_method_type not in endstate_method_options:
+        valid_options = ["remd", "basic_md", 0]
+        if self.endstate_method_type not in valid_options:
             raise NameError(
-                f"'{self.endstate_method_type}' is not a valid endstate method. Options: {endstate_method_options}"
+                f"'{self.endstate_method_type}' is not a valid endstate method. "
+                f"Valid options are: {valid_options}"
+            )
+    @classmethod
+    def from_config(cls: Type["EndStateMethod"], obj: dict) -> "EndStateMethod":
+        """
+        Instantiate an EndStateMethod from a configuration dictionary.
+
+        Parameters
+        ----------
+        obj : dict
+            Configuration dictionary containing the endstate method and arguments.
+
+        Returns
+        -------
+        EndStateMethod
+            A populated instance based on the configuration.
+        """
+        method = obj.get("endstate_method")
+
+        if method == 0:
+            return cls(
+                endstate_method_type=0,
+                remd_args=REMD(method_type=method),
+                basic_md_args=BasicMD(method_type=method),
+                flat_bottom=FlatBottomRestraints.from_config(obj),
             )
 
-    @classmethod
-    def from_config(cls: Type["EndStateMethod"], obj: dict):
-        if obj["endstate_method"] == 0:
+        method = str(method).lower()
+        if method == "remd":
             return cls(
-                endstate_method_type=obj["endstate_method"],
-                remd_args=REMD(),
-                basic_md_args=BasicMD(),
-                flat_bottom=FlatBottomRestraints.from_config(obj=obj),
-            )
-        elif obj["endstate_method"].lower() == "remd":
-            return cls(
-                endstate_method_type=str(obj["endstate_method"]).lower(),
-                remd_args=REMD.from_config(obj=obj),
-                basic_md_args=BasicMD(),
-                flat_bottom=FlatBottomRestraints.from_config(obj=obj),
+                endstate_method_type=method,
+                remd_args=REMD.from_config(obj,method_type=method),
+                basic_md_args=BasicMD(method_type=method),
+                flat_bottom=FlatBottomRestraints.from_config(obj),
             )
         else:
             return cls(
-                endstate_method_type=str(obj["endstate_method"]).lower(),
-                remd_args=REMD(),
-                basic_md_args=BasicMD.from_config(obj=obj),
-                flat_bottom=FlatBottomRestraints.from_config(obj=obj),
+                endstate_method_type=method,
+                remd_args=REMD(method_type=method),
+                basic_md_args=BasicMD.from_config(obj, method_type=method),
+                flat_bottom=FlatBottomRestraints.from_config(obj),
             )
 
 
-@dataclass
-class IntermidateStatesArgs:
+@dataclass    
+class IntermediateStateArgs:
     """
-    Parameter arguments used for the intermidate simulation steps within the thermodynamic cycle.
+    Parameter arguments used for intermediate simulation steps within the thermodynamic cycle.
+
+    Attributes
+    ----------
+    exponent_conformational_forces : list of float
+        Exponents for scaling conformational restraints (base 2).
+    exponent_orientational_forces : list of float
+        Exponents for scaling orientational restraints (base 2).
+    restraint_type : int
+        Type of restraint protocol to apply.
+    igb_solvent : int
+        Implicit solvent model (e.g., 5 = GBn).
+    mdin_intermediate_file : str
+        Input MDIN file for the intermediate MD step.
+    temperature : float
+        Temperature of the simulation (in Kelvin).
+    charges_lambda_window : list of float, optional
+        Lambda windows for turning on/off partial charges.
+    gb_extdiel_windows : list of float, optional
+        Scaling factors for the GB external dielectric (normalized 0–1).
+    min_degree_overlap : float
+        Minimum acceptable overlap value for replica exchange (default 0.03).
+    guest_restraint_template, receptor_restraint_template, complex_conformational_template, complex_orientational_template : str, optional
+        Restraint template file paths.
+    guest_restraint_files, receptor_restraint_files, complex_restraint_files : list of str/FileID
+        Output restraint files to be used during simulation.
     """
 
     exponent_conformational_forces: List[float]
     exponent_orientational_forces: List[float]
     restraint_type: int
     igb_solvent: int
-    mdin_intermidate_file: str
+    mdin_intermediate_file: str
     temperature: float
+
     charges_lambda_window: List[float] = field(default_factory=list)
     gb_extdiel_windows: List[float] = field(default_factory=list)
     min_degree_overlap: float = 0.03
+
     guest_restraint_template: Optional[str] = None
     receptor_restraint_template: Optional[str] = None
     complex_conformational_template: Optional[str] = None
@@ -611,195 +677,228 @@ class IntermidateStatesArgs:
     complex_restraint_files: List[Union[str, FileID]] = field(default_factory=list)
 
     conformational_restraints_forces: np.ndarray = field(init=False)
-    orientational_restriant_forces: np.ndarray = field(init=False)
+    orientational_restraint_forces: np.ndarray = field(init=False)
     max_conformational_restraint: float = field(init=False)
     max_orientational_restraint: float = field(init=False)
 
     def __post_init__(self):
-        # check charges lambda windows have a min value of 0
-        if len(self.charges_lambda_window) == 0:
-            self.charges_lambda_window = [0.0, 1.0]
-        else:
-            lower_upper_bound = [0.0, 1.0]
-            self.charges_lambda_window = list(
-                set(self.charges_lambda_window + lower_upper_bound)
-            )
+        # Ensure lambda windows include 0 and 1
+        self.charges_lambda_window = list({0.0, 1.0, *self.charges_lambda_window})
+        self.charges_lambda_window = [float(charge) for charge in self.charges_lambda_window]
 
-        # charges convert to float
-        self.charges_lambda_window = [
-            float(charge) for charge in self.charges_lambda_window
-        ]
-
-        if len(self.gb_extdiel_windows) > 0:
-            if 0 in self.gb_extdiel_windows:
-                self.gb_extdiel_windows.remove(0)
-            if 1 in self.gb_extdiel_windows:
-                self.gb_extdiel_windows.remove(1)
-
+        # Convert GB external dielectric scaling to dielectric values (if present)
+        if self.gb_extdiel_windows:
             self.gb_extdiel_windows = [
-                float(78.5 * extdiel) for extdiel in self.gb_extdiel_windows
-            ]
+                float(78.5 * val) for val in self.gb_extdiel_windows if val not in {0, 1}
+            ]   
 
-        self.conformational_restraints_forces = np.exp2(
-            self.exponent_conformational_forces
-        )
-
-        self.orientational_restriant_forces = np.exp2(
-            self.exponent_orientational_forces
-        )
+        # Apply 2^x to get force magnitudes
+        self.conformational_restraints_forces = np.exp2(self.exponent_conformational_forces)
+        self.orientational_restraint_forces = np.exp2(self.exponent_orientational_forces)     
 
         self.max_conformational_restraint = max(self.conformational_restraints_forces)
-        self.max_orientational_restraint = max(self.orientational_restriant_forces)
+        self.max_orientational_restraint = max(self.orientational_restraint_forces)
 
-        self.mdin_intermidate_file = os.path.abspath(self.mdin_intermidate_file)
+        # Ensure mdin path is absolute
+        self.mdin_intermediate_file = str(Path(self.mdin_intermediate_file).resolve())
 
-        if (
-            self.guest_restraint_template
-            or self.receptor_restraint_template
-            or self.complex_orientational_template
-        ):
-            # self.tempdir = "mdgb/restraints"
+        # Write restraint files if templates provided
+        if any([
+            self.guest_restraint_template,
+            self.receptor_restraint_template,
+            self.complex_orientational_template
+        ]):
             self.tempdir = tempfile.TemporaryDirectory()
-            # if not os.path.exists('mdgb/restraints'):
-            #     os.makedirs('mdgb/restraints')
 
-            for con_force, orient_force in zip(
+            for conf_force, orient_force in zip(
                 self.conformational_restraints_forces,
-                self.orientational_restriant_forces,
+                self.orientational_restraint_forces
             ):
-                self.write_ligand_restraint(conformational_force=con_force)
-                self.write_receptor_restraints(conformational_force=con_force)
+                self.write_ligand_restraint(conformational_force=conf_force)
+                self.write_receptor_restraints(conformational_force=conf_force)
                 self.write_complex_restraints(
-                    conformational_force=con_force, orientational_force=orient_force
+                    conformational_force=conf_force,
+                    orientational_force=orient_force
                 )
 
     @classmethod
-    def from_config(cls: Type["IntermidateStatesArgs"], obj: dict):
+    def from_config(cls: Type["IntermediateStateArgs"], obj: dict) -> "IntermediateStateArgs":
+        """
+        Create an IntermediateStateArgs instance from a configuration dictionary.
+
+        Parameters
+        ----------
+        obj : dict
+            Configuration dictionary with fields matching IntermediateStateArgs.
+
+        Returns
+        -------
+        IntermediateStateArgs
+            An initialized instance based on the configuration.
+        """
         return cls(**obj)
 
     def _sanity_check_mdin(self):
-        """check the user provided the required mdin arguments"""
+        """
+        Ensures that the required keywords are present in the user-provided MDIN template file.
 
-        required_args = ["igb", "$restraint", "$extdiel", "nmropt"]
-        # open the user intermidate mdin file
-        with open(self.mdin_intermidate_file, "r") as f:
-            data = f.read()
+        Required keys:
+        - igb
+        - $restraint
+        - $extdiel
+        - nmropt
 
-        # read in all requirment mdin arguments
-        read_in_keys = re.findall(r"igb|\$extdiel|\$restraint|nmropt", data)
+        Raises
+        ------
+        ValueError
+            If any required MDIN keys are missing from the template file.
+        """
+        required_keys = {"igb", "$restraint", "$extdiel", "nmropt"}
 
-        # check if any required key is missing
-        missing_keys = [
-            missing_key
-            for missing_key in required_args
-            if missing_key not in read_in_keys
-        ]
+        mdin_path = Path(self.mdin_intermediate_file)
 
-        if len(missing_keys) != 0:
-            # if a key is missing terminate
+        if not mdin_path.is_file():
+            raise FileNotFoundError(f"MDIN file not found: {mdin_path}")
+
+        contents = mdin_path.read_text()
+
+        found_keys = set(re.findall(r"igb|\$restraint|\$extdiel|nmropt", contents))
+        missing_keys = required_keys - found_keys
+
+        if missing_keys:
             raise ValueError(
-                f"""Missing required mdin arguments: {missing_keys}. 
-                Please add these key arguments in your {self.mdin_intermidate_file}."""
+                f"Missing required MDIN arguments: {sorted(missing_keys)}.\n"
+                f"Please add them to your file: {mdin_path}"
+            )
+    
+    def _write_restraint_template(
+        self,
+        template_paths: Union[str, tuple[str, str]],
+        force_values: dict[str, float],
+        output_list: list
+    ):
+        """
+        Writes a processed restraint file with substituted force placeholders.
+
+        Parameters
+        ----------
+        template_paths : str or tuple of str
+            Path(s) to the input restraint template file(s). For complex restraints, provide a tuple.
+        force_values : dict
+            Mapping from placeholder (e.g. "frest", "drest") to numeric value.
+        output_list : list
+            List to which the output file path will be appended.
+        """
+        if isinstance(template_paths, str):
+            template_paths = (template_paths,)  # promote to tuple
+
+        all_lines = []
+
+        for path in template_paths:
+            with Path(path).open("r") as f:
+                lines = f.readlines()
+
+            for line in lines:
+                for key, value in force_values.items():
+                    if key in line:
+                        line = line.replace(key, str(value))
+                if "&end" in line:
+                    line = line.replace("&end", "")
+                all_lines.append(line)
+
+        filename_stem = Path(template_paths[-1]).stem
+        suffix = "_".join(str(v) for v in force_values.values())
+        output_path = Path(self.tempdir.name) / f"{filename_stem}_{suffix}.RST"
+        output_path.write_text("".join(all_lines))
+
+        output_list.append(str(output_path))
+
+
+    def write_ligand_restraint(self, conformational_force: float):
+        """Generate a ligand restraint file using the conformational force value."""
+        if self.guest_restraint_template:
+            self._write_restraint_template(
+                template_paths=self.guest_restraint_template,
+                force_values={"frest": conformational_force},
+                output_list=self.guest_restraint_files
             )
 
-    def write_ligand_restraint(self, conformational_force):
-        filename = re.sub(r"\..*", "", os.path.basename(self.guest_restraint_template))  # type: ignore
 
-        with open(self.guest_restraint_template) as f:  # type: ignore
-            ligand_restraints = f.readlines()
+    def write_receptor_restraints(self, conformational_force: float):
+        """Generate a receptor restraint file using the conformational force value."""
+        if self.receptor_restraint_template:
+            self._write_restraint_template(
+                template_paths=self.receptor_restraint_template,
+                force_values={"frest": conformational_force},
+                output_list=self.receptor_restraint_files
+            )
 
-        string_template = ""
-        for line in ligand_restraints:
-            if "frest" in line:
-                line = line.replace("frest", str(conformational_force))
 
-            string_template += line
+    def write_complex_restraints(self, conformational_force: float, orientational_force: float):
+        """Generate a complex restraint file using both conformational and orientational force values."""
+        if self.complex_conformational_template and self.complex_orientational_template:
+            self._write_restraint_template(
+                template_paths=(self.complex_conformational_template, self.complex_orientational_template),
+                force_values={
+                    "frest": conformational_force,
+                    "drest": conformational_force,
+                    "arest": orientational_force,
+                    "trest": orientational_force
+                },
+                output_list=self.complex_restraint_files
+            )
 
-        with open(
-            f"{self.tempdir.name}/{filename}_{conformational_force}.RST", "w"
-        ) as output:
-            output.write(string_template)
-
-        self.guest_restraint_files.append(f"{self.tempdir.name}/{filename}_{conformational_force}.RST")  # type: ignore
-
-    def write_receptor_restraints(self, conformational_force):
-        filename = re.sub(r"\..*", "", os.path.basename(self.receptor_restraint_template))  # type: ignore
-
-        with open(self.receptor_restraint_template) as f:  # type: ignore
-            receptor_restraints = f.readlines()
-
-        string_template = ""
-        for line in receptor_restraints:
-            if "frest" in line:
-                line = line.replace("frest", str(conformational_force))
-            string_template += line
-
-        with open(
-            f"{self.tempdir.name}/{filename}_{conformational_force}.RST", "w"
-        ) as output:
-            output.write(string_template)
-
-        self.receptor_restraint_files.append(f"{self.tempdir.name}/{filename}_{conformational_force}.RST")  # type: ignore
-
-    def write_complex_restraints(self, conformational_force, orientational_force):
-        filename = re.sub(r"\..*", "", os.path.basename(self.complex_orientational_template))  # type: ignore
-
-        with open(self.complex_conformational_template) as f:  # type: ignore
-            complex_conformational = f.readlines()
-
-        with open(self.complex_orientational_template) as fH:  # type: ignore
-            complex_orientational = fH.readlines()
-
-        string_template = ""
-        for line in complex_orientational:
-            if "drest" in line:
-                line = line.replace("drest", str(conformational_force))
-            if "arest" in line:
-                line = line.replace("arest", str(orientational_force))
-            if "trest" in line:
-                line = line.replace("trest", str(orientational_force))
-            if "&end" in line:
-                line = line.replace("&end", "")
-
-            string_template += line
-
-        for line in complex_conformational:
-            if "frest" in line:
-                line = line.replace("frest", str(conformational_force))
-            string_template += line
-
-        with open(
-            f"{self.tempdir.name}/{filename}_{conformational_force}_{orientational_force}.RST",
-            "w",
-        ) as output:
-            output.write(string_template)
-
-        self.complex_restraint_files.append(f"{self.tempdir.name}/{filename}_{conformational_force}_{orientational_force}.RST")  # type: ignore
-
-    def toil_import_user_restriants(self, toil: Toil):
+    def toil_import_user_restraints(self, toil: "Toil") -> None:
         """
-        import restraint files into Toil job store
-        """
-        for i, (guest_rest, receptor_rest, complex_rest) in enumerate(zip(self.guest_restraint_files, self.receptor_restraint_files, self.complex_restraint_files)):  # type: ignore
-            self.guest_restraint_files[i] = toil.import_file("file://" + os.path.abspath(guest_rest))  # type: ignore
-            self.receptor_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(receptor_rest)))  # type: ignore
-            self.complex_restraint_files[i] = toil.import_file(("file://" + os.path.abspath(complex_rest)))  # type: ignore
+        Imports user-defined ligand, receptor, and complex restraint files into the Toil job store.
 
-    def toil_import_user_mdin(self, toil: Toil):
-        """import users intermidate states mdin file."""
-        self.mdin_intermidate_file = toil.import_file(
-            "file://" + os.path.abspath(self.mdin_intermidate_file)
+        Updates each entry in the corresponding file list with the returned Toil FileStore ID.
+        """
+        for i, (guest_rest, receptor_rest, complex_rest) in enumerate(
+            zip(self.guest_restraint_files, self.receptor_restraint_files, self.complex_restraint_files)
+        ):
+            self.guest_restraint_files[i] = toil.import_file(f"file://{Path(guest_rest).resolve()}")
+            self.receptor_restraint_files[i] = toil.import_file(f"file://{Path(receptor_rest).resolve()}")
+            self.complex_restraint_files[i] = toil.import_file(f"file://{Path(complex_rest).resolve()}")
+
+
+    def toil_import_user_mdin(self, toil: "Toil") -> None:
+        """
+        Imports the user-provided MDIN file for intermediate states into the Toil job store.
+
+        Updates the internal `mdin_intermediate_file` path with the corresponding FileStore ID.
+        """
+        self.mdin_intermediate_file = toil.import_file(
+            f"file://{Path(self.mdin_intermediate_file).resolve()}"
         )
-
 
 @dataclass
 class Config:
-    """Encapsulate a user specified configuration using a data class.
+    """
+    Encapsulates user-specified configuration parameters for the simulation workflow.
 
-        The configuration settings will be handle through identifiers rather than strings.
-
-    Returns:
-        Config: Return an Config object with define the config properties, sub-properties, and types.
+    Attributes
+    ----------
+    workflow : Workflow
+        Workflow toggles for all MD jobs and analysis steps.
+    system_settings : SystemSettings
+        Specifies compute environment (e.g., GPU, SLURM, memory).
+    endstate_files : ParameterFiles
+        File paths for complex, receptor, ligand inputs and outputs.
+    num_cores_per_system : NumberOfCoresPerSystem
+        Core allocation for each system type.
+    amber_masks : AmberMasks
+        Atom masks used to define key regions (e.g., ligand, receptor).
+    endstate_method : EndStateMethod
+        Specifies whether to use REMD, basic MD, or a custom endstate.
+    intermediate_args : IntermediateStateArgs
+        Parameters for the intermediate phase of the thermodynamic cycle.
+    inputs : dict
+        General inputs parsed from the configuration file.
+    restraints : dict
+        Restraint configuration (e.g., flat-bottom, Boresch).
+    ignore_receptor : bool
+        Whether to skip receptor preparation (auto-set if receptor coordinates are provided).
     """
 
     workflow: Workflow
@@ -808,96 +907,133 @@ class Config:
     num_cores_per_system: NumberOfCoresPerSystem
     amber_masks: AmberMasks
     endstate_method: EndStateMethod
-    intermidate_args: IntermidateStatesArgs
-    inputs: dict
-    restraints: dict
+    intermediate_args: IntermediateStateArgs
+    inputs: Dict
+    restraints: Dict
     ignore_receptor: bool = False
 
     def __post_init__(self):
-        self._config_sanitity_check()
+        self._config_sanity_check()
 
+        # Decide on endstate procedure based on method type
         if self.endstate_method.endstate_method_type != 0:
             self.get_receptor_ligand_topologies()
-
         else:
             self.endstate_files.get_inital_coordinate()
             self.workflow.run_endstate_method = False
 
-        if len(self.intermidate_args.gb_extdiel_windows) == 0:
+        # Disable GB dielectric scaling if no windows were specified
+        if not self.intermediate_args.gb_extdiel_windows:
             self.workflow.gb_extdiel_windows = False
 
+        # If receptor coordinates are provided, mark receptor as already prepared
         if self.endstate_files.receptor_coordinate_filename is not None:
             self.ignore_receptor = True
 
-    def _config_sanitity_check(self):
-        # check if the amber mask are valid
+    def _config_sanity_check(self):
+        """
+        Perform validation checks on the overall configuration.
+
+        This includes:
+        - Validating AMBER masks
+        - Verifying the endstate method
+        - Checking for required flat-bottom parameters
+        - Validating REMD temperature setup
+        - Ensuring MDIN template contains required keywords
+        """
         self._valid_amber_masks()
         self._check_endstate_method()
         self._check_missing_flatbottom_parameters()
         self._remd_target_temperature()
-        self.intermidate_args._sanity_check_mdin()
+        self.intermediate_args._sanity_check_mdin()
 
     def _check_endstate_method(self):
+        """
+        Verifies that necessary ligand files are present when the user disables endstate simulations.
+        """
         if self.endstate_method.endstate_method_type == 0:
-            if self.endstate_files.ligand_parameter_filename == None:
+            if self.endstate_files.ligand_parameter_filename is None:
                 raise ValueError(
-                    f"user specified to not run an endstate simulation but did not provided ligand_parameter_filename/coordinate endstate files"
+                    "User specified to skip endstate simulations (method_type=0), "
+                    "but did not provide ligand parameter and coordinate files. "
+                    "Please ensure `ligand_parameter_filename` is set in the config."
                 )
 
     def _valid_amber_masks(self):
         """
-        Simple check that the AMBER masks denote recpetor and ligand atoms from the complex file.
+        Validates that the provided AMBER masks correctly partition the complex into ligand and receptor atoms.
         """
-        ligand_natoms = pt.strip(
-            self.complex_pytraj_trajectory, self.amber_masks.receptor_mask
-        ).n_atoms
-        receptor_natoms = pt.strip(
-            self.complex_pytraj_trajectory, self.amber_masks.ligand_mask
-        ).n_atoms
+        # Count atoms after stripping masks
+        ligand_natoms = pt.strip(self.complex_pytraj_trajectory, self.amber_masks.receptor_mask).n_atoms
+        receptor_natoms = pt.strip(self.complex_pytraj_trajectory, self.amber_masks.ligand_mask).n_atoms
+        total_atoms = self.complex_pytraj_trajectory.n_atoms
+
+        # Load parameter data to help with user-friendly reporting
         parm = pmd.amber.AmberFormat(self.endstate_files.complex_parameter_filename)
-        # check if sum of ligand & receptor atoms = complex total num of atoms
-        if self.complex_pytraj_trajectory.n_atoms != ligand_natoms + receptor_natoms:
+        residue_labels = parm.parm_data["RESIDUE_LABEL"]
+
+        if total_atoms != ligand_natoms + receptor_natoms:
             raise RuntimeError(
-                f"""The sum of ligand/guest and receptor/host atoms != number of total complex atoms
-                                number of ligand atoms: {ligand_natoms} + number of receptor atoms {receptor_natoms} != complex total atoms: {self.complex_pytraj_trajectory.n_atoms}
-                                Please check if AMBER masks are correct ligand_mask: "{self.amber_masks.ligand_mask}" receptor_mask: "{self.amber_masks.receptor_mask}"
-                                {self.endstate_files.complex_parameter_filename} residue lables are: {parm.parm_data['RESIDUE_LABEL']}"""
+                f"The sum of ligand and receptor atoms does not equal the total number of atoms in the complex.\n"
+                f"  Ligand atoms     : {ligand_natoms}\n"
+                f"  Receptor atoms   : {receptor_natoms}\n"
+                f"  Total (expected) : {total_atoms}\n\n"
+                f"Check your AMBER masks:\n"
+                f"  Ligand mask  : '{self.amber_masks.ligand_mask}'\n"
+                f"  Receptor mask: '{self.amber_masks.receptor_mask}'\n\n"
+                f"Residue labels from parameter file:\n"
+                f"  {residue_labels}"
             )
 
     def _remd_target_temperature(self):
+        """
+        Validates that the target temperature specified for analysis exists in the REMD temperature ladder.
+        """
         if self.endstate_method.endstate_method_type == "remd":
-            if (
-                self.intermidate_args.temperature
-                not in self.endstate_method.remd_args.temperatures
-            ):
+            target_temp = self.intermediate_args.temperature
+            available_temps = self.endstate_method.remd_args.temperatures
+
+            if target_temp not in available_temps:
                 raise RuntimeError(
-                    f"""The specified temperature {self.intermidate_args.temperature} is not 
-                in the list of temperatures ({self.endstate_method.remd_args.temperatures}) for running REMD.
-                Note the specified temperature {self.intermidate_args.temperature} will be the target temperature 
-                during REMD trajectory extraction.
-                """
+                    f"The specified target temperature {target_temp} K is not present in the REMD temperature list.\n"
+                    f"Available REMD temperatures: {available_temps}\n"
+                    f"Please ensure the analysis temperature is included in the REMD schedule, as it will be used "
+                    f"to extract the replica trajectory closest to this value."
                 )
 
     @classmethod
-    def from_config(cls: Type["Config"], user_config: dict, ignore_unique_naming=False):
+    def from_config(
+        cls: Type["Config"],
+        user_config: dict,
+        ignore_unique_naming: bool = False
+    ) -> "Config":
+        """
+        Constructs a Config object from a user-provided configuration dictionary.
+
+        Parameters
+        ----------
+        user_config : dict
+            Dictionary containing all simulation configuration blocks.
+        ignore_unique_naming : bool, optional
+            Whether to skip enforcing unique restraint filenames. Defaults to False.
+
+        Returns
+        -------
+        Config
+            Fully initialized Config instance.
+        """
         return cls(
             workflow=Workflow.from_config(user_config),
-            system_settings=SystemSettings.from_config(
-                user_config["hardware_parameters"]
-            ),
-            endstate_files=ParameterFiles.from_config(
-                user_config["endstate_parameter_files"]
-            ),
-            num_cores_per_system=NumberOfCoresPerSystem.from_config(
-                user_config["number_of_cores_per_system"]
-            ),
+            system_settings=SystemSettings.from_config(user_config["hardware_parameters"]),
+            endstate_files=ParameterFiles.from_config(user_config["endstate_parameter_files"]),
+            num_cores_per_system=NumberOfCoresPerSystem.from_config(user_config["number_of_cores_per_system"]),
             amber_masks=AmberMasks.from_config(user_config["AMBER_masks"]),
             endstate_method=EndStateMethod.from_config(user_config["workflow"]),
-            intermidate_args=IntermidateStatesArgs.from_config(
-                user_config["workflow"]["intermidate_states_arguments"]
+            intermediate_args=IntermediateStateArgs.from_config(
+                user_config["workflow"]["intermediate_states_arguments"]
             ),
-            inputs={},
-            restraints={},
+            inputs={},       # Placeholder; can be populated post-init
+            restraints={},   # Placeholder; can be populated post-init
         )
 
     def _check_missing_flatbottom_parameters(self):
@@ -921,47 +1057,40 @@ class Config:
 
     def get_receptor_ligand_topologies(self):
         """
-        Splits the complex into the ligand and receptor individual files.
+        Extracts receptor and ligand topologies from the complex structure using AMBER masks.
 
-        These parameters files are inputs for ENDSTATE simulation
+        Writes parameter (.parm7) and coordinate (.ncrst) files if not already provided,
+        and updates `endstate_files` with their absolute paths.
         """
         self.tempdir = tempfile.TemporaryDirectory()
+        tempdir_path = Path(self.tempdir.name)
 
+        # Handle receptor
         if self.endstate_files.receptor_parameter_filename is None:
-            receptor_traj = self.complex_pytraj_trajectory[
-                self.amber_masks.receptor_mask
-            ]
-            receptor_filename = os.path.join(
-                self.tempdir.name, f"{self.amber_masks.receptor_mask.strip(':')}"
-            )
-            pt.write_parm(f"{receptor_filename}.parm7", receptor_traj.top)
-            pt.write_traj(f"{receptor_filename}.ncrst", receptor_traj)
-            self.endstate_files.receptor_parameter_filename = os.path.abspath(
-                f"{receptor_filename}.parm7"
-            )
-            self.endstate_files.receptor_coordinate_filename = os.path.abspath(
-                f"{receptor_filename}.ncrst.1"
-            )
+            receptor_traj = self.complex_pytraj_trajectory[self.amber_masks.receptor_mask]
+            receptor_basename = self.amber_masks.receptor_mask.strip(":")
+            receptor_prefix = tempdir_path / receptor_basename
 
+            pt.write_parm(str(receptor_prefix.with_suffix(".parm7")), receptor_traj.top)
+            pt.write_traj(str(receptor_prefix.with_suffix(".ncrst")), receptor_traj)
+
+            self.endstate_files.receptor_parameter_filename = str(receptor_prefix.with_suffix(".parm7").resolve())
+            self.endstate_files.receptor_coordinate_filename = str(receptor_prefix.with_suffix(".ncrst.1").resolve())
+
+        # Handle ligand
         if self.endstate_files.ligand_parameter_filename is None:
-            # get ligand trajectory coordinate from provided complex.parm7
             ligand_traj = self.complex_pytraj_trajectory[self.amber_masks.ligand_mask]
-            ligand_name = self.amber_masks.ligand_mask.strip(":")
+            ligand_basename = self.amber_masks.ligand_mask.strip(":")
+            ligand_prefix = tempdir_path / ligand_basename
 
-            ligand_filename = os.path.join(self.tempdir.name, ligand_name)
+            pt.write_parm(str(ligand_prefix.with_suffix(".parm7")), ligand_traj.top)
+            pt.write_traj(str(ligand_prefix.with_suffix(".ncrst")), ligand_traj)
 
-            print("lignad_filename", ligand_filename)
-            pt.write_parm(f"{ligand_filename}.parm7", ligand_traj.top)
-            pt.write_traj(f"{ligand_filename}.ncrst", ligand_traj)
+            self.endstate_files.ligand_parameter_filename = str(ligand_prefix.with_suffix(".parm7").resolve())
+            self.endstate_files.ligand_coordinate_filename = str(ligand_prefix.with_suffix(".ncrst.1").resolve())
 
-            self.endstate_files.ligand_parameter_filename = os.path.abspath(
-                f"{ligand_filename}.parm7"
-            )
-            self.endstate_files.ligand_coordinate_filename = os.path.abspath(
-                f"{ligand_filename}.ncrst.1"
-            )
-
-        self.endstate_files._create_unqiue_fileID()
+        # Ensure filenames are unique if needed
+        self.endstate_files._create_unique_fileID()
 
 
 def workflow(job, config: Config):
@@ -983,7 +1112,7 @@ if __name__ == "__main__":
     options.logLevel = "OFF"
     options.clean = "always"
     with open(
-        "/nas0/ayoub/Impicit-Solvent-DDM/Example_runs/config_files/run_basic_md.yaml"
+        "script_examples/config_files/basic_md_config.yaml"
     ) as fH:
         yaml_config = yaml.safe_load(fH)
 
@@ -995,17 +1124,17 @@ if __name__ == "__main__":
         #     config.get_receptor_ligand_topologies()
         # else:
         #     config.endstate_files.get_inital_coordinate()
-        #     config.intermidate_args.toil_import_user_restriants(toil=toil)
+        #     config.intermediate_args.toil_import_user_restriants(toil=toil)
 
         # config.endstate_files.toil_import_parmeters(toil=toil)
         # config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
-        config.intermidate_args.toil_import_user_mdin(toil=toil)
-        print(config.intermidate_args.mdin_intermidate_file)
-        print(config.intermidate_args)
+        config.intermediate_args.toil_import_user_mdin(toil=toil)
+        print(config.intermediate_args.mdin_intermediate_file)
+        print(config.intermediate_args)
         print(config.endstate_method.remd_args)
 
         # config.endstate_method.remd_args.toil_import_replica_mdins(toil=toil)
         # boresch_p = list(config.boresch_parameters.__dict__.values())
 
         # toil.start(Job.wrapJobFn(workflow, config))
-        # print(config.intermidate_args)
+        # print(config.intermediate_args)

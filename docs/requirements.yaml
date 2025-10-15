@@ -8,5 +8,7 @@ dependencies:
 
 
     # Pip-only installs
-  #- pip:
+  - pip:
+    - sphinx
+    - sphinxawesome_theme
 
