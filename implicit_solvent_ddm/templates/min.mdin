@@ -1,15 +1,18 @@
-energy minimization
- &cntrl
-  imin=1, maxcyc=5000,
-  ntwr = 100, ntpr = 100,
-  cut = 999.0,
-  ntb = 0, igb = 2, saltcon = 0.0,
-  nmropt=1
+Minimization with steepest descent equivalent
+&cntrl
+  imin=1,              ! Energy minimization
+  maxcyc=10000,        ! Total number of steps
+  ncyc=1000,           ! First 1000 steepest descent, then conjugate gradient
+  drms=0.1,            ! Stop when RMS force < 0.1 kcal/mol/Å
+  cut=999.0,           ! No cutoff
+  ntb=0,               ! No periodic boundary
+  igb=2,               ! Implicit solvent GB model
+  saltcon=0.0,         ! Salt concentration (for GB)
+  ntpr=500,            ! Print energy every 500 steps
+  ntwr=10000,          ! Restart file write interval
+  nmropt=1             ! For restraint input (DISANG)
 /
 
-&wt TYPE='END'
+&wt TYPE='END' /
 
-/
-
-DISANG=$restraint 
- 
+DISANG=$restraint

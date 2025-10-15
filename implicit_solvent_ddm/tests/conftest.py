@@ -45,8 +45,8 @@ def run_workflow():
     with Toil(options) as toil:
         config.workflow.ignore_receptor_endstate = False
 
-        config.endstate_files.toil_import_parmeters(toil=toil)
-        config.intermidate_args.toil_import_user_mdin(toil=toil)
+        config.endstate_files.toil_import_parameters(toil=toil)
+        config.intermediate_args.toil_import_user_mdin(toil=toil)
         config.inputs["min_mdin"] = str(
             toil.import_file(
                 "file://"
@@ -60,9 +60,9 @@ def run_workflow():
         updated_config = toil.start(Job.wrapJobFn(ddm_workflow, config))
 
     # cleanup
-    yield updated_config
-    shutil.rmtree(config.system_settings.top_directory_path)
-    shutil.rmtree(".cache/")
+    yield updated_config.rv()
+   # shutil.rmtree(config.system_settings.top_directory_path)
+    #shutil.rmtree(".cache/")
 
 
 @pytest.fixture(scope="module")
@@ -75,7 +75,7 @@ def get_ligand_config(run_workflow):
     Returns:
         _type_: _description_
     """
-    return run_workflow[1]
+    return run_workflow.rv(1)
 
 
 @pytest.fixture(scope="module")
@@ -88,7 +88,7 @@ def get_complex_config(run_workflow):
     Returns:
         _type_: _description_
     """
-    return run_workflow[0]
+    return run_workflow.rv(0)
 
 
 @pytest.fixture(scope="module")
@@ -101,4 +101,4 @@ def get_receptor_config(run_workflow):
     Returns:
         _type_: _description_
     """
-    return run_workflow[2]
+    return run_workflow.rv(2)

@@ -32,6 +32,7 @@ class Calculation(Job):
         executable,
         mpi_command,
         num_cores,
+        CUDA,
         prmtop,
         incrd,
         input_file,
@@ -42,10 +43,12 @@ class Calculation(Job):
         dirstruct="dirstruct",
         inptraj: Union[FileID, None] = None,
         post_analysis: bool = False,
+        env=None
     ):
         self.executable = executable
         self.mpi_command = mpi_command
         self.num_cores = num_cores
+        self.CUDA = CUDA
         self.prmtop = prmtop
         self.incrd = incrd
         self.input_file = input_file
@@ -61,6 +64,7 @@ class Calculation(Job):
         # self.exec_list = []
         self.read_files = {}
         self._output_directory()
+        self.env = env if env is not None else os.environ.copy() 
 
     @property
     def inptraj(self):
@@ -234,13 +238,15 @@ class Calculation(Job):
 
         # fileStore.logToMaster(f"file in current directory {files_in_current_directory}")
         fileStore.logToMaster(f"exec_list : {self.exec_list}")
+        fileStore.logToMaster(f"output to -> {self.output_dir}")
         self.logger.info(
             f"The files in the current working directory: {files_in_current_directory}\n"
         )
-        self.logger.info(f"executable command {self.exec_list}\n")
+
+        self.logger.info(f"exec_list: {self.exec_list}")
 
         # amber_output = sp.Popen(self.exec_list, stdout=sp.PIPE, stderr=sp.PIPE)
-        amber_output = sp.run(self.exec_list, stdout=sp.PIPE, stderr=sp.PIPE)
+        amber_output = sp.run(self.exec_list, stdout=sp.PIPE, stderr=sp.PIPE, env=self.env)
 
         amber_stdout = amber_output.stdout.decode("utf-8")
         amber_stderr = amber_output.stderr.decode("utf-8")
@@ -296,6 +302,7 @@ class Simulation(Calculation):
         executable,
         mpi_command,
         num_cores,
+        CUDA,
         prmtop,
         incrd,
         input_file,
@@ -317,6 +324,7 @@ class Simulation(Calculation):
         checkpoint: Optional[bool] = False,
         displayName: Optional[str] = "",
         descriptionClass: Optional[str] = None,
+        accelerators: Optional[int] = None,
     ):
         Job.__init__(
             self,
@@ -327,6 +335,7 @@ class Simulation(Calculation):
             unitName=unitName,
             checkpoint=checkpoint,
             displayName=displayName,
+            accelerators=accelerators,
         )
 
         Calculation.__init__(
@@ -334,6 +343,7 @@ class Simulation(Calculation):
             executable,
             mpi_command,
             num_cores,
+            CUDA,
             prmtop,
             incrd,
             input_file,
@@ -355,9 +365,19 @@ class Simulation(Calculation):
         threads fighting to write the same dumb file)
         """
 
-        if self.num_cores == 1 or self.mpi_command == None:
+
+        if self.CUDA and self.system_type in ["complex", "receptor"]:
+            self.exec_list.append(self.executable)
+            # self.exec_list.append("--cuda")
+            # self.exec_list.append("--gpu")
+            # self.exec_list.append("--gpu_id")
+            # self.exec_list.append("0")
+            # self.exec_list.append("--gpu_mem")
+        
+        elif self.num_cores == 1 or self.mpi_command == None:
             self.exec_list.pop(0)
             self.exec_list.append(re.sub(r"\..*", "", self.executable))
+        
         else:
             if self.mpi_command in ["mpiexec", "mpirun"]:
 
@@ -441,7 +461,6 @@ class Simulation(Calculation):
         self.read_files["mdin"] = Calculation._mdin_restraint(
             self, fileStore, self.read_files["input_file"]
         )
-
         self.setup()
 
         output = Calculation.run(self, fileStore)
@@ -461,6 +480,7 @@ class REMDSimulation(Calculation):
         executable,
         mpi_command,
         num_cores,
+        CUDA,
         prmtop,
         incrd,
         input_file,
@@ -470,6 +490,7 @@ class REMDSimulation(Calculation):
         ngroups,
         directory_args,
         remd_debug: bool,
+        system_type:str, # complex, receptor, ligand
         dirstruct="dirstruct",
         inptraj=None,
         memory: Optional[Union[int, str]] = None,
@@ -493,19 +514,21 @@ class REMDSimulation(Calculation):
 
         Calculation.__init__(
             self,
-            executable,
-            mpi_command,
-            num_cores,
-            prmtop,
-            incrd,
-            input_file,
-            working_directory,
-            restraint_file,
-            directory_args,
+            executable=executable,
+            mpi_command=mpi_command,
+            num_cores=num_cores,
+            prmtop=prmtop,
+            incrd=incrd,
+            input_file=input_file,
+            work_dir=working_directory,
+            restraint_file=restraint_file,
+            directory_args=directory_args,
             dirstruct=dirstruct,
-            inptraj=None,
+            inptraj=inptraj,
             debug=remd_debug,
-        )
+            CUDA=CUDA,
+        )   
+        self.system_type = system_type
         self.runtype = runtype
         self.ng = ngroups
         self.nthreads = num_cores

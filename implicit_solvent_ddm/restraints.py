@@ -36,7 +36,7 @@ class FlatBottom(Job):
     host/protein volume with harmonic restrainting walls. It will
     prevent the ligand drifting too far from the receptor during
     implicit solvent calculations. The ligand will be allow
-    for free movement in the “bound” region and sample still different
+    for free movement in the "bound" region and sample still different
     binding modes. The restriant will be applied between the groups of
     atoms that belong to the receptor and ligand respectively.
 
@@ -837,6 +837,7 @@ class BoreschRestraints(Job):
         )
 
     def run(self, fileStore):
+        fileStore.logToMaster("Creating Boresch Restraints")
         temp_dir = fileStore.getLocalTempDir()
         complex_prmtop_ID = fileStore.readGlobalFile(
             self.complex_prmtop,
@@ -948,17 +949,17 @@ class RestraintMaker(Job):
         )
         self.complex_binding_mode = complex_binding_mode
         self.flat_bottom = flat_bottom
-        self.complex_restraint_file = config.intermidate_args.complex_restraint_files
-        self.ligand_restraint_file = config.intermidate_args.guest_restraint_files
-        self.receptor_restraint_file = config.intermidate_args.receptor_restraint_files
-        self.max_con_force = config.intermidate_args.max_conformational_restraint
-        self.max_orient_force = config.intermidate_args.max_orientational_restraint
+        self.complex_restraint_file = config.intermediate_args.complex_restraint_files
+        self.ligand_restraint_file = config.intermediate_args.guest_restraint_files
+        self.receptor_restraint_file = config.intermediate_args.receptor_restraint_files
+        self.max_con_force = config.intermediate_args.max_conformational_restraint
+        self.max_orient_force = config.intermediate_args.max_orientational_restraint
 
         self.conformational_forces = (
-            config.intermidate_args.conformational_restraints_forces
+            config.intermediate_args.conformational_restraints_forces
         )
         self.orientational_forces = (
-            config.intermidate_args.orientational_restriant_forces
+            config.intermediate_args.orientational_restraint_forces
         )
         self.config = config
         self.boresch = boresch_restraints
@@ -989,6 +990,7 @@ class RestraintMaker(Job):
         ]
 
     def run(self, fileStore):
+        fileStore.logToMaster("Creating Restraints")
         conformational_restraints = self.addChildJobFn(
             get_conformational_restraints,
             self.config.endstate_files.complex_parameter_filename,
@@ -1017,8 +1019,8 @@ class RestraintMaker(Job):
 
         for index, (conformational_force, orientational_force) in enumerate(
             zip(
-                self.config.intermidate_args.conformational_restraints_forces,
-                self.config.intermidate_args.orientational_restriant_forces,
+                self.config.intermediate_args.conformational_restraints_forces,
+                self.config.intermediate_args.orientational_restraint_forces,
             )
         ):
             if len(self.ligand_restraint_file) == 0:
@@ -1401,8 +1403,8 @@ if __name__ == "__main__":
             if config.endstate_method.endstate_method_type == "remd":
                 config.endstate_method.remd_args.toil_import_replica_mdin(toil=toil)
 
-            if config.intermidate_args.guest_restraint_files is not None:
-                config.intermidate_args.toil_import_user_restriants(toil=toil)
+            if config.intermediate_args.guest_restraint_files is not None:
+                config.intermediate_args.toil_import_user_restriants(toil=toil)
 
             config.inputs["min_mdin"] = str(
                 toil.import_file(

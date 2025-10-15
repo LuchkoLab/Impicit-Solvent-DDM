@@ -1,8 +1,8 @@
-system_parameters:
+hardware_parameters:
     executable: "pmemd.MPI" # executable machine for MD choice : [sander, sander.MPI, pmemd, pmemd.MPI, pmeded.CUDA]
     mpi_command: srun # system dependent /
     CUDA:  # run on GPU
-    top_directory_name: basic_md_dir
+    output_directory_name: basic_md_dir
 
 endstate_parameter_files:
     complex_parameter_filename: script_examples/structs/cb7-mol01_Hmass.parm7 # path to topology file; ["path/to/complex.parm7"]
@@ -20,9 +20,9 @@ AMBER_masks:
 workflow:
   endstate_method: basic_md #options REMD or 0 (meaning no endstate simulation will be performed just intermidates)endstate_method: REMD #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates) 
   endstate_arguments:
-      md_template_mdin: /nas0/ayoub/Impicit-Solvent-DDM/new_replicas/basic_md.template
-  intermidate_states_arguments:
-      mdin_intermidate_config: script_examples/user_intermidate_mdin_args.yaml #intermidate mdins required states 3-8
+      md_template_mdin: script_examples/endstate_templates_required/basic_md.template
+  intermediate_states_arguments:
+      mdin_intermediate_file: script_examples/four_fento_time_step_mdin_template.mdin #intermediate mdins required states 3-8
       igb_solvent: 2 #igb [1,2,3,7,8]
       temperature: 300
       exponent_conformational_forces: [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 2.584963, 3, 3.584963, 4]  # list exponent values 2**p 

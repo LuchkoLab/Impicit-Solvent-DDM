@@ -25,12 +25,12 @@ setup(
     # Self-descriptive entries which should always be present
     name="implicit_solvent_ddm",
     author="LuckoLab",
-    author_email="steven.ayoub.362@my.csun.edu",
+    author_email="ayoubsj@uci.edu",
     description=short_description[0],
     long_description=long_description,
     long_description_content_type="text/markdown",
     # version=versioneer.get_version(),
-    version="1.0.0",
+    version="1.1.1",
     # cmdclass=versioneer.get_cmdclass(),
     license="MIT",
     # Which Python importable modules should be included when your package is installed
@@ -48,7 +48,7 @@ setup(
     # Additional entries you may want simply uncomment the lines you want and fill in the data
     # url='http://www.my_package.com',  # Website
     install_requires=[
-        "toil[cwl]==5.12.0"
+        "toil==5.12.0"
     ],  # Required packages, pulls from pip if needed; do not use for Conda deployment
     # platforms=['Linux',
     #            'Mac OS-X',

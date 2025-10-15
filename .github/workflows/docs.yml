@@ -1,0 +1,52 @@
+name: Build and Deploy Documentation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up conda environment
+      uses: conda-incubator/setup-miniconda@v3
+      with: 
+        python-version: '3.10'
+        environment-file: devtools/conda-envs/test_env.yaml
+        condarc: |
+          channels:
+            - conda-forge
+            - defaults
+            - omnia
+    
+    - name: Install package and documentation dependencies
+      shell: bash -l {0}
+      run: |
+        python setup.py sdist 
+        pip install dist/*
+        pip install sphinx sphinx-rtd-theme sphinxawesome_theme sphinx-autodoc-typehints
+    
+    - name: Build documentation
+      shell: bash -l {0}
+      run: |
+        cd docs
+        make clean
+        make html
+    
+    - name: Deploy to GitHub Pages
+      if: github.ref == 'refs/heads/gpu_enabled_merge' || github.ref == 'refs/heads/main'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs/_build/html

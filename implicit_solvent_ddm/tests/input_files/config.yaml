@@ -1,5 +1,9 @@
 
-  
+
+#user input values
+workflow_jobs:
+  plot_overlap_matrix: False 
+  # debug: True  
 hardware_parameters:
   executable: "sander" # executable machine for MD choice : [sander, sander.MPI, pmemed, pemed.MPI, pmeded.CUDA]
   mpi_command:  # system dependent /
@@ -30,15 +34,12 @@ AMBER_masks:
 workflow:
   endstate_method: 0 #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates)endstate_method: REMD #options REMD, MD or 0 (meaning no endstate simulation will be performed just intermidates) 
   
-  intermidate_states_arguments:
-    mdin_intermidate_file: implicit_solvent_ddm/tests/input_files/intermidate_mdin #intermidate mdins required states 3-8
+  intermediate_states_arguments:
+    mdin_intermediate_file: implicit_solvent_ddm/tests/input_files/intermediate.mdin #intermidate mdins required states 3-8
     igb_solvent: 2 #igb [1,2,3,7,8]
-    exponent_conformational_forces: [-8, -2, 4] # list exponent values 2**p 
-    exponent_orientational_forces: [-4, 2, 8] # list exponent values 2**p 
+    exponent_conformational_forces: [-8.0, -2.0, 4.0] # list exponent values 2**p 
+    exponent_orientational_forces: [-4.0, 2.0, 8.0] # list exponent values 2**p 
     restraint_type: 2 # choices: [ 1: CoM-CoM, 2: CoM-Heavy_Atom, 3: Heavy_Atom-Heavy_Atom, must be 1, 2 or 3 ]
-    charges_lambda_window: [0, 0.5, 1]
+    charges_lambda_window: [0.0, 0.5, 1.0]
     temperature: 300
 
-workflow_jobs:
-    run_endstate_method: False 
-    run_adaptive_windows: True  
