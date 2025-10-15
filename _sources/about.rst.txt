@@ -1,0 +1,3 @@
+About this package
+------------------
+Our work here attempts to reduce the computational expense of absolute binding free energies by introducing the software ISDDM.py, an automated Python workflow that implements an approach that uses faster implicit solvents, such as generalized Born (GB), which greatly reduces computational costs. We adapted the double decoupling method (DDM), which uses conformational restraints, and paired it with GB solvent to enhance convergence. Our work here attempts to reduce the computational expense of absolute binding free energies by using implicit solvent models and the ISDDM.py package to handle all the input files, monitor the simulations and perform post-analysis.
