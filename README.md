@@ -58,7 +58,7 @@ run_implicit_ddm.py file:/path/to/job-store \
 
 **For detailed information, examples, and API reference, visit our [complete documentation](https://luchkolab.github.io/Impicit-Solvent-DDM/).**
 
-## 📋Citation
+## Citation
 
 If you use this software in your research, please cite:
 
