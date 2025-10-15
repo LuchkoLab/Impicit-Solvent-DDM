@@ -2,9 +2,15 @@ name: Build and Deploy Documentation
 
 on:
   push:
-    branches: [ gpu_enabled_merge, main ]
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
   pull_request:
-    branches: [ gpu_enabled_merge, main ]
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
 
 jobs:
   build-docs:
