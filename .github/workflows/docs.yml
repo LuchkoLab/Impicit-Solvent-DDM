@@ -6,11 +6,13 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
+      - 'README.md'
   pull_request:
     branches: [ main ]
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
+      - 'README.md'
 
 jobs:
   build-docs:
