@@ -21,7 +21,5 @@ dependencies:
   - pytest-cov
   - python=3.10
   - ipython
-  - pyyaml
-  - sphinx
-  - sphinxawesome_theme 
+  - pyyaml 
 # prefix: /home/ayoub/.conda/envs/isddm_depen_env
