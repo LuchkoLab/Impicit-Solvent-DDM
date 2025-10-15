@@ -1,6 +1,6 @@
 # Release Notes - Implicit Solvent DDM v1.1.1
 
-## 🚀 Major Features
+## Feature Updates
 
 ### GPU Acceleration Support
 This release introduces comprehensive GPU acceleration capabilities for molecular dynamics simulations:
@@ -35,7 +35,7 @@ Complete restructuring of the DDM workflow for improved reliability and performa
 6. **Phase 6**: Energy Post-Processing and Analysis
 7. **Phase 7**: Free Energy Computation and Consolidation
 
-## 🔧 Improvements
+##  Improvements
 
 ### Performance Enhancements
 - **Reduced CPU Allocation for GPU Jobs**: Complex and receptor simulations now use minimal CPU cores (0.1) when running on GPU
@@ -66,7 +66,7 @@ Complete restructuring of the DDM workflow for improved reliability and performa
 - **Enforced Exponential Averaging**: Consistent flat-bottom restraint handling
 - **Improved Restraint Management**: Better handling of restraint file generation and application
 
-## 📦 Dependencies & Environment
+##  Dependencies & Environment
 
 ### Updated Dependencies
 - **Toil**: Updated to version 5.12.0 (removed CWL dependency)
@@ -78,7 +78,7 @@ Complete restructuring of the DDM workflow for improved reliability and performa
 - **Python Environment**: Compatible with Python 3.7+ environments
 - **Memory Requirements**: Optimized for systems with 5GB+ memory per simulation
 
-## 🚨 Breaking Changes
+##  Breaking Changes
 
 ### Removed Features
 - **Adaptive Lambda Windows**: This feature has been removed for workflow stability
@@ -89,7 +89,7 @@ Complete restructuring of the DDM workflow for improved reliability and performa
 - **Function Renames**: `run_post_processing_and_analysis` function has been renamed
 - **Job Dependencies**: Internal job dependency structure has changed (should not affect user code)
 
-## 📋 Full Changelog
+##  Full Changelog
 
 ### Commits in this Release
 - `e275f03` - Updated conda environment to include pyyaml, numba and setuptools<70
