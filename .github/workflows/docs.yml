@@ -7,26 +7,12 @@ on:
       - 'docs/**'
       - '.github/workflows/docs.yml'
       - 'README.md'
-    paths-ignore:
-      - 'implicit_solvent_ddm/**'
-      - 'script_examples/**'
-      - 'devtools/**'
-      - 'setup.py'
-      - 'setup.cfg'
-      - 'MANIFEST.in'
   pull_request:
     branches: [ main ]
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
       - 'README.md'
-    paths-ignore:
-      - 'implicit_solvent_ddm/**'
-      - 'script_examples/**'
-      - 'devtools/**'
-      - 'setup.py'
-      - 'setup.cfg'
-      - 'MANIFEST.in'
 
 jobs:
   build-docs:
@@ -59,6 +45,11 @@ jobs:
         cd docs
         make clean
         make html
+        touch .nojekyll 
+        git add -A 
+        git config --local user.email "stevenayoub109@gmail.com"
+        git config --local user.name "Steven Ayoub"
+        git commit -m "Deploy docs to GitHub Pages"
     
     - name: Deploy to GitHub Pages
       if: github.ref == 'refs/heads/gpu_enabled_merge' || github.ref == 'refs/heads/main'
