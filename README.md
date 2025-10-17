@@ -9,7 +9,7 @@ Implicit Solvent DDM is a Python package for performing fully automated binding 
 
 ##  Documentation
 
-**[View Complete Documentation](https://luchkolab.github.io/Impicit-Solvent-DDM/)**
+**[View Complete Documentation]([https://luchkolab.github.io/Impicit-Solvent-DDM/](https://impicit-solvent-ddm.readthedocs.io/en/latest/index.html))**
 
 The documentation includes:
 - **Installation Guide** - Setup instructions and requirements
@@ -56,7 +56,7 @@ run_implicit_ddm.py file:/path/to/job-store \
 
 ---
 
-**For detailed information, examples, and API reference, visit our [complete documentation](https://luchkolab.github.io/Impicit-Solvent-DDM/).**
+**For detailed information, examples, and API reference, visit our [complete documentation]([https://luchkolab.github.io/Impicit-Solvent-DDM/](https://impicit-solvent-ddm.readthedocs.io/en/latest/examples/basic_md_example.html).**
 
 *Last updated: January 2025*
 
