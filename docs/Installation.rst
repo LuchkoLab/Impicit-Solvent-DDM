@@ -9,7 +9,7 @@ To install implicit_solvent_ddm, you will need to create an conda enviroment
 4. python setup.py sdist
 5. pip install dist/*
 
-Usagae
+Usage
 ------
 One installed, you can use the package. Quick example out to run the command executable.
 
