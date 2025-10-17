@@ -12,7 +12,7 @@ build:
 
 
 conda: 
-  enviroment: devtools/conda-envs/test_env.yaml
+  environment: devtools/conda-envs/test_env.yaml
 
 # Build documentation in the "docs/" directory with Sphinx
 sphinx:
