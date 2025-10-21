@@ -218,39 +218,28 @@ class IntermidateRunner(Job):
                     fileStore.logToMaster(f"[SKIP] MD already complete for: {simulation.output_dir}")
                     continue
                 fileStore.logToMaster(f"Running MD for: {simulation.output_dir}")
-                self.addChild(simulation)
-                # if simulation.CUDA:
-                #     gpu_jobs.append(simulation)
-                # else:
-                #     cpu_jobs.append(simulation)
+                
+                # Separate GPU and CPU jobs
+                if simulation.CUDA:
+                    gpu_jobs.append(simulation)
+                else:
+                    cpu_jobs.append(simulation)
 
-        # Divide GPU jobs into batches based on available devices
-        # if gpu_jobs:
-        #     num_gpus = get_gpu_count()
-        #     fileStore.logToMaster(f"Detected {num_gpus} GPUs")
+        # Distribute GPU jobs across available devices
+        if gpu_jobs:
+            num_gpus = get_gpu_count()
+            fileStore.logToMaster(f"Detected {num_gpus} GPUs")
 
-        #     previous_batch = None
-        #     for batch in chunked(gpu_jobs, num_gpus):
-        #         job_handles = []
-        #         for gpu_id, sim in zip(range(num_gpus), batch):
-        #             sim.env = os.environ.copy()
-        #             sim.env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+            # Simple round-robin GPU assignment
+            for i, sim in enumerate(gpu_jobs):
+                gpu_id = i % num_gpus
+                sim.env = os.environ.copy()
+                sim.env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+                self.addChild(sim)
 
-        #             if previous_batch is None:
-        #                 job = self.addChild(sim)
-        #             else:
-        #                 job = previous_batch.addChild(sim)
-
-        #             job_handles.append(job)
-
-        #         # Add a no-op Job to wait for all jobs in this batch
-        #         previous_batch = Job.wrapFn(lambda: None)
-        #         for j in job_handles:
-        #             j.addFollowOn(previous_batch)
-
-        # # Submit CPU-only jobs in parallel
-        # for sim in cpu_jobs:
-        #     self.addChild(sim)
+        # Submit CPU-only jobs in parallel
+        for sim in cpu_jobs:
+            self.addChild(sim)
 
         return self
     

@@ -143,16 +143,14 @@ class SystemSettings:
     num_accelerators: int = field(default=0)
     memory: Optional[Union[int, str]] = field(default="5G")
     disk: Optional[Union[int, str]] = field(default="5G")
-
+    
+    
     def __post_init__(self):
         self.working_directory = os.path.abspath(self.working_directory)
         self.cache_directory_output = os.path.abspath(self.cache_directory_output)
         if self.CUDA and self.num_accelerators == 0:
-            try:
-                from numba import cuda
-                self.num_accelerators = len(cuda.gpus)
-            except ImportError:
-                raise RuntimeError("CUDA requested but 'cuda' module not available.")
+            # Set default to 1 GPU per job for better distribution
+            self.num_accelerators = 1
 
     @property
     def top_directory_path(self):
