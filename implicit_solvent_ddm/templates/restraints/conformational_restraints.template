@@ -1,5 +1,5 @@
 
 &rst iat = $solute_primary_atom, $solute_sec_atom,
-r1=0, r2 = $distance, r3 = $distance, r4 = 1000
+r1=0, r2 = $distance_lower, r3 = $distance_upper, r4 = 1000
 rk2=$frest, rk3=$frest,
 /

@@ -264,14 +264,17 @@ class Calculation(Job):
             # for not don't export any data
             # return fileStore.writeGlobalFile("mdout", cleanup=True),
 
-            fileStore.export_file(
-                fileStore.writeGlobalFile("mdout", cleanup=True),
-                "file://"
-                + os.path.abspath(
-                    os.path.join(self.output_dir, os.path.basename("mdout"))
-                ),
+            # fileStore.export_file(
+            #     fileStore.writeGlobalFile("mdout", cleanup=True),
+            #     "file://"
+            #     + os.path.abspath(
+            #         os.path.join(self.output_dir, os.path.basename("mdout"))
+            #     ),
+            # )
+            # Export all ouput files from MD simulation
+            restart_ID, trajectory_ID = self.export_files(
+                fileStore, self.output_dir, files_in_current_directory
             )
-            # Don't need the trajectories from post analysis
             return
 
         else:

@@ -153,7 +153,9 @@ class SystemSettings:
                 self.num_accelerators = len(cuda.gpus)
             except ImportError:
                 raise RuntimeError("CUDA requested but 'cuda' module not available.")
-
+        if self.num_accelerators > 1:
+            self.num_accelerators = 1
+            # Only use one GPU per simulation 
     @property
     def top_directory_path(self):
         return os.path.join(self.working_directory, self.output_directory_name)

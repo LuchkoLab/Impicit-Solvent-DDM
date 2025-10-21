@@ -224,23 +224,39 @@ class FlatBottom(Job):
             template = Template(f.read())
 
             restraint_template = template.substitute(
-                host_atom_numbers=",".join(
-                    [str(atom_index + 1) for atom_index in self.restrained_receptor_atoms]  # type: ignore
-                ),
-                guest_atom_numbers=",".join(
-                    [str(atom_index + 1) for atom_index in self.restrained_ligand_atoms]  # type: ignore
-                ),
-                r1=self.flat_bottom_restraints["r1"],  # type: ignore
-                r2=self.flat_bottom_restraints["r2"],  # type: ignore
-                r3=self.flat_bottom_restraints["r3"],  # type: ignore
-                r4=self.flat_bottom_restraints["r4"],  # type: ignore
-                rk2=self.flat_bottom_restraints["rk2"],  # type: ignore
-                rk3=self.flat_bottom_restraints["rk3"],  # type: ignore
+                host_atom_numbers=f"{self.receptor_mask}", 
+                guest_atom_numbers=f"{self.ligand_mask}",
+                r1=self.flat_bottom_restraints["r1"],
+                r2=self.flat_bottom_restraints["r2"],
+                r3=self.flat_bottom_restraints["r3"],
+                r4=self.flat_bottom_restraints["r4"],
+                rk2=self.flat_bottom_restraints["rk2"],
+                rk3=self.flat_bottom_restraints["rk3"],
             )
 
             string_template += restraint_template
 
         return string_template
+
+    def make_igr_lines(self,
+                    prefix: str,
+                    atom_indices,
+                    per_line: int = 8,
+                    indent: str = "  ",
+                    add_trailing_comma_on_last_line: bool = False) -> str:
+        ints = [int(x) for x in atom_indices]
+        if any(v == 0 for v in ints):
+            ints = [v + 1 for v in ints]
+        tokens = [f"{prefix}({k})={val}" for k, val in enumerate(ints, start=1)]
+        lines = []
+        for i in range(0, len(tokens), per_line):
+            chunk = ",".join(tokens[i:i + per_line])
+            lines.append(f"{indent}{chunk}")
+        for j in range(len(lines) - 1):
+            lines[j] += ","
+        if add_trailing_comma_on_last_line and lines:
+            lines[-1] += ","
+        return "\n".join(lines)
 
     def _missing_parameters(self):
         """ "Automatically determine missing parameters"""
@@ -1278,8 +1294,7 @@ def write_restraint_forces(
 
 
 def conformational_restraints_template(
-    solute_conformational_restraint, num_receptor_atoms=0
-):
+    solute_conformational_restraint, num_receptor_atoms=0, delta_flat = 0.5):
     restraint_path = os.path.abspath(
         os.path.join(
             os.path.dirname(os.path.realpath(__file__)),
@@ -1296,7 +1311,8 @@ def conformational_restraints_template(
                 + num_receptor_atoms,
                 solute_sec_atom=solute_conformational_restraint[index][1]
                 + num_receptor_atoms,
-                distance=solute_conformational_restraint[index][2],
+                distance_lower=solute_conformational_restraint[index][2] - delta_flat,
+                distance_upper=solute_conformational_restraint[index][2] + delta_flat,
                 frest="$frest",
             )
             string_template += restraint_template

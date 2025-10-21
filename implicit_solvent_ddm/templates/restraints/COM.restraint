@@ -1,8 +1,7 @@
 &rst
   iresid=0,
-  iat = -1,-2
-  r1=$r1,r2=$r2,r3=$r3,r4=$r4,rk2=$rk2,rk3=$rk3
+  iat=-1,-1,
+  r1=$r1, r2=$r2, r3=$r3, r4=$r4, rk2=$rk2, rk3=$rk3,
   igr1=$host_atom_numbers,
   igr2=$guest_atom_numbers
-&end
 /
