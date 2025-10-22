@@ -323,20 +323,15 @@ class IntermidateRunner(Job):
                     f"Using trajectory from {completed_sim.output_dir}\n"
                 )
 
-
-            if not "simulation_mdout.parquet.gzip" in os.listdir(
-                post_process_job.output_dir
-            ):
+            if not self.has_post_analysis_data(post_process_job.output_dir):    
                 fileStore.logToMaster(
-                    f"simulations_mdout.parquet is not found in  {post_process_job.output_dir}\n"
+                    f"simulations_mdout.parquet is not found in  {post_process_job.output_dir} or is empty\n"
                 )
 
                 fileStore.logToMaster(
                     f"RUNNING post analysis with inptraj trajecory: {md_traj}"
                 )
-                # fileStore.logToMaster(
-                #     f"output postProces: {post_process_job.output_dir}"
-                # )
+
                 fileStore.logToMaster(
                     f"State potential energy {post_simulation.directory_args['state_label']}"
                 )
@@ -374,7 +369,20 @@ class IntermidateRunner(Job):
                     )
                 )
             self._loaded_dataframe.append(post_process_job.output_dir)
+    
+    def has_post_analysis_data(self, output_dir):
+        """Return True if the parquet file exists and is not empty; otherwise False."""
+        path = os.path.join(output_dir, "simulation_mdout.parquet.gzip")
 
+        if not os.path.exists(path):
+            return False
+
+        try:
+            df = pd.read_parquet(path)
+            return not df.empty
+        except (ValueError, OSError):
+            return False
+    
     def _add_complex_simulation(
         self,
         conformational,

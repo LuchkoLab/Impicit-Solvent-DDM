@@ -15,7 +15,8 @@ import parmed as pmd
 import pytraj as pt
 from toil.common import FileID, Toil
 from toil.job import Job
-
+import subprocess
+import tempfile
 from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.restraint_helper import (
     compute_dihedral_angle,
@@ -203,6 +204,52 @@ class FlatBottom(Job):
         return self._r3 + self.harmonic_restraint
 
     @property
+    def generate_flatbottom_restraint(self):
+        """
+        Generate a flat-bottom restraint file using cpptraj.
+
+        Returns:
+            str: Contents of the generated restraint file.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rst_path = os.path.join(tmpdir, "restraint.RST")
+            cpptraj_input = os.path.join(tmpdir, "cpptraj.in")
+
+            # Build cpptraj command script
+            cpptraj_script = f"""parm {self.readfiles['prmtop']}
+    rst '!:LIG & !@H* & @CA' ':LIG & !@H*' iresid 0 iat -1 -1 \\
+        r1 {self.flat_bottom_restraints["r1"]} \\
+        r2 {self.flat_bottom_restraints["r2"]} \\
+        r3 {self.flat_bottom_restraints["r3"]} \\
+        r4 {self.flat_bottom_restraints["r4"]} \\
+        rk2 {self.flat_bottom_restraints["rk2"]} \\
+        rk3 {self.flat_bottom_restraints["rk3"]} \\
+        out {rst_path}
+    """
+
+            # Write cpptraj input file
+            with open(cpptraj_input, "w") as fh:
+                fh.write(cpptraj_script)
+
+            # Run cpptraj
+            result = subprocess.run(
+                ["cpptraj", "-i", cpptraj_input],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False
+            )
+
+            # Handle cpptraj errors
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"cpptraj failed with code {result.returncode}:\n{result.stderr}"
+                )
+
+            # Read and return restraint contents
+            with open(rst_path) as fh:
+                return fh.read()
+    @property
     def _flat_bottom_restraints_template(self):
         """Parse in flat bottom restraint template.
 
@@ -223,9 +270,13 @@ class FlatBottom(Job):
         with open(restraint_path) as f:
             template = Template(f.read())
 
-            restraint_template = template.substitute(
-                host_atom_numbers=f"{self.receptor_mask}", 
-                guest_atom_numbers=f"{self.ligand_mask}",
+            restraint_template = template.substitute(   
+                host_atom_numbers=",".join(
+                    [str(atom_index + 1) for atom_index in self.restrained_receptor_atoms], 
+                ),
+                guest_atom_numbers=",".join(
+                    [str(atom_index + 1) for atom_index in self.restrained_ligand_atoms], 
+                ),
                 r1=self.flat_bottom_restraints["r1"],
                 r2=self.flat_bottom_restraints["r2"],
                 r3=self.flat_bottom_restraints["r3"],
@@ -238,25 +289,6 @@ class FlatBottom(Job):
 
         return string_template
 
-    def make_igr_lines(self,
-                    prefix: str,
-                    atom_indices,
-                    per_line: int = 8,
-                    indent: str = "  ",
-                    add_trailing_comma_on_last_line: bool = False) -> str:
-        ints = [int(x) for x in atom_indices]
-        if any(v == 0 for v in ints):
-            ints = [v + 1 for v in ints]
-        tokens = [f"{prefix}({k})={val}" for k, val in enumerate(ints, start=1)]
-        lines = []
-        for i in range(0, len(tokens), per_line):
-            chunk = ",".join(tokens[i:i + per_line])
-            lines.append(f"{indent}{chunk}")
-        for j in range(len(lines) - 1):
-            lines[j] += ","
-        if add_trailing_comma_on_last_line and lines:
-            lines[-1] += ","
-        return "\n".join(lines)
 
     def _missing_parameters(self):
         """ "Automatically determine missing parameters"""
@@ -269,9 +301,10 @@ class FlatBottom(Job):
 
     def _determine_restraint_atoms(self):
         """Define receptor and ligand atoms by there respected AMBER masks"""
-
-        self.restrained_receptor_atoms = self.topology.select(self.receptor_mask)
-        self.restrained_ligand_atoms = self.topology.select(self.ligand_mask)
+        # only select CA atoms 
+        self.restrained_receptor_atoms = self.topology.select(f"{self.receptor_mask} & @CA")
+        # select only heavy atoms 
+        self.restrained_ligand_atoms = self.topology.select(f"{self.ligand_mask} & !@H*")
 
     def _determine_restraint_parameters(self):
         """Define distance, harmonic and linear restraint values."""
@@ -299,7 +332,7 @@ class FlatBottom(Job):
             self.complex_coordinate,
             userPath=os.path.join(tempDir, os.path.basename(self.complex_coordinate)),
         )
-
+        fileStore.logToMaster(f"prmtop: {self.readfiles['prmtop']}")
         # load pytraj object
         self.complex_traj = pt.iterload(
             self.readfiles["incrd"], self.readfiles["prmtop"]
@@ -318,11 +351,11 @@ class FlatBottom(Job):
 
         temp_file = fileStore.getLocalTempFile()
         with open(temp_file, "w") as fH:
-            fH.write(self._flat_bottom_restraints_template)
+            fH.write(self.generate_flatbottom_restraint)
 
         return (
             fileStore.writeGlobalFile(temp_file),
-            self._flat_bottom_restraints_template,
+            self.generate_flatbottom_restraint,
         )
 
 
