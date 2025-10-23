@@ -54,6 +54,12 @@ run_implicit_ddm.py file:/path/to/job-store \
 - **Enhanced Documentation** - Comprehensive guides and examples
 - **Improved Workflow** - Better error handling and recovery
 
+## 🐛 Bug Fixes in v1.1.3
+
+- **Fixed Fortran Crashes** - Resolved COM restraint array overflow issues in large protein systems
+- **Optimized Memory Usage** - Reduced restraint array size by 10-100x through better atom selection
+- **Enhanced Stability** - Improved handling of complex systems with thousands of atoms
+
 ---
 
 **For detailed information, examples, and API reference, visit our [complete documentation]([https://luchkolab.github.io/Impicit-Solvent-DDM/](https://impicit-solvent-ddm.readthedocs.io/en/latest/examples/basic_md_example.html).**
