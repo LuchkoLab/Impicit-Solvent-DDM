@@ -1,3 +1,5 @@
+.. _user_defined_example-label:
+
 User Provided Endstate Simulation 
 #################################
 
@@ -42,8 +44,14 @@ All the example inputs scripts can be found in ``script_examples`` directrory. L
             mdin_intermidate_config: script_examples/user_intermidate_mdin_args.yaml #intermidate mdins required states 3-8
             igb_solvent: 2 #igb [1,2,3,7,8]
             temperature: 300
-            exponent_conformational_forces: [-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 2.584963, 3, 3.584963, 4]  # list exponent values 2**p 
-            exponent_orientational_forces: [-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 6.584963, 7, 7.584963, 8]  # list exponent values 2**p 
+            exponent_conformational_forces: [
+                -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 
+                2.584963, 3, 3.584963, 4
+            ]  # list exponent values 2**p 
+            exponent_orientational_forces: [
+                -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 
+                6.584963, 7, 7.584963, 8
+            ]  # list exponent values 2**p 
             restraint_type: 2 # choices: [ 1: CoM-CoM, 2: CoM-Heavy_Atom, 3: Heavy_Atom-Heavy_Atom, must be 1, 2 or 3 ]
 
 The ``endstate_method`` is set to ``0`` which assumes the user provided there own endstate simulation. 
@@ -59,7 +67,7 @@ The recommend way for running this workflow is by submitting an batch file. This
     #!/bin/bash
     #SBATCH --partition=main
     #SBATCH --nodes=1
-    #SBATCH --ntasks-per-node=12
+    #SBATCH --ntasks-per-node=12  # Use high number for post-energy analysis (imin=5) parallelization
     #SBATCH --time=09:30:00
     #SBATCH --job-name=ex_01
     #SBATCH --export=all
@@ -69,4 +77,9 @@ The recommend way for running this workflow is by submitting an batch file. This
     mkdir /scratch/username/
 
     run_implicit_ddm.py file:jobstore_example_03 --config_file script_examples/config_files/user_defined_endstate.yaml --workDir /scratch/username/
+
+Performance Considerations
+---------------------------
+
+**High CPU Count**: Use a high number of CPUs (12+ recommended) for optimal performance. The Sander post-energy analysis (imin=5) runs on CPUs and completion time scales linearly with the number of CPUs - more CPUs = faster completion.
 

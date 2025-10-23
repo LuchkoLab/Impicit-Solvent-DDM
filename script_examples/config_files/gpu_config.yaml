@@ -1,0 +1,38 @@
+hardware_parameters:
+    working_directory: working_directory
+    executable: "pmemd.cuda" # GPU-accelerated executable
+    # mpi_command: srun # DO NOT USE with GPU - will bottleneck GPU performance
+    CUDA: True # Enable GPU acceleration
+    output_directory_name: gpu_md_dir
+    cache_directory_output: path/to/cache_directory
+
+endstate_parameter_files:
+    complex_parameter_filename: script_examples/structs/cb7-mol01_Hmass.parm7
+    complex_coordinate_filename: script_examples/structs/cb7-mol01.rst7
+
+number_of_cores_per_system:
+    complex_ncores: 1 # Typically 1 core per GPU
+    ligand_ncores: 1 # Typically 1 core per GPU
+    receptor_ncores: 1 # Typically 1 core per GPU
+
+AMBER_masks:
+    receptor_mask: ":CB7" # CB7 receptor atoms
+    ligand_mask: ":M01" # M01 ligand atoms
+
+    workflow:
+        endstate_method: basic_md # Basic MD with GPU acceleration
+        endstate_arguments:
+            md_template_mdin: script_examples/basic_md.template
+    intermediate_states_arguments:
+        mdin_intermidate_config: script_examples/user_intermidate_mdin_args.yaml
+        igb_solvent: 2 # GB solvent model
+        temperature: 300
+        exponent_conformational_forces: [
+            -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 
+            2.584963, 3, 3.584963, 4
+        ]
+        exponent_orientational_forces: [
+            -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 
+            6.584963, 7, 7.584963, 8
+        ]
+        restraint_type: 2 # CoM-Heavy_Atom restraints

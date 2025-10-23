@@ -28,6 +28,7 @@ Examples
    examples/basic_md_example
    examples/remd_example
    examples/user_defined_example
+   examples/gpu_example
 
 Software Documentation
 ======================

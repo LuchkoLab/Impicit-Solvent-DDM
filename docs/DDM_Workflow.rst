@@ -17,77 +17,77 @@ The following diagram shows the high-level flow of the DDM workflow:
 
 .. code-block:: text
 
-                    DDM WORKFLOW START
-                           │
-                           ▼
-    ┌─────────────────────────────────────┐
-    │        PHASE 1: SETUP               │
-    │   setup_workflow_components()       │
-    │   • Create simulation components    │
-    │   • Setup restraints & templates    │
-    └─────────────────────────────────────┘
-                           │
-                           ▼
-    ┌─────────────────────────────────────┐
-    │     PHASE 2: ENDSTATE SIMS          │
-    │   run_endstate_simulations()        │
-    │   • Complex MD simulation           │
-    │   • Receptor MD simulation          │
-    │   • Ligand MD simulation            │
-    └─────────────────────────────────────┘
-                           │
-                           ▼
-    ┌─────────────────────────────────────┐
-    │   PHASE 3: DECOMPOSITION            │
-    │   decompose_system_and_generate_    │
-    │   restraints()                      │
-    │   • Split complex → receptor+ligand │
-    │   • Generate Boresch restraints     │
-    └─────────────────────────────────────┘
-                           │
-                           ▼
-    ┌─────────────────────────────────────┐
-    │  PHASE 4: INTERMEDIATE SETUP        │
-    │   setup_intermediate_simulations()  │
-    │   • Setup complex intermediates     │
-    │   • Setup receptor intermediates    │
-    │   • Setup ligand intermediates      │
-    │   • Setup flat-bottom simulations   │
-    └─────────────────────────────────────┘
-                           │
-                           ▼
-    ┌─────────────────────────────────────┐
-    │  PHASE 5: RUN INTERMEDIATES         │
-    │   run_intermediate_simulations()    │
-    │   • Execute complex MD simulations  │
-    │   • Execute receptor MD simulations │
-    │   • Execute ligand MD simulations   │
-    │   • Execute flat-bottom simulations │
-    └─────────────────────────────────────┘
-                           │
-                           ▼
-    ┌─────────────────────────────────────┐
-    │   PHASE 6: ENERGY ANALYSIS          │
-    │   run_post_analysis_intermediate_   │
-    │   simulations()                     │
-    │   • Post-process complex energies   │
-    │   • Post-process receptor energies  │
-    │   • Post-process ligand energies    │
-    │   • Post-process flat-bottom energies│
-    └─────────────────────────────────────┘
-                           │
-                           ▼
-    ┌─────────────────────────────────────┐
-    │  PHASE 7: FREE ENERGY & CONSOLIDATE │
-    │   compute_free_energy_and_          │
-    │   consolidate()                     │
-    │   • Run MBAR analysis               │
-    │   • Run exponential averaging       │
-    │   • Consolidate results             │
-    └─────────────────────────────────────┘
-                           │
-                           ▼
-                    🎉 WORKFLOW COMPLETE
+                                 DDM WORKFLOW START
+                                          │
+                                          ▼
+                     ┌─────────────────────────────────────┐
+                     │        PHASE 1: SETUP               │
+                     │   setup_workflow_components()       │
+                     │   • Create simulation components    │
+                     │   • Setup restraints & templates    │
+                     └─────────────────────────────────────┘
+                                          │
+                                          ▼
+                     ┌─────────────────────────────────────┐
+                     │     PHASE 2: ENDSTATE SIMS          │
+                     │   run_endstate_simulations()        │
+                     │   • Complex MD simulation           │
+                     │   • Receptor MD simulation          │
+                     │   • Ligand MD simulation            │
+                     └─────────────────────────────────────┘
+                                          │
+                                          ▼
+                     ┌─────────────────────────────────────┐
+                     │   PHASE 3: DECOMPOSITION            │
+                     │   decompose_system_and_generate_    │
+                     │   restraints()                      │
+                     │   • Split complex → receptor+ligand │
+                     │   • Generate Boresch restraints     │
+                     └─────────────────────────────────────┘
+                                          │
+                                          ▼
+                     ┌─────────────────────────────────────┐
+                     │  PHASE 4: INTERMEDIATE SETUP        │
+                     │   setup_intermediate_simulations()  │
+                     │   • Setup complex intermediates     │
+                     │   • Setup receptor intermediates    │
+                     │   • Setup ligand intermediates      │
+                     │   • Setup flat-bottom simulations   │
+                     └─────────────────────────────────────┘
+                                          │
+                                          ▼
+                     ┌─────────────────────────────────────┐
+                     │  PHASE 5: RUN INTERMEDIATES         │
+                     │   run_intermediate_simulations()    │
+                     │   • Execute complex MD simulations  │
+                     │   • Execute receptor MD simulations │
+                     │   • Execute ligand MD simulations   │
+                     │   • Execute flat-bottom simulations │
+                     └─────────────────────────────────────┘
+                                          │
+                                          ▼
+                     ┌─────────────────────────────────────┐
+                     │   PHASE 6: ENERGY ANALYSIS          │
+                     │   run_post_analysis_intermediate_   │
+                     │   simulations()                     │
+                     │   • Post-process complex energies   │
+                     │   • Post-process receptor energies  │
+                     │   • Post-process ligand energies    │
+                     │   • Post-process flat-bottom energies│
+                     └─────────────────────────────────────┘
+                                          │
+                                          ▼
+                     ┌─────────────────────────────────────┐
+                     │  PHASE 7: FREE ENERGY & CONSOLIDATE │
+                     │   compute_free_energy_and_          │
+                     │   consolidate()                     │
+                     │   • Run MBAR analysis               │
+                     │   • Run exponential averaging       │
+                     │   • Consolidate results             │
+                     └─────────────────────────────────────┘
+                                          │
+                                          ▼
+                                 🎉 WORKFLOW COMPLETE
 
 Workflow Phases
 ---------------

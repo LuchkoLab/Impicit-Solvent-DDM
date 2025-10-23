@@ -5,7 +5,7 @@ Implementation Details
 
 
 Conformationally restrained Alchemical-Pathway
-==============================================
+----------------------------------------------
 To connect the bound and unbound end-states, we employ double decoupling method modified to utilize implicit solvent models as implement in Amber and AmberTools.
 Specifically, conformational restraints are applied to the solutes to restrict their motion.
 This limits the accessible conformational space that must be sampled and avoids the need for soft-core Lennard-Jones interactions.
@@ -40,8 +40,8 @@ The binding free energy is then:
 
 
 
-ISDMM.py Workflow 
-*****************
+ISDMM.py Workflow
+-----------------
 ISDDM.py is a Python program that automates preparing, running and post-processing all the MD simulations for calculating the free energies.
 A single configurational file is needed to run the entireISDDM.pyworkflow. 
 In the simplest use case, users provide a force field parameter file and initial coordinates of the ligand and receptor in the bound state, along with an the input file of parameters for ISDDM.py.
