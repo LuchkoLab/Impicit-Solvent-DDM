@@ -229,13 +229,32 @@ class IntermidateRunner(Job):
         if gpu_jobs:
             num_gpus = get_gpu_count()
             fileStore.logToMaster(f"Detected {num_gpus} GPUs")
+            fileStore.logToMaster(f"Total GPU jobs: {len(gpu_jobs)}")
 
-            # Simple round-robin GPU assignment
+            # Group jobs by GPU ID for sequential execution per GPU
+            gpu_batches = {}
             for i, sim in enumerate(gpu_jobs):
                 gpu_id = i % num_gpus
                 sim.env = os.environ.copy()
                 sim.env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-                self.addChild(sim)
+                
+                if gpu_id not in gpu_batches:
+                    gpu_batches[gpu_id] = []
+                gpu_batches[gpu_id].append(sim)
+
+            # Start one job per GPU, then chain the rest sequentially per GPU
+            for gpu_id, jobs in gpu_batches.items():
+                if jobs:
+                    fileStore.logToMaster(f"GPU {gpu_id}: {len(jobs)} jobs")
+                    
+                    # Start first job in this GPU batch
+                    current_job = jobs[0]
+                    self.addChild(current_job)
+                    
+                    # Chain remaining jobs for this GPU (sequential execution)
+                    for next_job in jobs[1:]:
+                        current_job.addFollowOn(next_job)
+                        current_job = next_job
 
         # Submit CPU-only jobs in parallel
         for sim in cpu_jobs:
