@@ -384,6 +384,7 @@ class FlatBottom(Job):
         temp_file = fileStore.getLocalTempFile()
         # protein-like case 
         if self._protein_like:
+            fileStore.logToMaster("Protein-like system: using receptor Cα atoms for flat-bottom restraints."); 
             with open(temp_file, "w") as fH:
                 fH.write(self.generate_flatbottom_restraint)
 
@@ -393,13 +394,15 @@ class FlatBottom(Job):
             )
 
         # non-protein case 
-        with open(temp_file, "w") as fH:
-            fH.write(self._flat_bottom_restraints_template)
+        else:
+            fileStore.logToMaster(" Non-protein case: select all heavy atoms for flat-bottom restraints."); 
+            with open(temp_file, "w") as fH:
+                fH.write(self._flat_bottom_restraints_template)
 
-        return (
-            fileStore.writeGlobalFile(temp_file),
-            self._flat_bottom_restraints_template,
-        )
+            return (
+                fileStore.writeGlobalFile(temp_file),
+                self._flat_bottom_restraints_template,
+            )
 
 class BoreschRestraints(Job):
     """
