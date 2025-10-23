@@ -58,8 +58,8 @@ def split_complex_system(
     receptor = pt.strip(traj, ligand_mask)
     ligand = pt.strip(traj, receptor_mask)
 
-    receptor_name = receptor_mask.strip(":")
-    ligand_name = ligand_mask.strip(":")
+    receptor_name = "receptor_system" #receptor_mask.strip(":")
+    ligand_name = "ligand_system" #ligand_mask.strip(":")
     # write files into temporary directory
     pt.write_traj(f"{temp_dir}/split_{receptor_name}.ncrst", receptor, overwrite=True)
     pt.write_traj(f"{temp_dir}/split_{ligand_name}.ncrst", ligand, overwrite=True)
