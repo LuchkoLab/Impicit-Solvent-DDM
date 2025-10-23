@@ -289,23 +289,55 @@ class FlatBottom(Job):
 
         return string_template
 
-
+    @property
+    def _protein_like(self) -> bool:
+        """Check if the system is protein-like.
+        
+        Returns:
+            bool: True if the system is protein-like, False otherwise.
+        """
+        ca_sel = self.topology.select(f"{self.receptor_mask} & @CA")
+        if ca_sel is not None and ca_sel.size > 0:
+            # Protein-like system: restrain only backbone Cα atoms
+            return True 
+        else:
+            # Non-protein (e.g., host–guest): restrain all heavy atoms
+            return False 
+    
     def _missing_parameters(self):
         """ "Automatically determine missing parameters"""
-
+                
         if not self._restrained_atoms_given:
             self._determine_restraint_atoms()
-
         if not self._restraints_parameters_given:
             self._determine_restraint_parameters()
 
     def _determine_restraint_atoms(self):
-        """Define receptor and ligand atoms by there respected AMBER masks"""
-        # only select CA atoms 
-        self.restrained_receptor_atoms = self.topology.select(f"{self.receptor_mask} & @CA")
-        # select only heavy atoms 
-        self.restrained_ligand_atoms = self.topology.select(f"{self.ligand_mask} & !@H*")
+        """Select receptor and ligand atoms for restraints.
 
+        - Ligand: always use heavy atoms (!@H*)
+        - Receptor:
+            * If receptor contains Cα atoms (@CA), use those (protein case)
+            * Otherwise, use all heavy atoms (host–guest or non-protein)
+        """
+        # Ligand: heavy atoms only
+        self.restrained_ligand_atoms = self.topology.select(
+            f"{self.ligand_mask} & !@H*"
+        )
+
+        # Try to select receptor Cα atoms (safe even if none exist)
+        ca_sel = self.topology.select(f"{self.receptor_mask} & @CA")
+
+        if ca_sel is not None and ca_sel.size > 0:
+            # Protein-like system: restrain only backbone Cα atoms
+            self.restrained_receptor_atoms = ca_sel
+        else:
+            # Non-protein (e.g., host–guest): restrain all heavy atoms
+            self.restrained_receptor_atoms = self.topology.select(
+                f"{self.receptor_mask} & !@H*"
+            )
+
+        
     def _determine_restraint_parameters(self):
         """Define distance, harmonic and linear restraint values."""
 
@@ -350,14 +382,24 @@ class FlatBottom(Job):
         fileStore.logToMaster(f"ligand atoms: {self.restrained_ligand_atoms}")
 
         temp_file = fileStore.getLocalTempFile()
+        # protein-like case 
+        if self._protein_like:
+            with open(temp_file, "w") as fH:
+                fH.write(self.generate_flatbottom_restraint)
+
+            return (
+                fileStore.writeGlobalFile(temp_file),
+                self.generate_flatbottom_restraint,
+            )
+
+        # non-protein case 
         with open(temp_file, "w") as fH:
-            fH.write(self.generate_flatbottom_restraint)
+            fH.write(self._flat_bottom_restraints_template)
 
         return (
             fileStore.writeGlobalFile(temp_file),
-            self.generate_flatbottom_restraint,
+            self._flat_bottom_restraints_template,
         )
-
 
 class BoreschRestraints(Job):
     """
