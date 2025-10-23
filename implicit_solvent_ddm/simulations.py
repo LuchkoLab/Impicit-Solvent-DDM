@@ -367,12 +367,15 @@ class Simulation(Calculation):
 
 
         if self.CUDA and self.system_type in ["complex", "receptor"]:
+            if self.mpi_command == None:
+                self.exec_list.pop(0)
             self.exec_list.append(self.executable)
             # self.exec_list.append("--cuda")
             # self.exec_list.append("--gpu")
             # self.exec_list.append("--gpu_id")
             # self.exec_list.append("0")
             # self.exec_list.append("--gpu_mem")
+
         
         elif self.num_cores == 1 or self.mpi_command == None:
             self.exec_list.pop(0)

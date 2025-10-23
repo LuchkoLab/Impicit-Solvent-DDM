@@ -134,7 +134,7 @@ class SystemSettings:
         Disk space required for job (e.g., '5G').
     """
 
-    mpi_command: str
+    mpi_command: str = field(default=None)
     working_directory: str = WORKDIR
     cache_directory_output: str = WORKDIR
     executable: str = "sander"
@@ -143,16 +143,14 @@ class SystemSettings:
     num_accelerators: int = field(default=0)
     memory: Optional[Union[int, str]] = field(default="5G")
     disk: Optional[Union[int, str]] = field(default="5G")
-
+    
+    
     def __post_init__(self):
         self.working_directory = os.path.abspath(self.working_directory)
         self.cache_directory_output = os.path.abspath(self.cache_directory_output)
         if self.CUDA and self.num_accelerators == 0:
-            try:
-                from numba import cuda
-                self.num_accelerators = len(cuda.gpus)
-            except ImportError:
-                raise RuntimeError("CUDA requested but 'cuda' module not available.")
+            # Set default to 1 GPU per job for better distribution
+            self.num_accelerators = 1
 
     @property
     def top_directory_path(self):
@@ -1069,7 +1067,7 @@ class Config:
         # Handle receptor
         if self.endstate_files.receptor_parameter_filename is None:
             receptor_traj = self.complex_pytraj_trajectory[self.amber_masks.receptor_mask]
-            receptor_basename = self.amber_masks.receptor_mask.strip(":")
+            receptor_basename = "receptor_system" #self.amber_masks.receptor_mask.strip(":")
             receptor_prefix = tempdir_path / receptor_basename
 
             pt.write_parm(str(receptor_prefix.with_suffix(".parm7")), receptor_traj.top)
@@ -1081,7 +1079,7 @@ class Config:
         # Handle ligand
         if self.endstate_files.ligand_parameter_filename is None:
             ligand_traj = self.complex_pytraj_trajectory[self.amber_masks.ligand_mask]
-            ligand_basename = self.amber_masks.ligand_mask.strip(":")
+            ligand_basename = "ligand_system" #self.amber_masks.ligand_mask.strip(":")
             ligand_prefix = tempdir_path / ligand_basename
 
             pt.write_parm(str(ligand_prefix.with_suffix(".parm7")), ligand_traj.top)
