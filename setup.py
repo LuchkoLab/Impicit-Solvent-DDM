@@ -30,7 +30,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     # version=versioneer.get_version(),
-    version="1.1.2",
+    version="1.1.3",
     # cmdclass=versioneer.get_cmdclass(),
     license="MIT",
     # Which Python importable modules should be included when your package is installed
