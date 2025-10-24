@@ -15,7 +15,8 @@ import parmed as pmd
 import pytraj as pt
 from toil.common import FileID, Toil
 from toil.job import Job
-
+import subprocess
+import tempfile
 from implicit_solvent_ddm.config import Config
 from implicit_solvent_ddm.restraint_helper import (
     compute_dihedral_angle,
@@ -203,6 +204,52 @@ class FlatBottom(Job):
         return self._r3 + self.harmonic_restraint
 
     @property
+    def generate_flatbottom_restraint(self):
+        """
+        Generate a flat-bottom restraint file using cpptraj.
+
+        Returns:
+            str: Contents of the generated restraint file.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            rst_path = os.path.join(tmpdir, "restraint.RST")
+            cpptraj_input = os.path.join(tmpdir, "cpptraj.in")
+
+            # Build cpptraj command script
+            cpptraj_script = f"""parm {self.readfiles['prmtop']}
+    rst '!:LIG & !@H* & @CA' ':LIG & !@H*' iresid 0 iat -1 -1 \\
+        r1 {self.flat_bottom_restraints["r1"]} \\
+        r2 {self.flat_bottom_restraints["r2"]} \\
+        r3 {self.flat_bottom_restraints["r3"]} \\
+        r4 {self.flat_bottom_restraints["r4"]} \\
+        rk2 {self.flat_bottom_restraints["rk2"]} \\
+        rk3 {self.flat_bottom_restraints["rk3"]} \\
+        out {rst_path}
+    """
+
+            # Write cpptraj input file
+            with open(cpptraj_input, "w") as fh:
+                fh.write(cpptraj_script)
+
+            # Run cpptraj
+            result = subprocess.run(
+                ["cpptraj", "-i", cpptraj_input],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False
+            )
+
+            # Handle cpptraj errors
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"cpptraj failed with code {result.returncode}:\n{result.stderr}"
+                )
+
+            # Read and return restraint contents
+            with open(rst_path) as fh:
+                return fh.read()
+    @property
     def _flat_bottom_restraints_template(self):
         """Parse in flat bottom restraint template.
 
@@ -223,40 +270,74 @@ class FlatBottom(Job):
         with open(restraint_path) as f:
             template = Template(f.read())
 
-            restraint_template = template.substitute(
+            restraint_template = template.substitute(   
                 host_atom_numbers=",".join(
-                    [str(atom_index + 1) for atom_index in self.restrained_receptor_atoms]  # type: ignore
+                    [str(atom_index + 1) for atom_index in self.restrained_receptor_atoms], 
                 ),
                 guest_atom_numbers=",".join(
-                    [str(atom_index + 1) for atom_index in self.restrained_ligand_atoms]  # type: ignore
+                    [str(atom_index + 1) for atom_index in self.restrained_ligand_atoms], 
                 ),
-                r1=self.flat_bottom_restraints["r1"],  # type: ignore
-                r2=self.flat_bottom_restraints["r2"],  # type: ignore
-                r3=self.flat_bottom_restraints["r3"],  # type: ignore
-                r4=self.flat_bottom_restraints["r4"],  # type: ignore
-                rk2=self.flat_bottom_restraints["rk2"],  # type: ignore
-                rk3=self.flat_bottom_restraints["rk3"],  # type: ignore
+                r1=self.flat_bottom_restraints["r1"],
+                r2=self.flat_bottom_restraints["r2"],
+                r3=self.flat_bottom_restraints["r3"],
+                r4=self.flat_bottom_restraints["r4"],
+                rk2=self.flat_bottom_restraints["rk2"],
+                rk3=self.flat_bottom_restraints["rk3"],
             )
 
             string_template += restraint_template
 
         return string_template
 
+    @property
+    def _protein_like(self) -> bool:
+        """Check if the system is protein-like.
+        
+        Returns:
+            bool: True if the system is protein-like, False otherwise.
+        """
+        ca_sel = self.topology.select(f"{self.receptor_mask} & @CA")
+        if ca_sel is not None and ca_sel.size > 0:
+            # Protein-like system: restrain only backbone Cα atoms
+            return True 
+        else:
+            # Non-protein (e.g., host–guest): restrain all heavy atoms
+            return False 
+    
     def _missing_parameters(self):
         """ "Automatically determine missing parameters"""
-
+                
         if not self._restrained_atoms_given:
             self._determine_restraint_atoms()
-
         if not self._restraints_parameters_given:
             self._determine_restraint_parameters()
 
     def _determine_restraint_atoms(self):
-        """Define receptor and ligand atoms by there respected AMBER masks"""
+        """Select receptor and ligand atoms for restraints.
 
-        self.restrained_receptor_atoms = self.topology.select(self.receptor_mask)
-        self.restrained_ligand_atoms = self.topology.select(self.ligand_mask)
+        - Ligand: always use heavy atoms (!@H*)
+        - Receptor:
+            * If receptor contains Cα atoms (@CA), use those (protein case)
+            * Otherwise, use all heavy atoms (host–guest or non-protein)
+        """
+        # Ligand: heavy atoms only
+        self.restrained_ligand_atoms = self.topology.select(
+            f"{self.ligand_mask} & !@H*"
+        )
 
+        # Try to select receptor Cα atoms (safe even if none exist)
+        ca_sel = self.topology.select(f"{self.receptor_mask} & @CA")
+
+        if ca_sel is not None and ca_sel.size > 0:
+            # Protein-like system: restrain only backbone Cα atoms
+            self.restrained_receptor_atoms = ca_sel
+        else:
+            # Non-protein (e.g., host–guest): restrain all heavy atoms
+            self.restrained_receptor_atoms = self.topology.select(
+                f"{self.receptor_mask} & !@H*"
+            )
+
+        
     def _determine_restraint_parameters(self):
         """Define distance, harmonic and linear restraint values."""
 
@@ -283,7 +364,7 @@ class FlatBottom(Job):
             self.complex_coordinate,
             userPath=os.path.join(tempDir, os.path.basename(self.complex_coordinate)),
         )
-
+        fileStore.logToMaster(f"prmtop: {self.readfiles['prmtop']}")
         # load pytraj object
         self.complex_traj = pt.iterload(
             self.readfiles["incrd"], self.readfiles["prmtop"]
@@ -301,14 +382,27 @@ class FlatBottom(Job):
         fileStore.logToMaster(f"ligand atoms: {self.restrained_ligand_atoms}")
 
         temp_file = fileStore.getLocalTempFile()
-        with open(temp_file, "w") as fH:
-            fH.write(self._flat_bottom_restraints_template)
+        # protein-like case 
+        if self._protein_like:
+            fileStore.logToMaster("Protein-like system: using receptor Cα atoms for flat-bottom restraints."); 
+            with open(temp_file, "w") as fH:
+                fH.write(self.generate_flatbottom_restraint)
 
-        return (
-            fileStore.writeGlobalFile(temp_file),
-            self._flat_bottom_restraints_template,
-        )
+            return (
+                fileStore.writeGlobalFile(temp_file),
+                self.generate_flatbottom_restraint,
+            )
 
+        # non-protein case 
+        else:
+            fileStore.logToMaster(" Non-protein case: select all heavy atoms for flat-bottom restraints."); 
+            with open(temp_file, "w") as fH:
+                fH.write(self._flat_bottom_restraints_template)
+
+            return (
+                fileStore.writeGlobalFile(temp_file),
+                self._flat_bottom_restraints_template,
+            )
 
 class BoreschRestraints(Job):
     """
@@ -1278,8 +1372,7 @@ def write_restraint_forces(
 
 
 def conformational_restraints_template(
-    solute_conformational_restraint, num_receptor_atoms=0
-):
+    solute_conformational_restraint, num_receptor_atoms=0, delta_flat = 0.5):
     restraint_path = os.path.abspath(
         os.path.join(
             os.path.dirname(os.path.realpath(__file__)),
@@ -1296,7 +1389,8 @@ def conformational_restraints_template(
                 + num_receptor_atoms,
                 solute_sec_atom=solute_conformational_restraint[index][1]
                 + num_receptor_atoms,
-                distance=solute_conformational_restraint[index][2],
+                distance_lower=solute_conformational_restraint[index][2] - delta_flat,
+                distance_upper=solute_conformational_restraint[index][2] + delta_flat,
                 frest="$frest",
             )
             string_template += restraint_template

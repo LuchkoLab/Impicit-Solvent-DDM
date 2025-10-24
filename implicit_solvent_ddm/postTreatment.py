@@ -377,7 +377,7 @@ def create_mdout_dataframe(
         )
         # data.to_parquet(f"{output_dir}/simulation_mdout.zip",  compression="gzip")
 
-    if os.path.exists(mdout):
-        os.remove(mdout)
+    # if os.path.exists(mdout):
+    #     os.remove(mdout)
 
     return data
