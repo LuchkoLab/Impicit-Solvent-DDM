@@ -251,6 +251,11 @@ class Calculation(Job):
         # to its assigned GPU; self.env predates that and would mask the pin,
         # sending every window to the default device (GPU 0).
         run_env = os.environ.copy()
+        if self.CUDA:
+            fileStore.logToMaster(
+                f"[GPU] {getattr(self, 'system_type', '?')} window pinned to "
+                f"CUDA_VISIBLE_DEVICES={run_env.get('CUDA_VISIBLE_DEVICES')!r}"
+            )
         # amber_output = sp.Popen(self.exec_list, stdout=sp.PIPE, stderr=sp.PIPE)
         amber_output = sp.run(self.exec_list, stdout=sp.PIPE, stderr=sp.PIPE, env=run_env)
 
