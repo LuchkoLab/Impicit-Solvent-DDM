@@ -136,6 +136,12 @@ class SystemSettings:
         per available GPU, giving one window per GPU. The total number of GPUs is
         auto-detected by Toil's batch system and is not set here. Defaults to 1
         when CUDA is True and this is left at 0; values > 1 are clamped to 1.
+    mbar_accelerators : int
+        Number of GPUs to request *per MBAR / free-energy analysis job*. Defaults
+        to 0 because pymbar runs on CPU; this keeps the post-processing/MBAR phase
+        GPU-free so it can run in a CPU-only allocation (allowing the GPUs to be
+        released back to the scheduler during the analysis tail). Set to 1 only
+        once MBAR is JAX/GPU-accelerated. Values > 1 are clamped to 1.
     memory : Optional[Union[int, str]]
         Memory required for job (e.g., '5G').
     disk : Optional[Union[int, str]]
@@ -149,6 +155,7 @@ class SystemSettings:
     output_directory_name: str = "mdgb"
     CUDA: bool = field(default=False)
     num_accelerators: int = field(default=0)
+    mbar_accelerators: int = field(default=0)
     memory: Optional[Union[int, str]] = field(default="5G")
     disk: Optional[Union[int, str]] = field(default="5G")
     
@@ -172,6 +179,16 @@ class SystemSettings:
                 self.num_accelerators,
             )
             self.num_accelerators = 1
+
+        if self.mbar_accelerators > 1:
+            # MBAR/free-energy estimation is a single analysis job and never needs
+            # more than one GPU; clamp so a stray value can't reserve several.
+            logger.warning(
+                "system_settings.mbar_accelerators=%d requests that many GPUs for "
+                "a single MBAR job; clamping to 1.",
+                self.mbar_accelerators,
+            )
+            self.mbar_accelerators = 1
 
     @property
     def top_directory_path(self):

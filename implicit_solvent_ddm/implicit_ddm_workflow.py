@@ -174,6 +174,30 @@ def ddm_workflow(
     return free_energy_difference_jobs
 
 
+def _allocated_gpu_count() -> int:
+    """Number of GPUs allocated to this job, from the most reliable signal available
+    in the *batch-script* environment.
+
+    On this cluster SLURM_STEP_GPUS / CUDA_VISIBLE_DEVICES are only set inside srun
+    steps, not in the batch script, but SLURM_GPUS_ON_NODE (a count) is -- and the
+    cgroup still exposes the allocated GPUs to the process. Fall back to nvidia-smi,
+    which inside the cgroup lists exactly the allocated devices.
+    """
+    on_node = os.environ.get("SLURM_GPUS_ON_NODE", "")
+    if on_node.strip().isdigit():
+        return int(on_node)
+    for var in ("CUDA_VISIBLE_DEVICES", "SLURM_STEP_GPUS", "SLURM_JOB_GPUS"):
+        ids = [p for p in os.environ.get(var, "").split(",") if p.strip() != ""]
+        if ids:
+            return len(ids)
+    try:
+        import subprocess
+        out = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=30)
+        return sum(1 for ln in out.stdout.splitlines() if ln.strip().startswith("GPU "))
+    except Exception:
+        return 0
+
+
 def _confine_single_machine_to_allocated_gpus(options):
     """Place one GPU MD window per Slurm-allocated GPU under Toil's single_machine batch system.
 
@@ -202,18 +226,38 @@ def _confine_single_machine_to_allocated_gpus(options):
         # scheduler pin GPUs per sub-job; this single-allocation fix-up is moot.
         return
 
-    # Physical GPU ordinals for this allocation. Under Slurm, SLURM_STEP/JOB_GPUS
-    # are physical ordinals; if only a preset CUDA_VISIBLE_DEVICES is present we
-    # treat its entries as physical ordinals too (correct for Slurm allocations).
-    allocation = (
-        os.environ.get("SLURM_STEP_GPUS")
-        or os.environ.get("SLURM_JOB_GPUS")
-        or os.environ.get("CUDA_VISIBLE_DEVICES")
-        or ""
+    # GPUs this process may use, in ITS OWN namespace. Under cgroup-constrained
+    # Slurm (this cluster) the allocated GPUs are exposed to the process as logical
+    # ids 0..N-1. If CUDA_VISIBLE_DEVICES is present (batch scripts that get it, or
+    # srun steps) use it directly; otherwise fall back to the GPU *count* and use
+    # logical ids 0..N-1 -- this is what makes it work when the batch script has no
+    # SLURM_*_GPUS/CVD set (those are only set per srun step on this cluster).
+    cvd_ids = [p for p in os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",")
+               if p.strip().isdigit()]
+    if cvd_ids:
+        allocated_gpus = cvd_ids
+        _src = "CUDA_VISIBLE_DEVICES"
+    else:
+        allocated_gpus = [str(i) for i in range(_allocated_gpu_count())]
+        _src = "count->logical"
+    # print() (not logger): this runs before Toil configures logging, so INFO would
+    # be swallowed. This always lands in the job's stdout (.out).
+    print(
+        "[GPU] allocation detect: "
+        f"SLURM_STEP_GPUS={os.environ.get('SLURM_STEP_GPUS')!r} "
+        f"SLURM_JOB_GPUS={os.environ.get('SLURM_JOB_GPUS')!r} "
+        f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')!r} "
+        f"SLURM_GPUS_ON_NODE={os.environ.get('SLURM_GPUS_ON_NODE')!r} "
+        f"-> allocated_gpus={allocated_gpus!r} (via {_src})",
+        flush=True,
     )
-    allocated_gpus = [part for part in allocation.split(",") if part.strip().isdigit()]
     if not allocated_gpus:
-        # No GPU allocation visible (CPU-only run); leave Toil's defaults alone.
+        print(
+            "[GPU] WARNING: no GPUs detected -> single_machine GPU pinning DISABLED; "
+            "pmemd.cuda will fail with 'no CUDA-capable device'. Check the job's "
+            "'#SBATCH --gres=gpu:N'.",
+            flush=True,
+        )
         return
 
     import toil.batchSystems.singleMachine as single_machine

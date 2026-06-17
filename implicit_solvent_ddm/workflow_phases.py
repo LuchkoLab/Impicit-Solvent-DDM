@@ -618,28 +618,28 @@ def compute_free_energy_and_consolidate(job, post_complex_analysis, post_recepto
             run_exponential_averaging,
             flat_bottom_analysis,  # flat bottom post-analysis results
             config.intermediate_args.temperature,
-            accelerators=config.system_settings.num_accelerators,  # GPU slot for MBAR (JAX target; pymbar still runs CPU until jax is enabled)
+            accelerators=config.system_settings.mbar_accelerators,  # 0 = CPU (pymbar); keeps the analysis tail GPU-free so GPUs release during post-processing. Set system_settings.mbar_accelerators=1 when MBAR is JAX/GPU-accelerated.
         )
         complex_mbar_job = job.addChildJobFn(
             run_compute_mbar,
             post_complex_analysis,  # complex post-analysis results
             config,
             "complex",
-            accelerators=config.system_settings.num_accelerators,  # GPU slot for MBAR (JAX target; pymbar still runs CPU until jax is enabled)
+            accelerators=config.system_settings.mbar_accelerators,  # 0 = CPU (pymbar); keeps the analysis tail GPU-free so GPUs release during post-processing. Set system_settings.mbar_accelerators=1 when MBAR is JAX/GPU-accelerated.
         )
         ligand_mbar_job = job.addChildJobFn(
             run_compute_mbar,
             post_ligand_analysis,  # ligand post-analysis results
             config,
             "ligand",
-            accelerators=config.system_settings.num_accelerators,  # GPU slot for MBAR (JAX target; pymbar still runs CPU until jax is enabled)
+            accelerators=config.system_settings.mbar_accelerators,  # 0 = CPU (pymbar); keeps the analysis tail GPU-free so GPUs release during post-processing. Set system_settings.mbar_accelerators=1 when MBAR is JAX/GPU-accelerated.
         )
         receptor_mbar_job = job.addChildJobFn(
             run_compute_mbar,
             post_receptor_analysis,  # receptor post-analysis results
             config,
             "receptor",
-            accelerators=config.system_settings.num_accelerators,  # GPU slot for MBAR (JAX target; pymbar still runs CPU until jax is enabled)
+            accelerators=config.system_settings.mbar_accelerators,  # 0 = CPU (pymbar); keeps the analysis tail GPU-free so GPUs release during post-processing. Set system_settings.mbar_accelerators=1 when MBAR is JAX/GPU-accelerated.
         )
         
         # Consolidate output data if enabled
