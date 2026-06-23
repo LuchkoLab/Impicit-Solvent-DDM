@@ -418,7 +418,11 @@ class IntermidateRunner(Job):
             executable=self.config.system_settings.executable,
             mpi_command=self.config.system_settings.mpi_command,
             num_cores=self.config.num_cores_per_system.complex_ncores,
-            CUDA=False,
+            # ALS pilot (and the revived adaptive path) must honour the CUDA flag exactly like the
+            # static path (setup_simulations.setup_apply_restraint_windows): complex runs on GPU for
+            # protein-ligand. The previous hardcoded CUDA=False only happened to match host-guest
+            # (cb7), where config.system_settings.CUDA is already falsy.
+            CUDA=self.config.system_settings.CUDA,
             prmtop=parm_file,
             incrd=self.config.inputs["endstate_complex_lastframe"],
             input_file=mdin,
@@ -427,6 +431,11 @@ class IntermidateRunner(Job):
             system_type="complex",
             directory_args=dirs_args[0],
             dirstruct="dirstruct_halo",
+            accelerators=(
+                self.config.system_settings.num_accelerators
+                if self.config.system_settings.CUDA
+                else None
+            ),
         )
 
         self.simulations.append(new_job)
@@ -513,6 +522,13 @@ class IntermidateRunner(Job):
                 "topdir": self.config.system_settings.top_directory_path,
             },
             dirstruct="dirstruct_apo",
+            # Receptor runs on GPU when CUDA is set (mirrors setup_apply_restraint_windows: a
+            # non-ligand system requests an accelerator so Toil pins it to a distinct device).
+            accelerators=(
+                self.config.system_settings.num_accelerators
+                if self.config.system_settings.CUDA
+                else None
+            ),
         )
 
         self.simulations.append(new_job)
