@@ -3,6 +3,7 @@ A collection of functions that performs simple iterative proceess to improve spa
 """
 
 import copy
+import math
 from typing import Optional
 
 import numpy as np
@@ -19,6 +20,175 @@ from implicit_solvent_ddm.mdin import generate_extdiel_mdin
 AVAGADRO = 6.0221367e23
 BOLTZMAN = 1.380658e-23
 JOULES_PER_KCAL = 4184
+
+
+# ---------------------------------------------------------------------------
+# Pure R-ADD insertion helpers
+# ---------------------------------------------------------------------------
+# Deterministic "insert exactly one window per iteration" (R-ADD) scheduling decision used by the
+# ALS pilot. These are PURE functions (no Toil job, no MD, no pymbar) so the scheduling logic can be
+# unit-tested in isolation (tests/test_adaptive_insertion.py). They are CALLED synchronously by the
+# Toil job functions in this module (adaptive_lambda_windows / improve_restraints_overlap), which own
+# the orchestration (MBAR job -> MD/post sub-runner jobs -> recurse via addFollowOnJobFn). The math
+# belongs at the tail of the MBAR job where the overlap matrix is already in memory; making it its
+# own Toil job would only serialize that matrix across a promise to do arithmetic.
+#
+# Conventions: a leg's schedule is an ordered list of conformational-restraint *exponents* (`block`)
+# with `superdiagonal[k]` the overlap of the adjacent pair (block[k], block[k+1]); orientational
+# exponents are paired as ``orient = con + OFFSET``. New windows are drawn from a fixed candidate
+# ``pool`` and may only land in the open interval ``(lower_bound, upper_bound)`` =
+# ``(endstate_exp, pinned_max_exp)`` so the pinned-max Boresch anchor is never moved or exceeded.
+
+ROUND_DP = 3  # restraint exponents are compared/retained at this precision (matches workflow_phases)
+
+
+def derive_offset(conformational_exps, orientational_exps):
+    """Return the constant ``orient - con`` exponent offset, asserting it is constant.
+
+    The orientational exponent tracks the conformational one (``orient = con + OFFSET``), so the seed
+    pairing must have a single well-defined offset. Raises ``ValueError`` otherwise rather than
+    silently scheduling an inconsistent ``(con, orient)`` pair.
+    """
+    if len(conformational_exps) != len(orientational_exps):
+        raise ValueError(
+            f"con/orient length mismatch: {len(conformational_exps)} vs "
+            f"{len(orientational_exps)}"
+        )
+    offsets = {
+        round(o - c, ROUND_DP)
+        for c, o in zip(conformational_exps, orientational_exps)
+    }
+    if len(offsets) != 1:
+        raise ValueError(f"non-constant orient-con offset: {sorted(offsets)}")
+    return offsets.pop()
+
+
+def min_direction_superdiagonal(overlap_matrix):
+    """Return ``[min(O[i][i+1], O[i+1][i]) for i in range(N-1)]``.
+
+    Using the *minimum* of the two directions (not the symmetric average) means a one-sided weak
+    transition (e.g. fwd=0.01, rev=0.07, whose average 0.04 would pass) still registers as weak.
+    ``overlap_matrix`` may be a numpy array or a list of lists — only ``[i][j]`` indexing is used.
+    No rounding is applied, so the threshold comparison downstream is not quantized.
+    """
+    n = len(overlap_matrix)
+    return [
+        min(float(overlap_matrix[i][i + 1]), float(overlap_matrix[i + 1][i]))
+        for i in range(n - 1)
+    ]
+
+
+def find_bad_sections(superdiagonal, threshold):
+    """Return contiguous runs (each a list of indices) where ``superdiagonal[k] < threshold``."""
+    sections = []
+    current = []
+    for k, value in enumerate(superdiagonal):
+        if value < threshold:
+            current.append(k)
+        elif current:
+            sections.append(current)
+            current = []
+    if current:
+        sections.append(current)
+    return sections
+
+
+def select_section(sections, superdiagonal):
+    """Pick the winning bad section by a deterministic total order:
+
+    1. longest section (most consecutive weak transitions),
+    2. then the section whose *minimum* superdiagonal value is smallest (the paper's tie-break),
+    3. then the lowest start index (final deterministic tie-break).
+    """
+    return min(
+        sections,
+        key=lambda section: (
+            -len(section),
+            min(superdiagonal[k] for k in section),
+            section[0],
+        ),
+    )
+
+
+def worst_gap_index(section, superdiagonal):
+    """Return the index ``k`` within ``section`` with the smallest overlap (ties -> lowest ``k``)."""
+    return min(section, key=lambda k: (superdiagonal[k], k))
+
+
+def snap_to_pool(lo_exp, hi_exp, ideal_exp, pool, selected):
+    """Return the nearest unused pool candidate strictly inside ``(lo_exp, hi_exp)``.
+
+    ``selected`` is the set of already-selected exponents (3-dp rounded). Distance is measured to
+    ``ideal_exp`` (the log2-space midpoint); ties break toward the lower exponent. Returns ``None``
+    when no free candidate lies strictly inside the gap.
+    """
+    free_inside = [
+        p for p in pool
+        if lo_exp < p < hi_exp and round(p, ROUND_DP) not in selected
+    ]
+    if not free_inside:
+        return None
+    return min(free_inside, key=lambda p: (abs(p - ideal_exp), p))
+
+
+def insert_one(block, superdiagonal, pool, threshold, lower_bound, upper_bound):
+    """Perform a single R-ADD step for one leg.
+
+    Parameters
+    ----------
+    block : list of float
+        Conformational exponents of the currently-selected restraint windows, ordered so that
+        ``superdiagonal[k]`` is the overlap of the pair ``(block[k], block[k+1])``.
+    superdiagonal : list of float
+        Min-direction adjacent overlaps; must satisfy ``len == len(block) - 1``.
+    pool : list of float
+        Sorted candidate conformational exponents (finer than the seed).
+    threshold : float
+        Insert where the superdiagonal overlap is below this (e.g. 0.04).
+    lower_bound, upper_bound : float
+        Exclusive interval ``(endstate exponent, pinned-max exponent)``. A new window must satisfy
+        ``lower_bound < new < upper_bound`` so the pinned-max Boresch anchor is never touched.
+
+    Returns
+    -------
+    (new_con, converged, reason) : (float | None, bool, str)
+        ``new_con`` is the single exponent to insert this iteration, or ``None`` when no insertion is
+        made. ``converged`` is True when the loop should stop. ``reason`` is one of ``"converged"``
+        (all adjacent overlaps adequate) or ``"pool-exhausted"`` (weak gaps remain but no free
+        candidate can fill them — emit the best schedule with a warning). The pool-exhausted exit is
+        mandatory: without it a coarse pool that cannot reach ``threshold`` would recurse forever
+        (``good_enough`` never flips), growing the Toil graph unbounded.
+    """
+    if len(superdiagonal) != len(block) - 1:
+        raise ValueError(
+            f"superdiagonal length {len(superdiagonal)} != len(block)-1 {len(block) - 1}"
+        )
+    selected = {round(c, ROUND_DP) for c in block}
+    sd = list(superdiagonal)  # local copy; unfillable pairs get masked to +inf
+    masked_any = False
+    while True:
+        sections = find_bad_sections(sd, threshold)
+        if not sections:
+            # No weak pair remains. If we only got here by masking unfillable pairs, the pool was too
+            # coarse to satisfy the threshold -> report exhaustion rather than clean convergence.
+            return (None, True, "pool-exhausted" if masked_any else "converged")
+
+        section = select_section(sections, sd)
+        k = worst_gap_index(section, sd)
+        lo_exp, hi_exp = sorted((block[k], block[k + 1]))
+        ideal_exp = (lo_exp + hi_exp) / 2.0
+        new_con = snap_to_pool(lo_exp, hi_exp, ideal_exp, pool, selected)
+
+        if (
+            new_con is None                                  # no free pool candidate in this gap
+            or not (lower_bound < new_con < upper_bound)     # anchor protection (never reach max/endstate)
+            or round(new_con, ROUND_DP) in selected          # no-progress guard (defensive)
+        ):
+            sd[k] = math.inf  # this weak pair is unfillable; reconsider the next-worst pair
+            masked_any = True
+            continue
+
+        return (new_con, False, "")
 
 
 def compute_mbar(

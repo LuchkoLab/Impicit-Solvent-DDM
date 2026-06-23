@@ -53,6 +53,7 @@ class Workflow:
     run_post_analysis: bool = True
     plot_overlap_matrix: bool = False 
     post_analysis_only: bool = False
+    adaptive_lambda: bool = False  # ALS: run the adaptive restraint-window pilot before production (default off = static schedule)
     vina_dock: bool = False
     restart: bool = False
     debug: bool = False
@@ -701,7 +702,14 @@ class IntermediateStateArgs:
 
     charges_lambda_window: List[float] = field(default_factory=list)
     gb_extdiel_windows: List[float] = field(default_factory=list)
-    min_degree_overlap: float = 0.03
+    min_degree_overlap: float = 0.04  # ALS: insert a window where superdiagonal overlap is below this
+
+    # --- Adaptive Lambda Scheduler (ALS) pilot knobs (only used when workflow.adaptive_lambda) ---
+    pilot_nstlim: Optional[int] = None          # short-pilot MD step count; None -> use the user mdin length
+    max_adaptive_iterations: int = 12           # hard cap on R-ADD insertions per system (termination guard)
+    candidate_conformational_pool: List[float] = field(default_factory=list)  # fixed candidate exponent pool; empty -> derive from seed + candidate_pool_step
+    candidate_pool_step: Optional[float] = None  # pool granularity in exponent space; None -> default fill between endstate and pinned max
+    redistribution_mode: str = "add"            # "add" = R-ADD (insert +1, never move); "move" reserved for uniform pools
 
     guest_restraint_template: Optional[str] = None
     receptor_restraint_template: Optional[str] = None
@@ -716,6 +724,9 @@ class IntermediateStateArgs:
     orientational_restraint_forces: np.ndarray = field(init=False)
     max_conformational_restraint: float = field(init=False)
     max_orientational_restraint: float = field(init=False)
+    # Canonical exponent schedule — single source of truth for CycleSteps + ALS insertion (R1 fix).
+    exponent_conformational_forces_list: List[float] = field(init=False, default_factory=list)
+    exponent_orientational_forces_list: List[float] = field(init=False, default_factory=list)
 
     def __post_init__(self):
         # Ensure lambda windows include 0 and 1
@@ -735,6 +746,15 @@ class IntermediateStateArgs:
 
         self.max_conformational_restraint = max(self.conformational_restraints_forces)
         self.max_orientational_restraint = max(self.orientational_restraint_forces)
+
+        # Canonical exponent schedule (single source of truth for CycleSteps + ALS insertion; R1).
+        # Computed identically to workflow_phases.py:380-384 so the static path stays byte-identical.
+        self.exponent_conformational_forces_list = [
+            round(float(np.log2(force)), 3) for force in self.conformational_restraints_forces
+        ]
+        self.exponent_orientational_forces_list = [
+            round(float(np.log2(force)), 3) for force in self.orientational_restraint_forces
+        ]
 
         # Ensure mdin path is absolute
         self.mdin_intermediate_file = str(Path(self.mdin_intermediate_file).resolve())

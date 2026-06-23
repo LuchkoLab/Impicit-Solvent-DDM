@@ -57,12 +57,27 @@ def get_mdins(job, user_mdin_ID: FileID):
     return (default_mdin, no_solvent_mdin, post_mdin, post_nosolv)
 
 
+def get_pilot_mdin(job, user_mdin_ID: FileID, pilot_nstlim: int) -> FileID:
+    """Write a short-pilot intermediate mdin for the ALS pilot.
+
+    Identical to the production ``default_mdin`` (``make_mdin_file(..., "_mdin")``) but with the MD
+    length overridden to ``pilot_nstlim``. Used ONLY when ``workflow.adaptive_lambda`` is set so the
+    inserted pilot windows run cheaply instead of at production length. Stored at
+    ``config.inputs["pilot_mdin"]``; reuses the user mdin (single source of truth, no drift).
+    """
+    mdin_global = job.fileStore.readGlobalFile(user_mdin_ID)
+    return job.fileStore.writeGlobalFile(
+        make_mdin_file(mdin_global, "pilot_mdin", nstlim=pilot_nstlim)
+    )
+
+
 def make_mdin_file(
     user_mdin_file,
     mdin_name,
     gb_extdiel=78.5,
     turn_off_solvent=False,
     post_process=False,
+    nstlim=None,
 ):
     """Rewrite users AMBER mdin file for specific thermodynamic states
 
@@ -76,6 +91,9 @@ def make_mdin_file(
         Set igb=6 if turn_off_solvent=True
     post_process: bool
         Set imin=5 and ntx=5 if post_process=True
+    nstlim: int, optional
+        If provided, override the MD step count (``nstlim``) in the mdin. No-op when ``None`` so the
+        production mdins stay byte-identical; set only for the short ALS pilot.
     Returns
     -------
     mdin: str
@@ -116,6 +134,10 @@ def make_mdin_file(
             line = re.sub(r"ntx\s*=\s*\d+", ntx, line)
         if not post_process:
             line = re.sub(r"extdiel\s*=\s*\$extdiel", extdiel, line)
+        # ALS short-pilot: override MD length. No-op when nstlim is None, so the four production
+        # intermediate mdins remain byte-identical (flag-off regression).
+        if nstlim is not None:
+            line = re.sub(r"nstlim\s*=\s*\d+", f"nstlim = {nstlim}", line)
         new_mdin += line
 
     with open(mdin_name, "w") as output:
