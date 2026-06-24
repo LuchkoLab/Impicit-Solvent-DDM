@@ -39,8 +39,11 @@ PILOT_NSTLIM = int(os.environ.get("PILOT_NSTLIM", "1000"))   # 1000 steps @ dt=2
 SCRATCH = os.environ.get("SCRATCH", os.path.abspath("./cb7_pilot_run"))
 os.makedirs(SCRATCH, exist_ok=True)
 
+LOGFILE = os.environ.get("PILOT_LOGFILE", os.path.join(SCRATCH, "cb7_pilot.log"))
+
 options = Job.Runner.getDefaultOptions(os.path.join(SCRATCH, "jobstore"))
-options.logLevel = os.environ.get("TOIL_LOG", "INFO")      # INFO so the [ALS][pilot] logs show
+options.logLevel = os.environ.get("TOIL_LOG", "INFO")      # INFO so the [ALS] logs show
+options.logFile = LOGFILE                                   # write the full Toil log (incl. [ALS] lines) to a file
 options.clean = "always"
 options.workDir = SCRATCH
 
@@ -52,6 +55,8 @@ config = Config.from_config(cfg_dict)
 # --- enable the ALS pilot (Phase 4.5) ---
 config.workflow.adaptive_lambda = True
 config.intermediate_args.pilot_nstlim = PILOT_NSTLIM
+# Export MBAR overlap figures (PDFs) for all 3 legs in production .cache (raw .h5 always written).
+config.workflow.plot_overlap_matrix = True
 
 # Route every output onto the local scratch fs (so this also works on a Mac sshfs mount).
 config.system_settings.working_directory = SCRATCH
@@ -62,6 +67,7 @@ os.makedirs(config.system_settings.top_directory_path, exist_ok=True)
 
 print(
     f"[driver] scratch={SCRATCH}  adaptive_lambda=True  pilot_nstlim={PILOT_NSTLIM}\n"
+    f"[driver] logfile: {LOGFILE}\n"
     f"[driver] production tree: {config.system_settings.top_directory_path}\n"
     f"[driver] pilot tree (expected): {config.system_settings.top_directory_path}_pilot\n"
     f"[driver] starting Toil workflow ...",
@@ -78,5 +84,11 @@ with Toil(options) as toil:
 print("[driver] WORKFLOW DONE", flush=True)
 prod = config.system_settings.top_directory_path
 pilot = prod + "_pilot"
+cache = os.path.join(SCRATCH, ".cache", "cb7-mol01")
 print(f"[driver] production dir exists: {os.path.isdir(prod)} ({prod})", flush=True)
 print(f"[driver] pilot dir exists:      {os.path.isdir(pilot)} ({pilot})", flush=True)
+print(f"[driver] full Toil log written to: {LOGFILE}", flush=True)
+if os.path.isdir(cache):
+    overlaps = sorted(f for f in os.listdir(cache) if "_O_MBAR." in f)
+    print(f"[driver] exported overlap matrices in {cache}:\n  " + "\n  ".join(overlaps), flush=True)
+print("[driver] grep the schedule with:  grep '\\[ALS\\]' " + LOGFILE, flush=True)
