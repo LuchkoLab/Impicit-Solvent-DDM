@@ -571,6 +571,27 @@ def adaptive_lambda_windows(
             step=updated_config.intermediate_args.candidate_pool_step,
         )
 
+        # Observability (Step 5a): log the restraint-band overlap that drives the R-ADD decision, so a
+        # convergence/insertion can be read directly from the run log instead of inferred. Logs each
+        # adjacent restraint pair's min-direction overlap and flags those below the threshold. A
+        # degenerate band (thin pilot data -> ~1.0 or NaN everywhere) is visible here.
+        threshold = updated_config.intermediate_args.min_degree_overlap
+        block = build_selected_block(con_list, system_type)
+        band_sd = restraint_band_superdiagonal(
+            overlap_matrix, system_type, band_start, band_end
+        )
+        job.log(
+            f"[ALS][{system_type}] restraint band ({len(block)} windows, {len(band_sd)} adjacent "
+            f"pairs), min_degree_overlap threshold={threshold}; conformational exps (band order)="
+            f"{block}"
+        )
+        for k in range(len(band_sd)):
+            flag = "WEAK -> insert" if band_sd[k] < threshold else "ok"
+            job.log(
+                f"[ALS][{system_type}]   pair (con {block[k]} <-> {block[k + 1]}): "
+                f"overlap={band_sd[k]:.4f}  [{flag}]"
+            )
+
         new_con, new_orient, converged, reason = plan_restraint_insertion(
             overlap_matrix=overlap_matrix,
             conformational_exps=con_list,
