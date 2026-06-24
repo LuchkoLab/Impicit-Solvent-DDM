@@ -57,17 +57,45 @@ def get_mdins(job, user_mdin_ID: FileID):
     return (default_mdin, no_solvent_mdin, post_mdin, post_nosolv)
 
 
-def get_pilot_mdin(job, user_mdin_ID: FileID, pilot_nstlim: int) -> FileID:
-    """Write a short-pilot intermediate mdin for the ALS pilot.
+def pilot_md_steps(mdin_text, pilot_ps, pilot_frames, pilot_nstlim=None, dt_default=0.001):
+    """Return ``(nstlim, ntwx)`` for the ALS pilot from the user mdin's timestep (pure, testable).
+
+    The pilot is **always 50 ps** (the paper's value, ``pilot_ps``) regardless of the user's timestep:
+    ``nstlim = round(pilot_ps / dt)`` where ``dt`` is read from the user mdin (e.g. dt=0.002 ps ->
+    25000 steps for 50 ps). ``pilot_nstlim``, if given, overrides this (for tiny test systems where
+    50 ps is absurd). ``ntwx`` is chosen so ~``pilot_frames`` trajectory frames are written over the
+    window, making the MBAR sample count independent of ``dt`` and of the user's production ``ntwx``
+    (which is tuned for a much longer run and would otherwise leave a 50 ps pilot far too thin).
+
+    ``dt_default`` (AMBER's own default, 0.001 ps) is used only if no ``dt`` is found in the mdin.
+    """
+    match = re.search(r"\bdt\s*=\s*([0-9.eE+-]+)", mdin_text)
+    dt = float(match.group(1)) if match else dt_default
+    nstlim = int(pilot_nstlim) if pilot_nstlim is not None else max(1, round(pilot_ps / dt))
+    ntwx = max(1, round(nstlim / max(1, int(pilot_frames))))
+    return nstlim, ntwx
+
+
+def get_pilot_mdin(
+    job,
+    user_mdin_ID: FileID,
+    pilot_ps: float = 50.0,
+    pilot_frames: int = 100,
+    pilot_nstlim: int = None,
+) -> FileID:
+    """Write the short-pilot intermediate mdin for the ALS pilot (always 50 ps by default).
 
     Identical to the production ``default_mdin`` (``make_mdin_file(..., "_mdin")``) but with the MD
-    length overridden to ``pilot_nstlim``. Used ONLY when ``workflow.adaptive_lambda`` is set so the
-    inserted pilot windows run cheaply instead of at production length. Stored at
-    ``config.inputs["pilot_mdin"]``; reuses the user mdin (single source of truth, no drift).
+    length set to ``pilot_ps`` (50 ps, converted to steps via the user mdin's ``dt``) and ``ntwx`` set
+    to write ~``pilot_frames`` frames. Used ONLY when ``workflow.adaptive_lambda`` is set so the pilot
+    windows run cheaply instead of at production length. Stored at ``config.inputs["pilot_mdin"]``;
+    reuses the user mdin (single source of truth, no drift).
     """
     mdin_global = job.fileStore.readGlobalFile(user_mdin_ID)
+    with open(mdin_global) as fh:
+        nstlim, ntwx = pilot_md_steps(fh.read(), pilot_ps, pilot_frames, pilot_nstlim)
     return job.fileStore.writeGlobalFile(
-        make_mdin_file(mdin_global, "pilot_mdin", nstlim=pilot_nstlim)
+        make_mdin_file(mdin_global, "pilot_mdin", nstlim=nstlim, ntwx=ntwx)
     )
 
 
@@ -78,6 +106,7 @@ def make_mdin_file(
     turn_off_solvent=False,
     post_process=False,
     nstlim=None,
+    ntwx=None,
 ):
     """Rewrite users AMBER mdin file for specific thermodynamic states
 
@@ -134,10 +163,13 @@ def make_mdin_file(
             line = re.sub(r"ntx\s*=\s*\d+", ntx, line)
         if not post_process:
             line = re.sub(r"extdiel\s*=\s*\$extdiel", extdiel, line)
-        # ALS short-pilot: override MD length. No-op when nstlim is None, so the four production
-        # intermediate mdins remain byte-identical (flag-off regression).
+        # ALS short-pilot: override MD length (nstlim) and trajectory write interval (ntwx). Both are
+        # no-ops when None, so the four production intermediate mdins remain byte-identical (flag-off
+        # regression). ntwx is set so the 50 ps pilot writes ~pilot_frames frames for MBAR.
         if nstlim is not None:
             line = re.sub(r"nstlim\s*=\s*\d+", f"nstlim = {nstlim}", line)
+        if ntwx is not None:
+            line = re.sub(r"ntwx\s*=\s*\d+", f"ntwx = {ntwx}", line)
         new_mdin += line
 
     with open(mdin_name, "w") as output:

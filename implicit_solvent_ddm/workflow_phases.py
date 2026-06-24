@@ -86,13 +86,16 @@ def setup_workflow_components(job: JobFunctionWrappingJob, config: Config):
     config.inputs["flat_bottom_restraint"] = flat_bottom_template.rv(0)
 
     # ALS pilot: emit a short-MD intermediate mdin used ONLY by the adaptive pilot (Phase 4.5). Behind
-    # the adaptive_lambda flag so the static path is byte-identical (no extra job, no inputs key). When
-    # pilot_nstlim is None the pilot would fall back to the production mdin (loudly, via the engine's
-    # config.inputs.get("pilot_mdin")), so we only emit when a length is configured.
-    if config.workflow.adaptive_lambda and config.intermediate_args.pilot_nstlim is not None:
+    # the adaptive_lambda flag so the static path is byte-identical (no extra job, no inputs key).
+    # Always 50 ps by default (pilot_ps), with the step count derived from the user mdin's timestep and
+    # ntwx set for ~pilot_frames frames (get_pilot_mdin). pilot_nstlim is an explicit step override for
+    # tiny test systems where 50 ps is absurd.
+    if config.workflow.adaptive_lambda:
         pilot_mdin = mdins.addChildJobFn(
             get_pilot_mdin,
             config.intermediate_args.mdin_intermediate_file,
+            config.intermediate_args.pilot_ps,
+            config.intermediate_args.pilot_frames,
             config.intermediate_args.pilot_nstlim,
         )
         config.inputs["pilot_mdin"] = pilot_mdin.rv()
