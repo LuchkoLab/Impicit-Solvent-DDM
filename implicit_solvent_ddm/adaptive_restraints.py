@@ -215,11 +215,14 @@ def insert_one(block, superdiagonal, pool, threshold, lower_bound, upper_bound):
 #                    -> restraint band is [0:apo_end_restraint_matrix]; the band's FIRST adjacent
 #                    pair is (endstate -> min_restraint).
 #
-# PILOT PREREQUISITE (item 9 / Step 6, deferred): the pilot runs restraints-only, so its post_output
-# must contain exactly the states CycleSteps references — i.e. the pilot config is charge/GB-collapsed
-# (charges_lambda_window=[1.0], gb_extdiel_windows=[]). Otherwise compute_mbar's _ordered() invariant
-# fires LOUDLY (charge/GB states absent from the restraints-only data). The band-slice math itself is
-# correct for either config; the collapse is what keeps the data and the schedule consistent.
+# PILOT MODEL (Step 5a, FULL-SHORT-PILOT — supersedes the earlier charge/GB-collapse idea): the pilot
+# runs the FULL intermediate cycle but at SHORT MD length (pilot_nstlim), NOT a restraints-only collapse.
+# Rationale: compute_mbar's _ordered() validates the *full* complex_order (anchors + charges + restraints
+# + endstate), and halo_restraint_matrix is charge-count-independent (it always lands on the last charge
+# window = the max-restraint anchor), so the band-slice is already correct for full charges. Running the
+# whole cycle short satisfies _ordered() with ZERO config surgery — every column is produced. The old
+# "collapse charges to [1.0]" approach is also impossible via Config (config.py force-injects {0.0,1.0}).
+# See workflow_phases.adaptive_restraint_pilot (Phase 4.5) and merry-floating-kahn plan.
 #
 # v1 scope: the pinned max and the weakest seed window are FIXED boundaries; insertions land strictly
 # between them, so the single endstate-adjacent band pair is dropped (the weakest restraint force is
