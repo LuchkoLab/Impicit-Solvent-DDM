@@ -246,24 +246,34 @@ def build_selected_block(conformational_exps, system_type):
     return ordered
 
 
-def restraint_band_superdiagonal(overlap_matrix, system_type, band_start, band_end):
+def restraint_band_superdiagonal(
+    overlap_matrix, system_type, band_start, band_end, banded=False
+):
     """Min-direction adjacent overlaps for the restraint-window pairs ONLY.
 
     Slices the full min-direction superdiagonal (``min_direction_superdiagonal``) to the leg's
-    restraint band and drops the single endstate-adjacent pair so the result aligns 1:1 with
-    ``build_selected_block`` (``len == len(block) - 1``):
+    restraint band so the result aligns 1:1 with ``build_selected_block`` (``len == len(block) - 1``).
 
+    ``banded=False`` (full-cycle overlap): the band still contains the single endstate-adjacent pair,
+    which is dropped:
     * ``complex``           band ``[halo_restraint_matrix:]`` ends with ``(min_restraint -> endstate)``
                             -> drop the LAST element.
     * ``ligand``/``receptor`` band ``[0:apo_end_restraint_matrix]`` starts with
                             ``(endstate -> min_restraint)`` -> drop the FIRST element.
 
-    ``band_start``/``band_end`` come from ``CycleSteps`` (complex: ``halo_restraint_matrix``, ``None``;
-    ligand/receptor: ``0``, ``apo_end_restraint_matrix``).
+    ``banded=True`` (overlap already computed over ONLY the restraint band — the ALS pilot path, where
+    ``compute_mbar(restraint_band=True)`` excludes the endstate, LJ, and lower charges): there is no
+    endstate-adjacent pair, so the band IS exactly the restraint↔restraint pairs — return it unchanged
+    (dropping an element would discard a real restraint pair). Here ``band_start=0, band_end=None``.
+
+    ``band_start``/``band_end`` come from ``CycleSteps`` (full-cycle complex: ``halo_restraint_matrix``,
+    ``None``; ligand/receptor: ``0``, ``apo_end_restraint_matrix``).
     """
     full = min_direction_superdiagonal(overlap_matrix)
     band = full[band_start:] if band_end is None else full[band_start:band_end]
     if not band:
+        return band
+    if banded:
         return band
     if system_type == "complex":
         return band[:-1]
@@ -303,6 +313,7 @@ def plan_restraint_insertion(
     band_end,
     threshold,
     pool,
+    banded=False,
 ):
     """Decide the single R-ADD restraint window to insert this iteration (pure).
 
@@ -310,12 +321,13 @@ def plan_restraint_insertion(
     (con, orient) to insert OR converged" decision is unit-testable without Toil/MBAR. Returns
     ``(new_con, new_orient, converged, reason)`` where ``new_con``/``new_orient`` are ``None`` when no
     insertion is made (``converged is True``). ``new_orient = new_con + OFFSET`` with the offset
-    derived (and asserted constant) from the seed pairing.
+    derived (and asserted constant) from the seed pairing. ``banded`` is forwarded to the band slice
+    (True when ``overlap_matrix`` was computed over only the restraint band — the ALS pilot).
     """
     offset = derive_offset(conformational_exps, orientational_exps)
     block = build_selected_block(conformational_exps, system_type)
     superdiagonal = restraint_band_superdiagonal(
-        overlap_matrix, system_type, band_start, band_end
+        overlap_matrix, system_type, band_start, band_end, banded
     )
     new_con, converged, reason = insert_one(
         block,
@@ -337,6 +349,7 @@ def compute_mbar(
     memory="2G",
     cores=1,
     disk="3G",
+    restraint_band: bool = False,
 ):
     """Execute MBAR analysis.
 
@@ -427,18 +440,44 @@ def compute_mbar(
             )
         return df_mbar[order]
 
+    def _restraint_band_states(order, system):
+        # The RESTRAINT band = the restraint windows + their max-restraint anchor, EXCLUDING the
+        # endstate. ALS schedules WITHIN this interpolatable band; the LJ on/off single step, the lower
+        # charge windows, and the fixed endstate are NOT part of it (they would only contaminate the
+        # conditioning of the restraint overlaps the scheduler reads). For the complex the band starts
+        # at the max-restraint anchor = the last (full-charge) electrostatics state
+        # (``halo_restraint_matrix``); ``remove_restraints`` drops the max ``lambda_window``, so that
+        # anchor IS the max restraint. For ligand/receptor the band is ``apply_restraints`` (max
+        # included), endstate (index 0) excluded.
+        if system == "complex":
+            band = order[matrix_order.halo_restraint_matrix:]
+        else:
+            band = order[1 : matrix_order.apo_end_restraint_matrix + 1]
+        return [state for state in band if state[0] != "endstate"]
+
+    def _ordered_band(order, system):
+        # MBAR over ONLY the restraint-band sub-grid (band trajectories x band states) of the full N x N
+        # the pilot ran. The ROW filter is required: keeping non-band trajectory frames while dropping
+        # their columns would break pymbar's sum(N_k)==n_samples invariant.
+        band = _restraint_band_states(order, system)
+        banded = _ordered(band)  # band columns (validated present by the invariant above)
+        return banded.loc[banded.index.isin(band)]  # band trajectory rows only
+
     # flat bottom to no flat bottom -> EXP()
     if matrix_order is None:
         pass
 
     elif system == "complex":
-        df_mbar = _ordered(matrix_order.complex_order)
+        order = matrix_order.complex_order
+        df_mbar = _ordered_band(order, "complex") if restraint_band else _ordered(order)
 
     elif system == "ligand":
-        df_mbar = _ordered(matrix_order.ligand_order)
+        order = matrix_order.ligand_order
+        df_mbar = _ordered_band(order, "ligand") if restraint_band else _ordered(order)
 
     else:
-        df_mbar = _ordered(matrix_order.receptor_order)
+        order = matrix_order.receptor_order
+        df_mbar = _ordered_band(order, "receptor") if restraint_band else _ordered(order)
 
     equil_info = pdmbar.detect_equilibration(df_mbar)
 
@@ -535,12 +574,18 @@ def adaptive_lambda_windows(
     cycle_steps.round(3)
     job.log(f"THE SYSTEM PASSED {system_type}")
     job.log(f"complex ordered steps: {cycle_steps.complex_order}")
-    # Compute MBAR
+    # Compute MBAR over ONLY the restraint band — the restraint windows + their max-restraint anchor.
+    # ALS schedules within this interpolatable band; the LJ on/off single step, the lower charge
+    # windows, and the fixed endstate are excluded from this solve (they would only contaminate the
+    # conditioning of the restraint overlaps the scheduler reads). The pilot still RUNS those states
+    # (for the complex leg's charge scaling + the future charge/GB bands); they are just not in the
+    # restraint overlap. So the overlap matrix here IS the restraint band (anchor + windows).
     results = compute_mbar(
         simulation_data=system_runner.post_output,
         temperature=updated_config.intermediate_args.temperature,
         matrix_order=cycle_steps,
         system=system_type,
+        restraint_band=True,
     )
     job.log(f"SYSTEM TYPE {system_type}")
     overlap_matrix = results[0][-1].compute_overlap()["matrix"]
@@ -558,12 +603,10 @@ def adaptive_lambda_windows(
         con_list = updated_config.intermediate_args.exponent_conformational_forces_list
         orient_list = updated_config.intermediate_args.exponent_orientational_forces_list
 
-        # Restraint band of the leg's overlap matrix (complex: from halo_restraint_matrix to the end;
-        # ligand/receptor: [0:apo_end_restraint_matrix]).
-        if system_type == "complex":
-            band_start, band_end = cycle_steps.halo_restraint_matrix, None
-        else:
-            band_start, band_end = 0, cycle_steps.apo_end_restraint_matrix
+        # The overlap matrix is ALREADY the restraint band (compute_mbar(restraint_band=True) above),
+        # so the band is the whole matrix: start at 0, no end slice, and no endstate-adjacent pair to
+        # drop (banded=True). The min-direction superdiagonal then aligns 1:1 with build_selected_block.
+        band_start, band_end = 0, None
 
         pool = build_candidate_pool(
             con_list,
@@ -578,7 +621,7 @@ def adaptive_lambda_windows(
         threshold = updated_config.intermediate_args.min_degree_overlap
         block = build_selected_block(con_list, system_type)
         band_sd = restraint_band_superdiagonal(
-            overlap_matrix, system_type, band_start, band_end
+            overlap_matrix, system_type, band_start, band_end, banded=True
         )
         job.log(
             f"[ALS][{system_type}] restraint band ({len(block)} windows, {len(band_sd)} adjacent "
@@ -601,6 +644,7 @@ def adaptive_lambda_windows(
             band_end=band_end,
             threshold=updated_config.intermediate_args.min_degree_overlap,
             pool=pool,
+            banded=True,
         )
 
         if converged or max_iterations <= 0:

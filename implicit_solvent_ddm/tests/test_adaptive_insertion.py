@@ -395,3 +395,55 @@ def test_plan_restraint_insertion_ligand_direction():
     )
     assert converged is False
     assert new_con == 1.0 and new_orient == 5.0
+
+
+# ---------------------------------------------------------------------------
+# banded=True — the ALS pilot computes MBAR over ONLY the restraint band
+# (compute_mbar(restraint_band=True)), so the overlap matrix is already exactly
+# the restraint windows + max anchor: there is NO endstate/LJ/charge state to
+# slice off. band_start=0, band_end=None, and no element is dropped.
+# ---------------------------------------------------------------------------
+def test_restraint_band_superdiagonal_banded_keeps_all_pairs():
+    # 3-state banded overlap: [max anchor, rst-2, rst-8]; superdiagonal = 2 restraint pairs.
+    matrix = _tridiag([0.01, 0.20])  # (anchor<->rst-2)=0.01 weak, (rst-2<->rst-8)=0.20 ok
+    band = restraint_band_superdiagonal(
+        matrix, "complex", band_start=0, band_end=None, banded=True
+    )
+    assert band == [0.01, 0.20]  # both pairs kept (no drop)
+    # the full-cycle rule (banded=False) would wrongly drop the last restraint pair here:
+    assert restraint_band_superdiagonal(matrix, "complex", 0, None) == [0.01]
+
+
+def test_plan_restraint_insertion_banded_targets_worst_pair():
+    # banded restraint overlap [anchor=4, rst-2, rst-8] with the (4 <-> -2) pair weak.
+    matrix = _tridiag([0.01, 0.20])
+    new_con, new_orient, converged, _ = plan_restraint_insertion(
+        overlap_matrix=matrix,
+        conformational_exps=[-8.0, -2.0, 4.0],
+        orientational_exps=[-4.0, 2.0, 8.0],
+        system_type="complex",
+        band_start=0,
+        band_end=None,
+        threshold=THRESH,
+        pool=build_candidate_pool([-8.0, -2.0, 4.0], step=1.0),
+        banded=True,
+    )
+    assert converged is False
+    assert new_con == 1.0 and new_orient == 5.0  # midpoint of the weak (4,-2) gap; orient = con + 4
+
+
+def test_plan_restraint_insertion_banded_converges_when_all_ok():
+    matrix = _tridiag([0.20, 0.30])  # both restraint pairs >= 0.04
+    new_con, new_orient, converged, reason = plan_restraint_insertion(
+        overlap_matrix=matrix,
+        conformational_exps=[-8.0, -2.0, 4.0],
+        orientational_exps=[-4.0, 2.0, 8.0],
+        system_type="complex",
+        band_start=0,
+        band_end=None,
+        threshold=THRESH,
+        pool=build_candidate_pool([-8.0, -2.0, 4.0]),
+        banded=True,
+    )
+    assert converged is True and reason == "converged"
+    assert new_con is None and new_orient is None

@@ -741,6 +741,11 @@ def adaptive_restraint_pilot(job, decomposition_jobs, endstate_jobs, config: Con
     # default_mdin leaves the gas-phase states running at full production length.
     pilot_config.inputs["default_mdin"] = pilot_config.inputs["pilot_mdin"]
     pilot_config.inputs["no_solvent_mdin"] = pilot_config.inputs["pilot_no_solvent_mdin"]
+    # The ALS restraint overlap is a banded MBAR over the restraint windows + their max-restraint
+    # anchor only (adaptive_lambda_windows -> compute_mbar(restraint_band=True)); the endstate is not in
+    # that band. So skip re-scoring it entirely — it removes the expensive full-length endstate
+    # re-scoring from the pilot and guarantees no endstate column/rows leak into the pilot data.
+    pilot_config.workflow.end_state_postprocess = False
     # Isolate the pilot output tree (top_directory_path = working_directory/output_directory_name).
     pilot_config.system_settings.output_directory_name = (
         pilot_config.system_settings.output_directory_name + "_pilot"
