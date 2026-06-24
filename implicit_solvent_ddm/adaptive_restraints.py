@@ -864,7 +864,8 @@ def improve_restraints_overlap(
             ),
         )
 
-    # Only the just-added window(s) feed the sub-runner; the runner keeps the full accumulated list.
+    # The MD pass runs ONLY the just-added window (the old windows' trajectories are already on disk);
+    # runner.simulations keeps the full accumulated list for the post-analysis cross-evaluation below.
     new_sims = runner.simulations[before:]
 
     # Canonical schedule (R1): the adapter and CycleSteps read these lists, so record the pair here.
@@ -878,10 +879,14 @@ def improve_restraints_overlap(
             config, runner.__dict__, post_only=False, simulations=new_sims
         )
     )
+    # The POST pass must run over the FULL window list (not just the new one): MBAR needs the complete
+    # N×N grid, so the new trajectory has to be re-scored under EVERY state and EVERY existing
+    # trajectory re-scored under the new state. only_post_analysis loops simulations×simulations, and
+    # the shared _loaded_dataframe cache skips the already-computed cells, so this adds exactly the
+    # ~2N missing cross terms. Passing only new_sims here yields a ragged matrix (one new×new cell) and
+    # pymbar fails with "sum of all N_k must equal the total number of samples".
     post_runner = md_runner.addFollowOn(
-        runner.new_runner(
-            config, runner.__dict__, post_only=True, simulations=new_sims
-        )
+        runner.new_runner(config, runner.__dict__, post_only=True)
     )
 
     return (
