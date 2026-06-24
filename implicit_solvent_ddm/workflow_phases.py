@@ -98,7 +98,11 @@ def setup_workflow_components(job: JobFunctionWrappingJob, config: Config):
             config.intermediate_args.pilot_frames,
             config.intermediate_args.pilot_nstlim,
         )
-        config.inputs["pilot_mdin"] = pilot_mdin.rv()
+        # rv(0) = default (solvated) pilot mdin; rv(1) = no-solvent (igb=6 gas-phase) pilot mdin. Both
+        # are swapped into the pilot config so EVERY pilot MD state runs at 50 ps (not just the
+        # default-mdin states).
+        config.inputs["pilot_mdin"] = pilot_mdin.rv(0)
+        config.inputs["pilot_no_solvent_mdin"] = pilot_mdin.rv(1)
 
     return config
 
@@ -731,12 +735,27 @@ def adaptive_restraint_pilot(job, decomposition_jobs, endstate_jobs, config: Con
         )
 
     pilot_config = copy.deepcopy(config)
-    # Short MD for the whole pilot cycle: every setup_* reads inputs["default_mdin"].
+    # Short MD for the whole pilot cycle. The cycle uses TWO MD mdins: default (solvated) for restraint
+    # windows + solvated charge states, and no_solvent (igb=6) for the gas-phase no_interactions /
+    # interactions / igb=6 charge states. Swap BOTH to their 50 ps pilot versions — swapping only
+    # default_mdin leaves the gas-phase states running at full production length.
     pilot_config.inputs["default_mdin"] = pilot_config.inputs["pilot_mdin"]
+    pilot_config.inputs["no_solvent_mdin"] = pilot_config.inputs["pilot_no_solvent_mdin"]
     # Isolate the pilot output tree (top_directory_path = working_directory/output_directory_name).
     pilot_config.system_settings.output_directory_name = (
         pilot_config.system_settings.output_directory_name + "_pilot"
     )
+
+    # KNOWN LIMITATION: GB-external-dielectric pilot states are generated from mdin_intermediate_file
+    # (generate_extdiel_mdin) and are NOT shortened, so they would run at full production length. The
+    # restraints-only ALS scope uses empty gb_extdiel_windows, so this is not hit; warn loudly if a
+    # caller ever enables it before the restraints-focused pilot (Step 6) lands.
+    if pilot_config.intermediate_args.gb_extdiel_windows:
+        job.fileStore.logToMaster(
+            "[ALS][pilot] WARNING: gb_extdiel_windows set — GB-dielectric pilot states run at FULL "
+            "production length (not shortened). Expect a slow pilot until the restraints-focused "
+            "pilot lands."
+        )
 
     job.fileStore.logToMaster(
         f"[ALS][pilot] Phase 4.5 starting. pilot output dir: "

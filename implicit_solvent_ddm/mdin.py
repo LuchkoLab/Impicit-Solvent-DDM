@@ -82,21 +82,36 @@ def get_pilot_mdin(
     pilot_ps: float = 50.0,
     pilot_frames: int = 100,
     pilot_nstlim: int = None,
-) -> FileID:
-    """Write the short-pilot intermediate mdin for the ALS pilot (always 50 ps by default).
+):
+    """Write the short-pilot intermediate mdins for the ALS pilot (always 50 ps by default).
 
-    Identical to the production ``default_mdin`` (``make_mdin_file(..., "_mdin")``) but with the MD
-    length set to ``pilot_ps`` (50 ps, converted to steps via the user mdin's ``dt``) and ``ntwx`` set
-    to write ~``pilot_frames`` frames. Used ONLY when ``workflow.adaptive_lambda`` is set so the pilot
-    windows run cheaply instead of at production length. Stored at ``config.inputs["pilot_mdin"]``;
-    reuses the user mdin (single source of truth, no drift).
+    Returns a ``(pilot_default, pilot_no_solvent)`` pair, both shortened to ``pilot_ps`` (50 ps,
+    converted to steps via the user mdin's ``dt``) with ``ntwx`` set for ~``pilot_frames`` frames:
+
+    * ``pilot_default``    — the solvated/default mdin (restraint windows, solvated charge states).
+    * ``pilot_no_solvent`` — the ``igb=6`` gas-phase mdin (no_interactions / interactions / igb=6
+      charge states). This MUST be shortened too: the pilot runs the FULL cycle, and those gas-phase
+      states use ``no_solvent_mdin``; if only the default mdin is shortened they run at full production
+      length (the bug this fixes). Stored at ``config.inputs["pilot_mdin"]`` /
+      ``config.inputs["pilot_no_solvent_mdin"]``. Used ONLY when ``workflow.adaptive_lambda`` is set.
+
+    NOTE: GB-external-dielectric pilot states (``generate_extdiel_mdin`` from ``mdin_intermediate_file``)
+    are NOT shortened here; a pilot with ``gb_extdiel_windows`` would run those at production length.
+    The current ALS scope (restraints) and the cb7/MCL configs use empty ``gb_extdiel_windows``, so this
+    is not hit; the restraints-focused pilot (Step 6) removes the concern entirely.
     """
     mdin_global = job.fileStore.readGlobalFile(user_mdin_ID)
     with open(mdin_global) as fh:
         nstlim, ntwx = pilot_md_steps(fh.read(), pilot_ps, pilot_frames, pilot_nstlim)
-    return job.fileStore.writeGlobalFile(
+    pilot_default = job.fileStore.writeGlobalFile(
         make_mdin_file(mdin_global, "pilot_mdin", nstlim=nstlim, ntwx=ntwx)
     )
+    pilot_no_solvent = job.fileStore.writeGlobalFile(
+        make_mdin_file(
+            mdin_global, "pilot_no_solv_mdin", turn_off_solvent=True, nstlim=nstlim, ntwx=ntwx
+        )
+    )
+    return pilot_default, pilot_no_solvent
 
 
 def make_mdin_file(
